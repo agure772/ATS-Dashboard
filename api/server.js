@@ -255,7 +255,7 @@ app.post('/api/opportunities', async (req, res) => {
     const data = await ghl('POST', `${V2}/opportunities/`, {
       pipelineId: pInfo.pipelineId, locationId: LOC_ID,
       name: `${contactName||'Client'}${businessName?' | '+businessName:dotNumber?' DOT# '+dotNumber:''}`,
-      pipelineStageId: stageId, status:'open', contactId, monetaryValue:0,
+      pipelineStageId: stageId, status:'open', contactId, monetaryValue:85,
     });
     clientCache.data = null;
     res.status(201).json(data);
@@ -356,12 +356,13 @@ app.get('/api/debug/contact/:id', async (req, res) => {
 
 // ── Scrape SAFER website for full carrier data including mileage ──────────────
 async function scrapeSAFER(dotNumber) {
-  const result = { mc_number:'', mcs150_date:'', mcs150_mileage:'', mcs150_year:'', owner_name:'', phone:'', email:'', mailing_address:'', safer_inactive: false };
+  const result = { mc_number:'', mcs150_date:'', mcs150_mileage:'', mcs150_year:'', owner_name:'', phone:'', email:'', mailing_address:'', safer_inactive: false, safer_status: null };
   try {
     // Use SAFER registration page which has MCS-150 form date
-    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
-    const regUrl = `https://safer.fmcsa.dot.gov/query.asp?query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}&action=Register`;
-    const res = await fetch(url, {
+    // The correct SAFER page matching what users see in browser
+    // safer.fmcsa.dot.gov/query.asp with searchtype=ANY pulls the full carrier detail page
+    const saferUrl = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
+    const res = await fetch(saferUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -377,13 +378,48 @@ async function scrapeSAFER(dotNumber) {
     if (/record\s+inactive/i.test(html) || /is\s+INACTIVE\s+in\s+the\s+SAFER/i.test(html)) {
       console.log('SAFER: carrier is INACTIVE');
       result.safer_inactive = true;
+      result.safer_status = 'I';
       return result;
     }
     if (/record\s+not\s+found/i.test(html) || /no\s+record\s+found/i.test(html)) {
       console.log('SAFER: carrier record not found');
       result.safer_inactive = true;
+      result.safer_status = 'I';
       return result;
     }
+    // Detect Operating Authority Status — must look ONLY inside the
+    // "OPERATING AUTHORITY INFORMATION" section, NOT the USDOT section
+    let saferOpStatus = 'A';
+    // Find the OPERATING AUTHORITY INFORMATION section specifically
+    const opAuthSectionMatch = html.match(/OPERATING\s+AUTHORITY\s+INFORMATION[\s\S]{0,1000}/i);
+    if (opAuthSectionMatch) {
+      const section = opAuthSectionMatch[0];
+      // Find Operating Authority Status row value — it's the bold text in that row
+      const statusRowMatch = section.match(/Operating\s+Authority\s+Status[\s\S]{0,300}/i);
+      if (statusRowMatch) {
+        const rowChunk = statusRowMatch[0];
+        // Strip all HTML tags to get plain text
+        const plainText = rowChunk.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        console.log('SAFER Op Auth row text:', plainText.slice(0, 120));
+        // Check the FIRST meaningful word(s) after the label — before any disclaimer
+        // Disclaimer always starts with "*Please Note" so we cut there
+        const beforeDisclaimer = plainText.replace(/\*?Please\s+Note[\s\S]*/i, '').trim();
+        const statusPart = beforeDisclaimer.replace(/Operating\s+Authority\s+Status/i,'').trim();
+        console.log('SAFER status value:', statusPart.slice(0, 60));
+        if (/NOT\s+AUTHORIZED/i.test(statusPart)) {
+          saferOpStatus = 'N';
+          console.log('SAFER: NOT AUTHORIZED');
+        } else if (/OUT\s+OF\s+SERVICE/i.test(statusPart)) {
+          saferOpStatus = 'S';
+          console.log('SAFER: OUT OF SERVICE');
+        } else if (/AUTHORIZED/i.test(statusPart)) {
+          saferOpStatus = 'A';
+          console.log('SAFER: AUTHORIZED');
+        }
+      }
+    }
+    result.safer_status = saferOpStatus;
+    console.log('Final SAFER status:', saferOpStatus);
     const mcMatch = html.match(/MC-(\d+)/);
     if (mcMatch) result.mc_number = `MC-${mcMatch[1]}`;
 
@@ -401,8 +437,8 @@ async function scrapeSAFER(dotNumber) {
     const todayStr = String(now.getMonth()+1).padStart(2,'0') + '/' +
                      String(now.getDate()).padStart(2,'0') + '/' + now.getFullYear();
 
-    // Mileage position
-    const mileageMatch = html.match(/(\d[\d,]+)\s*\((\d{4})\)/);
+    // Mileage: matches '1 (2025)' or '70,836 (2024)' — \d+ covers single digits
+    const mileageMatch = html.match(/([\d,]+)\s*\((\d{4})\)/);
     if (mileageMatch) {
       result.mcs150_mileage = mileageMatch[1].replace(/,/g,'');
       result.mcs150_year    = mileageMatch[2];
@@ -511,15 +547,29 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
       } catch(e) { console.log('Docket fallback error:', e.message); }
     }
 
-    // Operating status — SAFER is authoritative; override mobile API if SAFER says inactive
+    // Operating status — SAFER is authoritative when reachable, mobile API as fallback
     let opStatus;
     if (safer.safer_inactive) {
-      opStatus = 'I'; // INACTIVE per SAFER website
-      console.log(`⚠️  DOT ${dotNumber}: mobile API says AUTHORIZED but SAFER says INACTIVE — using INACTIVE`);
+      opStatus = 'I';
+      console.log(`⚠️  DOT ${dotNumber}: SAFER says INACTIVE`);
+    } else if (safer.safer_status && safer.safer_status !== 'A') {
+      // SAFER explicitly returned NOT AUTHORIZED or OUT OF SERVICE
+      opStatus = safer.safer_status;
+      console.log(`⚠️  DOT ${dotNumber}: SAFER says ${safer.safer_status}`);
+    } else if (safer.safer_status === 'A') {
+      // SAFER explicitly confirmed AUTHORIZED — trust it
+      opStatus = 'A';
+      console.log(`✓ DOT ${dotNumber}: SAFER confirms AUTHORIZED`);
     } else {
-      opStatus = carrier.allowedToOperate === 'Y' ? 'A'
-        : carrier.allowedToOperate === 'N' ? 'N'
-        : carrier.statusCode || 'A';
+      // SAFER was unreachable (safer_status not set) — fall back to mobile API
+      // Check multiple fields — allowedToOperate, statusCode, and activeForHireFlag
+      const notAllowed = carrier.allowedToOperate === 'N';
+      const statusInactive = carrier.statusCode && !['A','ACTIVE'].includes(carrier.statusCode);
+      const hasNoAuthority = !carrier.activeForHireFlag && carrier.carrierOperation?.carrierOperationCode === 'A';
+      opStatus = notAllowed ? 'N'
+        : statusInactive ? 'I'
+        : 'A';
+      console.log(`DOT ${dotNumber}: SAFER unreachable, mobile API allowedToOperate=${carrier.allowedToOperate} statusCode=${carrier.statusCode} → ${opStatus}`);
     }
 
     const info = {
@@ -548,6 +598,7 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
       raw:               carrier,
     };
 
+    console.log(`DOT ${dotNumber} mobile API key fields: allowedToOperate=${carrier.allowedToOperate} statusCode=${carrier.statusCode} activeForHireFlag=${carrier.activeForHireFlag} carrierOpCode=${carrier.carrierOperation?.carrierOperationCode}`);
     res.json({ success: true, info });
   } catch (err) {
     console.error('FMCSA lookup error:', err.message);
@@ -594,7 +645,7 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
     ].filter(Boolean);
 
     const payload = {
-      companyName: info.legal_name || undefined,
+      companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
       phone: info.phone || undefined,
       email: info.email || undefined,
       customFields,
@@ -623,7 +674,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
     const contactPayload = {
       firstName: info.legal_name || info.dba_name || `DOT#${info.dot_number}`,
       lastName: '',
-      companyName: info.legal_name || '',
+      companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : '',
       phone: info.phone || '',
       email: info.email || '',
       tags: ['ats-dashboard'],
@@ -691,7 +742,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
         // Update the existing contact with the FMCSA custom fields
         try {
           await ghl('PUT', `${V2}/contacts/${foundId}`, {
-            companyName: info.legal_name || undefined,
+            companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
             phone: info.phone || undefined,
             email: info.email || undefined,
             customFields: contactPayload.customFields,
@@ -720,7 +771,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
           pipelineStageId: pipeline.stages?.[0]?.id,
           status: 'open',
           contactId,
-          monetaryValue: 0,
+          monetaryValue: 85,
           locationId: process.env.GHL_LOCATION_ID,
         };
         const oppResult = await ghl('POST', `${V2}/opportunities/`, oppPayload);
