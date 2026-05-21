@@ -907,34 +907,13 @@ async function dotLookup() {
 
     dotCurrentInfo = data.info;
 
-    // Block inactive/revoked carriers
-    const inactiveStatuses = ['N', 'I', 'S'];
-    if (inactiveStatuses.includes(data.info.operating_status)) {
-      const statusLabels = { 'N':'NOT AUTHORIZED', 'I':'INACTIVE', 'S':'OUT OF SERVICE' };
-      statusEl.textContent = '';
-      if (resultEl) resultEl.style.display = 'none';
-      if (noKeyEl) {
-        noKeyEl.style.display = 'block';
-        noKeyEl.innerHTML = `
-          <i class="ti ti-ban" style="font-size:28px;color:var(--red);display:block;margin-bottom:8px"></i>
-          <div style="font-size:15px;font-weight:700;color:var(--red);margin-bottom:6px">
-            Carrier is ${statusLabels[data.info.operating_status] || 'INACTIVE'}
-          </div>
-          <div style="font-size:13px;color:var(--text2);margin-bottom:8px">
-            <strong>${data.info.legal_name}</strong> (DOT# ${data.info.dot_number})
-          </div>
-          <div style="font-size:12px;color:var(--text3)">
-            This carrier's operating authority is not active in FMCSA SAFER.<br>
-            No carrier information will be loaded.
-          </div>`;
-      }
-      return;
-    }
-
     renderDotResult(data.info);
     if (resultEl) resultEl.style.display = 'block';
+
+    // Show status with appropriate color
+    const isRestricted = ['N','I','S'].includes(data.info.operating_status);
     statusEl.textContent = `✓ Found: ${data.info.legal_name}`;
-    statusEl.style.color = 'var(--green)';
+    statusEl.style.color = isRestricted ? 'var(--yellow)' : 'var(--green)';
 
     // Auto-search GHL for matching contact
     dotSearchGHL(data.info.legal_name);
