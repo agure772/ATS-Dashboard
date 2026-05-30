@@ -796,28 +796,6 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
-// ── Somali Voice Agent Proxy ──────────────────────────────────────────────────
-app.post('/api/somali-agent', async (req, res) => {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return res.status(400).json({ error: { message: 'ANTHROPIC_API_KEY not set in .env' } });
-  }
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type':    'application/json',
-        'x-api-key':       anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(req.body),
-    });
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: { message: err.message } });
-  }
-});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getPipelineInfo(key) {
