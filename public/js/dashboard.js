@@ -11,7 +11,6 @@ const SERVICES = [
   { key: 'filing_irp_cab_card',  label: 'IRP Cab Card',          short: 'IRP Cab',    group: 'annual'   },
   { key: 'filing_mcs150',        label: 'MCS-150',               short: 'MCS-150',    group: 'annual'   },
   { key: 'filing_ky_vehicle',    label: 'KY Vehicle',            short: 'KY Veh',     group: 'annual'   },
-  { key: 'filing_ny_permit',     label: 'NY Permit Renewal',     short: 'NY Perm',    group: 'annual'   },
   { key: 'ifta_q1_2026',         label: 'IFTA Q1 2026',          short: 'Q1 26',      group: 'ifta'     },
   { key: 'ifta_q2_2026',         label: 'IFTA Q2 2026',          short: 'Q2 26',      group: 'ifta'     },
   { key: 'ifta_q4_2025',         label: 'IFTA Q4 2025',          short: 'Q4 25',      group: 'ifta'     },
@@ -73,13 +72,21 @@ function navigateTo(page) {
   const el = document.getElementById(`page-${page}`);
   if (el) el.classList.add('active');
   const T = {
-    dashboard:  ['Dashboard', '2026 compliance overview'],
-    compliance: ['Compliance Grid', 'Click any cell to update the GHL opportunity'],
-    deadlines:  ['Upcoming Deadlines', 'Filing calendar for all clients'],
+    dashboard:    ['Dashboard', '2026 compliance overview'],
+    compliance:   ['Compliance Grid', 'Click any cell to update the GHL opportunity'],
+    deadlines:    ['Upcoming Deadlines', 'Filing calendar for all clients'],
+    'dot-lookup': ['FMCSA DOT Lookup', 'Search any DOT number and push to GHL'],
+    'tasks-board':['Tasks Board', 'Supervisor view — staff tasks & opportunities'],
   };
   const [title, sub] = T[page] || ['ATS',''];
   document.getElementById('page-title').textContent = title;
   document.getElementById('page-sub').textContent   = sub;
+
+  // Tasks board — init supervisor tabs and load data
+  if (page === 'tasks-board') {
+    tbInit();
+    tbLoad();
+  }
 }
 
 
@@ -375,7 +382,7 @@ const SERVICE_GROUPS = [
     label: '2026 Annual Compliance',
     icon: 'ti-calendar-check',
     keys: ['filing_2290','filing_ucr','filing_ifta_license','filing_business_name',
-           'filing_clearinghouse','filing_nm_permit','filing_irp_cab_card','filing_mcs150','filing_ky_vehicle','filing_ny_permit'],
+           'filing_clearinghouse','filing_nm_permit','filing_irp_cab_card','filing_mcs150','filing_ky_vehicle'],
   },
   {
     id: 'ifta2026',
@@ -880,15 +887,11 @@ async function dotLookup() {
   const dot = String(document.getElementById('dot-search-input').value || '').trim().replace(/\D/g,'');
   if (!dot) return;
 
-  const statusEl    = document.getElementById('dot-search-status');
-  const resultEl    = document.getElementById('dot-result');
-  const noKeyEl     = document.getElementById('dot-no-key');
-
-  if (!statusEl) return; // not on DOT lookup page
-  statusEl.textContent = 'Searching FMCSA...';
-  statusEl.style.color = 'var(--text3)';
-  if (resultEl) resultEl.style.display  = 'none';
-  if (noKeyEl)  noKeyEl.style.display   = 'none';
+  const status = document.getElementById('dot-search-status');
+  status.textContent = 'Searching FMCSA...';
+  status.style.color = 'var(--text3)';
+  document.getElementById('dot-result').style.display  = 'none';
+  document.getElementById('dot-no-key').style.display  = 'none';
 
   try {
     const res  = await fetch(`/api/dot/${dot}`);
@@ -896,31 +899,50 @@ async function dotLookup() {
 
     if (!res.ok) {
       if (data.help) {
-        if (noKeyEl) noKeyEl.style.display = 'block';
-        statusEl.textContent = '';
+        document.getElementById('dot-no-key').style.display = 'block';
+        status.textContent = '';
       } else {
-        statusEl.textContent = `Error: ${data.error}`;
-        statusEl.style.color = 'var(--red)';
+        status.textContent = `Error: ${data.error}`;
+        status.style.color = 'var(--red)';
       }
       return;
     }
 
     dotCurrentInfo = data.info;
 
-    renderDotResult(data.info);
-    if (resultEl) resultEl.style.display = 'block';
+    // Block inactive/revoked carriers
+    const inactiveStatuses = ['N', 'I', 'S'];
+    if (inactiveStatuses.includes(data.info.operating_status)) {
+      const statusLabels = { 'N':'NOT AUTHORIZED', 'I':'INACTIVE', 'S':'OUT OF SERVICE' };
+      status.textContent = '';
+      document.getElementById('dot-result').style.display = 'none';
+      document.getElementById('dot-no-key').style.display = 'block';
+      document.getElementById('dot-no-key').innerHTML = `
+        <i class="ti ti-ban" style="font-size:28px;color:var(--red);display:block;margin-bottom:8px"></i>
+        <div style="font-size:15px;font-weight:700;color:var(--red);margin-bottom:6px">
+          Carrier is ${statusLabels[data.info.operating_status] || 'INACTIVE'}
+        </div>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:8px">
+          <strong>${data.info.legal_name}</strong> (DOT# ${data.info.dot_number})
+        </div>
+        <div style="font-size:12px;color:var(--text3)">
+          This carrier's operating authority is not active in FMCSA SAFER.<br>
+          No carrier information will be loaded.
+        </div>`;
+      return;
+    }
 
-    // Show status with appropriate color
-    const isRestricted = ['N','I','S'].includes(data.info.operating_status);
-    statusEl.textContent = `✓ Found: ${data.info.legal_name}`;
-    statusEl.style.color = isRestricted ? 'var(--yellow)' : 'var(--green)';
+    renderDotResult(data.info);
+    document.getElementById('dot-result').style.display = 'block';
+    status.textContent = `✓ Found: ${data.info.legal_name}`;
+    status.style.color = 'var(--green)';
 
     // Auto-search GHL for matching contact
     dotSearchGHL(data.info.legal_name);
 
   } catch (err) {
-    statusEl.textContent = `Error: ${err.message}`;
-    statusEl.style.color = 'var(--red)';
+    status.textContent = `Error: ${err.message}`;
+    status.style.color = 'var(--red)';
   }
 }
 
@@ -988,39 +1010,24 @@ function renderDotResult(info) {
     field('Current Mileage', info.mcs150_mileage ? Number(info.mcs150_mileage).toLocaleString() + ' miles' : '');
 }
 
-async function dotSearchGHL(query) {
+function dotSearchGHL(query) {
   if (!query || query.length < 2) {
     document.getElementById('dot-ghl-matches').innerHTML = '';
     return;
   }
   const q = query.toLowerCase().replace(/dot#?\s*/i,'');
-
-  // First try local cache for fast results
-  let matches = state.clients.filter(c =>
+  const matches = state.clients.filter(c =>
     c.name.toLowerCase().includes(q) ||
     (c.dot_number || '').includes(q) ||
     (c.business_name || '').toLowerCase().includes(q)
   ).slice(0, 6);
 
-  // If no local matches, do a live GHL search
-  if (!matches.length) {
-    try {
-      const res = await fetch(`/api/contacts/search-live?query=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      matches = (data.contacts || []).slice(0, 6);
-    } catch(e) {
-      console.log('Live GHL search error:', e.message);
-    }
-  }
-
   if (!matches.length) {
     document.getElementById('dot-ghl-matches').innerHTML = '';
-    const createSection = document.getElementById('dot-create-section');
-    if (createSection) createSection.style.display = 'block';
+    document.getElementById('dot-create-section').style.display = 'block';
     return;
   }
-  const createSection = document.getElementById('dot-create-section');
-  if (createSection) createSection.style.display = 'none';
+  document.getElementById('dot-create-section').style.display = 'none';
 
   document.getElementById('dot-ghl-matches').innerHTML = matches.map(c => `
     <div onclick="dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
@@ -1061,31 +1068,14 @@ async function dotCreateContact() {
       body: JSON.stringify({ info: dotCurrentInfo }),
     });
     const data = await res.json();
-
-    // Handle duplicate contact — server found the existing contact and used it
-    if (data.duplicate && !data.contactId) {
-      document.getElementById('dot-push-status').innerHTML = `
-        <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:10px 14px;margin-top:8px">
-          <div style="font-size:13px;font-weight:700;color:var(--yellow)"><i class="ti ti-alert-triangle"></i> Contact Already Exists</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">${data.error}</div>
-        </div>`;
-      btn.disabled = false;
-      btn.innerHTML = '<i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities';
-      return;
-    }
-
     if (!res.ok) throw new Error(data.error);
 
-    // Success — contact was created (or existing contact was found and updated)
-    const wasExisting = data.usedExistingContact;
     document.getElementById('dot-create-section').style.display = 'none';
     document.getElementById('dot-push-status').innerHTML = `
       <div style="background:rgba(0,196,106,.1);border:1px solid rgba(0,196,106,.3);border-radius:8px;padding:10px 14px;margin-top:8px">
-        <div style="font-size:13px;font-weight:700;color:var(--green)">
-          <i class="ti ti-check"></i> ${wasExisting ? 'Existing Contact Updated!' : 'Contact Created Successfully!'}
-        </div>
+        <div style="font-size:13px;font-weight:700;color:var(--green)"><i class="ti ti-check"></i> Contact Created Successfully!</div>
         <div style="font-size:11px;color:var(--text2);margin-top:4px">
-          <strong>${dotCurrentInfo.legal_name}</strong> — ${wasExisting ? 'FMCSA data synced to existing GHL contact' : `added to GHL with ${data.opportunitiesCreated?.length || 0} service opportunities`}
+          <strong>${dotCurrentInfo.legal_name}</strong> added to GHL with ${data.opportunitiesCreated?.length || 0} service opportunities
         </div>
       </div>`;
 
@@ -1139,3 +1129,251 @@ async function dotPushToGHL() {
     btn.style.opacity = '1';
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASKS BOARD — Supervisor / Staff view
+// ═══════════════════════════════════════════════════════════════════════════
+
+const TB_SUPERVISORS = [
+  { id: 'mahad',   name: 'Mahad',    color: '#7c3aed', initials: 'MA' },
+  { id: 'shuab',   name: 'Shuab',    color: '#0891b2', initials: 'SH' },
+  { id: 'ahmed',   name: 'Ahmed',    color: '#059669', initials: 'AH' },
+  { id: 'mandeed', name: 'Mandeed',  color: '#d97706', initials: 'MD' },
+];
+
+// Staff list — split across supervisors (roughly equal)
+// Names pulled from GHL assignee column screenshots; update as needed
+const TB_STAFF = [
+  // Mahad's team
+  { id: 'shucayb',   name: 'Shucayb Jama',      supervisor: 'mahad'   },
+  { id: 'abdulahi',  name: 'Abdulahi Muhudin',   supervisor: 'mahad'   },
+  { id: 'mustafe',   name: 'Mustafe Duale',      supervisor: 'mahad'   },
+  // Shuab's team
+  { id: 'bashir',    name: 'Bashir Hassan',      supervisor: 'shuab'   },
+  { id: 'yassin',    name: 'Yassin Dualeh',      supervisor: 'shuab'   },
+  { id: 'iqbal',     name: 'Iqbal Mohamed',      supervisor: 'shuab'   },
+  // Ahmed's team
+  { id: 'ahmed_g',   name: 'Ahmed Gure',         supervisor: 'ahmed'   },
+  { id: 'mohamud',   name: 'Mohamud Said',       supervisor: 'ahmed'   },
+  { id: 'faadumo',   name: 'Faadumo Ali',        supervisor: 'ahmed'   },
+  // Mandeed's team
+  { id: 'mandeed_s', name: 'Mandeed Staff 1',    supervisor: 'mandeed' },
+  { id: 'halima',    name: 'Halima Warsame',     supervisor: 'mandeed' },
+  { id: 'omar',      name: 'Omar Hassan',        supervisor: 'mandeed' },
+];
+
+let tbState = {
+  selectedSup: 'mahad',
+  tasks: [],
+  opps: [],
+  loaded: false,
+  filterType: 'all',
+  filterStatus: 'all',
+};
+
+function tbInit() {
+  // Build supervisor tabs
+  const tabs = document.getElementById('tb-supervisor-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = TB_SUPERVISORS.map(s => `
+    <button onclick="tbSelectSupervisor('${s.id}')" id="tb-sup-${s.id}"
+      style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-radius:12px;border:2px solid ${tbState.selectedSup===s.id ? s.color : 'var(--border)'};background:${tbState.selectedSup===s.id ? s.color+'22' : 'var(--bg3)'};cursor:pointer;transition:all .15s">
+      <div style="width:36px;height:36px;border-radius:50%;background:${s.color};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff">${s.initials}</div>
+      <div style="text-align:left">
+        <div style="font-size:13px;font-weight:700;color:${tbState.selectedSup===s.id ? s.color : 'var(--text)'}">${s.name}</div>
+        <div style="font-size:11px;color:var(--text3)">${TB_STAFF.filter(st=>st.supervisor===s.id).length} staff</div>
+      </div>
+    </button>
+  `).join('');
+}
+
+async function tbLoad() {
+  if (tbState.loaded) { tbRender(); return; }
+  document.getElementById('tb-loading').style.display = 'block';
+  document.getElementById('tb-staff-grid').innerHTML = '';
+  try {
+    const res = await fetch('/api/tasks-board');
+    const data = await res.json();
+    tbState.tasks = data.tasks || [];
+    tbState.opps  = data.opportunities || [];
+    tbState.loaded = true;
+  } catch(e) {
+    document.getElementById('tb-loading').innerHTML = `<div style="color:var(--red)">Failed to load: ${e.message}</div>`;
+    return;
+  }
+  document.getElementById('tb-loading').style.display = 'none';
+  tbRender();
+}
+
+function tbSelectSupervisor(supId) {
+  tbState.selectedSup = supId;
+  tbInit(); // re-render tabs with new selection
+  tbRender();
+}
+
+function tbApplyFilters() {
+  tbState.filterType   = document.getElementById('tb-filter-type').value;
+  tbState.filterStatus = document.getElementById('tb-filter-status').value;
+  tbRender();
+}
+
+async function tbRefresh() {
+  tbState.loaded = false;
+  await tbLoad();
+}
+
+function tbIsOverdue(dueDate) {
+  if (!dueDate) return false;
+  return new Date(dueDate) < new Date();
+}
+
+function tbMatchesStaff(item, staffName) {
+  const n = staffName.toLowerCase();
+  // Check assignee field (tasks) and owner/assignedTo (opportunities)
+  const assignee = (item.assignedTo || item.assignedUserId || item.owner || '').toLowerCase();
+  const assigneeName = (item.assigneeName || item.ownerName || '').toLowerCase();
+  return assignee.includes(n.split(' ')[0]) || assigneeName.includes(n.split(' ')[0]) ||
+         n.includes(assignee.split(' ')[0]);
+}
+
+function tbGetItemStatus(item, isTask) {
+  if (isTask) {
+    if (item.completed || item.status === 'completed') return 'completed';
+    if (tbIsOverdue(item.dueDate)) return 'overdue';
+    return 'open';
+  } else {
+    const s = (item.status || '').toLowerCase();
+    if (s === 'won' || s === 'completed') return 'completed';
+    if (s === 'lost') return 'lost';
+    if (tbIsOverdue(item.dueDate)) return 'overdue';
+    return 'open';
+  }
+}
+
+function tbRender() {
+  const sup = TB_SUPERVISORS.find(s => s.id === tbState.selectedSup);
+  const team = TB_STAFF.filter(s => s.supervisor === tbState.selectedSup);
+  const grid = document.getElementById('tb-staff-grid');
+  const label = document.getElementById('tb-team-label');
+  if (!grid || !sup) return;
+
+  label.textContent = `${sup.name.toUpperCase()}'S TEAM — ${team.length} STAFF`;
+
+  // Build stats
+  let totalTasks = 0, overdueTasks = 0, openTasks = 0, doneTasks = 0;
+
+  const cards = team.map(staff => {
+    // Match tasks to this staff member
+    const staffTasks = tbState.tasks.filter(t => {
+      const assigneeName = (t.assignedTo || t.title || '').toLowerCase();
+      const firstName = staff.name.split(' ')[0].toLowerCase();
+      return assigneeName.includes(firstName) || (t.assignedUserName||'').toLowerCase().includes(firstName);
+    });
+
+    // Match opportunities to this staff member
+    const staffOpps = tbState.opps.filter(o => {
+      const ownerName = (o.ownerName || o.assignedTo || '').toLowerCase();
+      const firstName = staff.name.split(' ')[0].toLowerCase();
+      return ownerName.includes(firstName);
+    });
+
+    // Apply filters
+    let items = [];
+    if (tbState.filterType !== 'opps') {
+      staffTasks.forEach(t => items.push({ ...t, _type: 'task', _status: tbGetItemStatus(t, true) }));
+    }
+    if (tbState.filterType !== 'tasks') {
+      staffOpps.forEach(o => items.push({ ...o, _type: 'opp', _status: tbGetItemStatus(o, false) }));
+    }
+    if (tbState.filterStatus !== 'all') {
+      items = items.filter(i => i._status === tbState.filterStatus);
+    }
+
+    // Stats
+    const myOverdue   = items.filter(i => i._status === 'overdue').length;
+    const myOpen      = items.filter(i => i._status === 'open').length;
+    const myCompleted = items.filter(i => i._status === 'completed').length;
+    totalTasks += items.length;
+    overdueTasks += myOverdue;
+    openTasks += myOpen;
+    doneTasks += myCompleted;
+
+    const initials = staff.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+
+    return `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden">
+        <!-- Staff header -->
+        <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);background:var(--bg3)">
+          <div style="width:40px;height:40px;border-radius:50%;background:${sup.color}33;border:2px solid ${sup.color};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:${sup.color};flex-shrink:0">${initials}</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:var(--text)">${staff.name}</div>
+            <div style="display:flex;gap:8px;margin-top:3px">
+              ${myOverdue ? `<span style="font-size:10px;background:rgba(239,68,68,.15);color:#ef4444;padding:2px 7px;border-radius:20px;font-weight:700">${myOverdue} overdue</span>` : ''}
+              ${myOpen ? `<span style="font-size:10px;background:rgba(59,130,246,.15);color:#60a5fa;padding:2px 7px;border-radius:20px;font-weight:700">${myOpen} open</span>` : ''}
+              ${myCompleted ? `<span style="font-size:10px;background:rgba(16,185,129,.15);color:#34d399;padding:2px 7px;border-radius:20px;font-weight:700">${myCompleted} done</span>` : ''}
+              ${!items.length ? `<span style="font-size:10px;color:var(--text3)">No items</span>` : ''}
+            </div>
+          </div>
+          <div style="font-size:20px;font-weight:800;color:var(--text3)">${items.length}</div>
+        </div>
+
+        <!-- Item list -->
+        <div style="max-height:320px;overflow-y:auto">
+          ${items.length === 0 ? `
+            <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">
+              <i class="ti ti-circle-check" style="font-size:24px;display:block;margin-bottom:6px;color:var(--green)"></i>
+              All clear
+            </div>
+          ` : items.slice(0,20).map(item => {
+            const isTask = item._type === 'task';
+            const statusColor = item._status === 'overdue' ? '#ef4444'
+              : item._status === 'completed' ? '#34d399'
+              : '#60a5fa';
+            const statusIcon = item._status === 'overdue' ? 'ti-alert-triangle'
+              : item._status === 'completed' ? 'ti-circle-check'
+              : 'ti-clock';
+            const title = item.title || item.name || (isTask ? 'Task' : 'Opportunity');
+            const contact = item.contact?.name || item.contactName || '';
+            const dueDate = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+            return `
+              <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px">
+                <i class="ti ${statusIcon}" style="color:${statusColor};font-size:14px;margin-top:2px;flex-shrink:0"></i>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+                  ${contact ? `<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${contact}</div>` : ''}
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
+                  <span style="font-size:9px;background:var(--bg3);color:var(--text3);padding:2px 6px;border-radius:4px;font-weight:700">${isTask?'TASK':'OPP'}</span>
+                  ${dueDate ? `<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${dueDate}</span>` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+          ${items.length > 20 ? `<div style="padding:8px 16px;text-align:center;font-size:11px;color:var(--text3)">+${items.length-20} more items</div>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  grid.innerHTML = cards;
+
+  // Stats bar
+  const stats = document.getElementById('tb-stats');
+  stats.innerHTML = [
+    { label: 'Total Items', value: totalTasks, icon: 'ti-list', color: 'var(--primary)' },
+    { label: 'Overdue',     value: overdueTasks, icon: 'ti-alert-triangle', color: '#ef4444' },
+    { label: 'Open',        value: openTasks,  icon: 'ti-clock', color: '#60a5fa' },
+    { label: 'Completed',   value: doneTasks,  icon: 'ti-circle-check', color: '#34d399' },
+  ].map(s => `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px">
+      <i class="ti ${s.icon}" style="font-size:22px;color:${s.color}"></i>
+      <div>
+        <div style="font-size:22px;font-weight:800;color:${s.color}">${s.value}</div>
+        <div style="font-size:11px;color:var(--text3)">${s.label}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// end tasks board
+
