@@ -39,6 +39,7 @@
       <div class="nav-section">
         <div class="nav-label">Tools</div>
         <button class="nav-item" data-page="dot-lookup"><i class="ti ti-search"></i>DOT Lookup</button>
+        <button class="nav-item" data-page="tasks-board"><i class="ti ti-users-group"></i>Tasks Board</button>
       </div>
       <div class="nav-section">
         <div class="nav-label">Quick Submit</div>
@@ -265,17 +266,6 @@
             </div>
             <div id="dot-ghl-matches" style="margin-top:10px"></div>
             <div id="dot-push-status" style="font-size:12px;margin-top:8px"></div>
-
-            <!-- Create new contact section (shown when no GHL match found) -->
-            <div id="dot-create-section" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-              <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
-                <i class="ti ti-info-circle" style="color:var(--yellow)"></i>
-                No existing GHL contact found for this carrier. You can create a new one:
-              </div>
-              <button onclick="dotCreateContact()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-                <i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities
-              </button>
-            </div>
           </div>
         </div>
 
@@ -290,6 +280,50 @@
 
       </div>
     </div>
+
+    <!-- ── Tasks Board Page ─────────────────────────────────────────────── -->
+    <div id="page-tasks-board" class="page" style="padding:24px;max-width:1400px;margin:0 auto">
+
+      <!-- Supervisor selector -->
+      <div style="margin-bottom:24px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">SELECT SUPERVISOR</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap" id="tb-supervisor-tabs">
+          <!-- injected by JS -->
+        </div>
+      </div>
+
+      <!-- Stats bar -->
+      <div id="tb-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px"></div>
+
+      <!-- Staff cards grid -->
+      <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em" id="tb-team-label">TEAM</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="tb-filter-type" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
+            <option value="all">All Items</option>
+            <option value="tasks">Tasks Only</option>
+            <option value="opps">Opportunities Only</option>
+          </select>
+          <select id="tb-filter-status" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
+            <option value="all">All Statuses</option>
+            <option value="open">Open</option>
+            <option value="overdue">Overdue</option>
+            <option value="completed">Completed</option>
+          </select>
+          <button onclick="tbRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-refresh"></i> Refresh
+          </button>
+        </div>
+      </div>
+
+      <div id="tb-loading" style="display:none;text-align:center;padding:60px;color:var(--text3)">
+        <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
+        Loading tasks from GHL...
+      </div>
+
+      <div id="tb-staff-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px"></div>
+
+    </div><!-- /page-tasks-board -->
 
     </div><!-- /page-content -->
   </main>
