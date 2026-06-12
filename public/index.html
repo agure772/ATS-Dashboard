@@ -284,12 +284,11 @@
     <!-- ── Tasks Board Page ─────────────────────────────────────────────── -->
     <div id="page-tasks-board" class="page" style="padding:24px;max-width:1400px;margin:0 auto">
 
-      <!-- Supervisor selector -->
-      <div style="margin-bottom:24px">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">SELECT SUPERVISOR</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap" id="tb-supervisor-tabs">
-          <!-- injected by JS -->
-        </div>
+      <!-- Supervisor dropdown -->
+      <div style="margin-bottom:24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">SELECT SUPERVISOR</div>
+        <div id="tb-supervisor-tabs" style="position:relative;min-width:220px"></div>
+        <div style="font-size:11px;color:var(--text3)" id="tb-sup-info"></div>
       </div>
 
       <!-- Stats bar -->
