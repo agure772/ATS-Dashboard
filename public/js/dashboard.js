@@ -1260,6 +1260,17 @@ async function tbLoad() {
     return;
   }
   if (loadEl) loadEl.style.display = 'none';
+
+  // Auto-clean: remove any staff who are now supervisors from all staff lists
+  const supIds   = tbGetSupervisorIds();
+  const staffMap = tbGetStaffMap();
+  let changed = false;
+  for (const supId of Object.keys(staffMap)) {
+    const cleaned = staffMap[supId].filter(id => !supIds.has(id));
+    if (cleaned.length !== staffMap[supId].length) { staffMap[supId] = cleaned; changed = true; }
+  }
+  if (changed) tbSaveStaffMap(staffMap);
+
   tbInit();
   tbRender();
 }
@@ -1368,7 +1379,7 @@ function tbRender() {
             <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">
               <i class="ti ti-circle-check" style="font-size:24px;display:block;margin-bottom:6px;color:var(--green)"></i>All clear
             </div>` : items.slice(0,25).map(item => {
-              const isTask = item._type==='task';
+              const isTask   = item._type==='task';
               const sc = item._status==='overdue'?'#ef4444':item._status==='completed'?'#34d399':'#60a5fa';
               const si = item._status==='overdue'?'ti-alert-triangle':item._status==='completed'?'ti-circle-check':'ti-clock';
               const title   = item.title||item.name||(isTask?'Task':'Opportunity');
@@ -1376,15 +1387,20 @@ function tbRender() {
               const due     = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
               const created = item.createdAt||item.dateAdded;
               const ageDays = !isTask&&created ? Math.floor((Date.now()-new Date(created).getTime())/86400000) : null;
+              // For opportunities: show pipeline name (shortened) and stage
+              const pipeline = !isTask ? (item.pipelineName||'').replace(/^\d+\.\s*/,'').replace('2026 ','') : '';
+              const stage    = !isTask ? (item.status||'open') : '';
+              const typeLabel = isTask ? 'TASK' : pipeline ? pipeline.slice(0,12) : 'OPP';
               return `
                 <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px;background:${item._status==='overdue'?'rgba(239,68,68,.04)':'transparent'}">
                   <i class="ti ${si}" style="color:${sc};font-size:14px;margin-top:2px;flex-shrink:0"></i>
                   <div style="flex:1;min-width:0">
                     <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
                     ${contact?`<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${contact}</div>`:''}
+                    ${pipeline?`<div style="font-size:10px;color:var(--text3);margin-top:2px">${pipeline}${stage?' · '+stage:''}</div>`:''}
                   </div>
                   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
-                    <span style="font-size:9px;background:var(--bg3);color:var(--text3);padding:2px 6px;border-radius:4px;font-weight:700">${isTask?'TASK':'OPP'}</span>
+                    <span style="font-size:9px;background:${isTask?'rgba(99,102,241,.15)':'rgba(245,158,11,.15)'};color:${isTask?'#818cf8':'#f59e0b'};padding:2px 6px;border-radius:4px;font-weight:700">${typeLabel}</span>
                     ${due?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${due}</span>`:''}
                     ${ageDays!==null?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageDays}d old</span>`:''}
                   </div>
@@ -1565,13 +1581,23 @@ function tbShowAdminPanel() {
 }
 
 function tbToggleSupervisor(userId) {
-  const supIds = tbGetSupervisorIds();
-  if (userId === TB_ADMIN_ID) return; // Mahad always stays
-  if (supIds.has(userId)) { supIds.delete(userId); }
-  else                    { supIds.add(userId); }
+  const supIds   = tbGetSupervisorIds();
+  const staffMap = tbGetStaffMap();
+  if (userId === TB_ADMIN_ID) return;
+
+  if (supIds.has(userId)) {
+    // Demoting — remove from supervisors
+    supIds.delete(userId);
+  } else {
+    // Promoting to supervisor — remove from ALL staff lists first
+    supIds.add(userId);
+    for (const supId of Object.keys(staffMap)) {
+      staffMap[supId] = (staffMap[supId] || []).filter(id => id !== userId);
+    }
+    tbSaveStaffMap(staffMap);
+  }
   tbSaveSupervisorIds(supIds);
   tbState.supervisorIds = supIds;
-  // Re-render admin panel
   tbShowAdminPanel();
 }
 
