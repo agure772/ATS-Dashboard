@@ -1218,10 +1218,13 @@ async function tbLoad() {
     tbState.tasks = data.tasks || [];
     tbState.opps  = data.opportunities || [];
     tbState.users = data.users || [];
+    tbState.userMap = data.userMap || {}; // id → name
     tbState.loaded = true;
     console.log(`Loaded: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} users`);
-    console.log('Sample opp owner:', tbState.opps[0]?.assignedTo, tbState.opps[0]?.ownerName);
-    console.log('Sample task assignee:', tbState.tasks[0]?.assignedTo, tbState.tasks[0]?.assigneeName);
+    console.log('UserMap:', tbState.userMap);
+    // Log unique owner IDs in opps
+    const ownerIds = [...new Set(tbState.opps.map(o=>o.assignedTo).filter(Boolean))];
+    console.log('Unique opp owner IDs in opps:', ownerIds);
   } catch(e) {
     document.getElementById('tb-loading').innerHTML = `<div style="color:var(--red)">Failed to load: ${e.message}</div>`;
     return;
@@ -1296,14 +1299,24 @@ function tbRender() {
       || TB_STAFF_GHL_NAMES[staff.id]
       || [staff.name.toLowerCase()];
 
-    // Find GHL user by name match against ghlNames list
+    // Find GHL user ID by matching ghlNames against userMap values
     const ghlUser = tbState.users.find(u => {
-      const un = (u.name || '').toLowerCase();
+      const un = (u.name || `${u.firstName||''} ${u.lastName||''}`.trim()).toLowerCase();
       return ghlNames.some(n => un.includes(n) || n.includes(un));
     });
-    const userId = ghlUser?.id || null;
-    if (ghlUser) console.log(`✓ ${staff.name} → GHL: ${ghlUser.name} (${userId})`);
-    else console.log(`✗ ${staff.name} — no GHL user matched`);
+    // Also search userMap (id→name) for the right ID
+    let userId = ghlUser?.id || null;
+    if (!userId) {
+      for (const [id, name] of Object.entries(tbState.userMap || {})) {
+        const n = name.toLowerCase();
+        if (ghlNames.some(gn => n.includes(gn) || gn.includes(n))) {
+          userId = id;
+          console.log(`✓ ${staff.name} → userMap match: ${name} (${id})`);
+          break;
+        }
+      }
+    }
+    if (!userId) console.log(`✗ ${staff.name} — no match in users or userMap`);
 
     // Match opportunities: by userId OR by name
     const staffOpps = tbState.opps.filter(o => {
