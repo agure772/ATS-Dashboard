@@ -1131,102 +1131,142 @@ async function dotPushToGHL() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TASKS BOARD — Supervisor / Staff view
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASKS BOARD — Dynamic supervisor/staff view
+// Users pulled live from GHL. Supervisor roles stored in localStorage.
+// Mahad Said Q (ghlId: yri669q8Ymx22zdFDPLK) is permanent admin.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Names EXACTLY as they appear in GHL owner/assignee fields
-// GHL User IDs — hardcoded from /api/debug/users
-const TB_SUPERVISORS = [
-  { id: 'shucayb', name: 'Shucayb Jama', ghlId: 's57KFI2a9N3LmRprzdJW', color: '#7c3aed', initials: 'SJ' },
-  { id: 'ahmed_y', name: 'Ahmed Yusuf',  ghlId: '48vCVBOEaRTpUJ23XC4K', color: '#0891b2', initials: 'AY' },
-  { id: 'mahad',   name: 'Mahad Said',   ghlId: 'yri669q8Ymx22zdFDPLK', color: '#059669', initials: 'MS' },
-  { id: 'ahmed_g', name: 'Ahmed Gure',   ghlId: 'FmjXHSLQ6XWMGgj0Y0w3', color: '#d97706', initials: 'AG' },
-];
+const TB_ADMIN_ID   = 'yri669q8Ymx22zdFDPLK'; // Mahad Said Q — permanent admin
+const TB_PASSPHRASE = 'ATS2026admin';           // Change this to your preferred passphrase
 
-const TB_STAFF = [
-  // Shucayb's team
-  { id: 'shucayb', name: 'Shucayb Jama', ghlId: 's57KFI2a9N3LmRprzdJW', supervisor: 'shucayb', isSuper: true  },
-  { id: 'ali',     name: 'Ali Ali',       ghlId: '40ynNiHEBfnZq6gsh7IS', supervisor: 'shucayb', isSuper: false },
-  { id: 'kamal',   name: 'Kamal Ahmed',   ghlId: 'fnFKHlkLVfjYBzFxC5aG', supervisor: 'shucayb', isSuper: false },
-  // Ahmed Yusuf's team
-  { id: 'ahmed_y', name: 'Ahmed Yusuf',   ghlId: '48vCVBOEaRTpUJ23XC4K', supervisor: 'ahmed_y', isSuper: true  },
-  { id: 'yahya',   name: 'Yahya Yusuf',   ghlId: 'mIbzEna47UOXtsV2zzxD', supervisor: 'ahmed_y', isSuper: false },
-  { id: 'yusuf',   name: 'Yusuf Yusuf',   ghlId: 'DY4bAKCSR4dnw94zbj2a', supervisor: 'ahmed_y', isSuper: false },
-  // Mahad's team
-  { id: 'mahad',   name: 'Mahad Said',    ghlId: 'yri669q8Ymx22zdFDPLK', supervisor: 'mahad',   isSuper: true  },
-  { id: 'mustaf',  name: 'Mustaf Hassan', ghlId: 'zohmJyCbnyzoBtLiKNir', supervisor: 'mahad',   isSuper: false },
-  // Ahmed Gure's team
-  { id: 'ahmed_g', name: 'Ahmed Gure',    ghlId: 'FmjXHSLQ6XWMGgj0Y0w3', supervisor: 'ahmed_g', isSuper: true  },
-];
+// Supervisor color palette — assigned by index
+const TB_COLORS = ['#7c3aed','#0891b2','#059669','#d97706','#e11d48','#0284c7','#7c3aed','#b45309'];
 
 let tbState = {
-  selectedSup: 'shucayb',
-  tasks: [],
-  opps: [],
-  users: [],
-  loaded: false,
-  filterType: 'all',
-  filterStatus: 'all',
+  selectedSup:    null,
+  tasks:          [],
+  opps:           [],
+  users:          [],        // all GHL users
+  supervisorIds:  null,      // Set of ghlIds who are supervisors (loaded from storage)
+  staffMap:       {},        // supervisorId → [staffGhlIds]
+  loaded:         false,
+  filterType:     'all',
+  filterStatus:   'all',
 };
 
+// ── Persistence helpers ────────────────────────────────────────────────────
+function tbGetSupervisorIds() {
+  if (tbState.supervisorIds) return tbState.supervisorIds;
+  try {
+    const stored = JSON.parse(localStorage.getItem('tb_supervisors') || 'null');
+    if (stored) { tbState.supervisorIds = new Set(stored); return tbState.supervisorIds; }
+  } catch(e) {}
+  // Default: Mahad is always admin/supervisor
+  const defaults = new Set([TB_ADMIN_ID]);
+  tbSaveSupervisorIds(defaults);
+  tbState.supervisorIds = defaults;
+  return defaults;
+}
+
+function tbSaveSupervisorIds(set) {
+  localStorage.setItem('tb_supervisors', JSON.stringify([...set]));
+}
+
+function tbGetStaffMap() {
+  try { return JSON.parse(localStorage.getItem('tb_staffmap') || '{}'); } catch(e) { return {}; }
+}
+
+function tbSaveStaffMap(map) {
+  localStorage.setItem('tb_staffmap', JSON.stringify(map));
+}
+
+// ── Get supervisor color by index ──────────────────────────────────────────
+function tbSupColor(ghlId) {
+  const supIds = [...tbGetSupervisorIds()];
+  const idx = supIds.indexOf(ghlId);
+  return TB_COLORS[idx % TB_COLORS.length] || '#7c3aed';
+}
+
+// ── Init: build supervisor dropdown ───────────────────────────────────────
 function tbInit() {
   const container = document.getElementById('tb-supervisor-tabs');
   if (!container) return;
-  const sup = TB_SUPERVISORS.find(s => s.id === tbState.selectedSup);
+
+  const supIds = tbGetSupervisorIds();
+  const supervisors = tbState.users.filter(u => supIds.has(u.id));
+  if (!supervisors.length && tbState.users.length) {
+    // No supervisors set yet — show all users as options
+    supervisors.push(...tbState.users);
+  }
+
+  if (!tbState.selectedSup && supervisors.length) {
+    tbState.selectedSup = supervisors[0].id;
+  }
+
+  const selSup = tbState.users.find(u => u.id === tbState.selectedSup);
+  const color  = tbSupColor(tbState.selectedSup);
+
+  const staffMap   = tbGetStaffMap();
+  const staffCount = (staffMap[tbState.selectedSup] || []).length;
 
   container.innerHTML = `
-    <select onchange="tbSelectSupervisor(this.value)"
-      style="width:100%;background:var(--bg3);border:2px solid ${sup?.color || 'var(--border)'};
-             color:var(--text);border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600;
-             cursor:pointer;appearance:none;-webkit-appearance:none;
-             background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23aaa%22 stroke-width=%222%22><polyline points=%226 9 12 15 18 9%22/></svg>');
-             background-repeat:no-repeat;background-position:right 12px center;padding-right:36px">
-      ${TB_SUPERVISORS.map(s => `
-        <option value="${s.id}" ${s.id === tbState.selectedSup ? 'selected' : ''}>
-          ${s.initials} — ${s.name} (${TB_STAFF.filter(st=>st.supervisor===s.id).length} staff)
-        </option>
-      `).join('')}
-    </select>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select onchange="tbSelectSupervisor(this.value)"
+        style="background:var(--bg3);border:2px solid ${color};color:var(--text);
+               border-radius:10px;padding:10px 36px 10px 14px;font-size:14px;font-weight:600;
+               cursor:pointer;appearance:none;min-width:220px;
+               background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23aaa%22 stroke-width=%222%22><polyline points=%226 9 12 15 18 9%22/></svg>');
+               background-repeat:no-repeat;background-position:right 12px center">
+        ${supervisors.map(s => {
+          const sc = (staffMap[s.id] || []).length;
+          return `<option value="${s.id}" ${s.id === tbState.selectedSup ? 'selected' : ''}>
+            ${s.name} (${sc} staff)
+          </option>`;
+        }).join('')}
+      </select>
+      <button onclick="tbOpenAdmin()" title="Admin: manage supervisors"
+        style="background:var(--bg3);border:1px solid var(--border);color:var(--text3);
+               border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12px;
+               display:flex;align-items:center;gap:6px">
+        <i class="ti ti-shield-lock"></i> Admin
+      </button>
+    </div>
+    ${selSup ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">
+      <span style="color:${color};font-weight:700">${selSup.name}</span>
+      · ${staffCount} direct report${staffCount!==1?'s':''} · click Admin to manage access
+    </div>` : ''}
   `;
-
-  // Update info line
-  const infoEl = document.getElementById('tb-sup-info');
-  if (infoEl && sup) {
-    const teamCount = TB_STAFF.filter(s => s.supervisor === sup.id).length;
-    const staffCount = TB_STAFF.filter(s => s.supervisor === sup.id && !s.isSuper).length;
-    infoEl.innerHTML = `<span style="color:${sup.color};font-weight:700">${sup.name}</span> · ${staffCount} direct report${staffCount!==1?'s':''} · ${teamCount} total`;
-  }
 }
 
+// ── Load data from server ─────────────────────────────────────────────────
 async function tbLoad() {
-  if (tbState.loaded) { tbRender(); return; }
-  document.getElementById('tb-loading').style.display = 'block';
+  if (tbState.loaded) { tbInit(); tbRender(); return; }
+  const loadEl = document.getElementById('tb-loading');
+  if (loadEl) loadEl.style.display = 'block';
   document.getElementById('tb-staff-grid').innerHTML = '';
   try {
     const res = await fetch('/api/tasks-board');
-    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+    if (!res.ok) throw new Error(`Server ${res.status}`);
     const data = await res.json();
     tbState.tasks = data.tasks || [];
     tbState.opps  = data.opportunities || [];
-    tbState.users = data.users || [];
-    tbState.userMap = data.userMap || {}; // id → name
+    tbState.users = (data.users || []).filter(u => !u.deleted);
     tbState.loaded = true;
-    console.log(`Loaded: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} users`);
-    console.log('UserMap:', tbState.userMap);
-    // Log unique owner IDs in opps
-    const ownerIds = [...new Set(tbState.opps.map(o=>o.assignedTo).filter(Boolean))];
-    console.log('Unique opp owner IDs in opps:', ownerIds);
+    console.log(`TB loaded: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} users`);
   } catch(e) {
-    document.getElementById('tb-loading').innerHTML = `<div style="color:var(--red)">Failed to load: ${e.message}</div>`;
+    if (loadEl) loadEl.innerHTML = `<div style="color:var(--red)">Failed to load: ${e.message}</div>`;
     return;
   }
-  document.getElementById('tb-loading').style.display = 'none';
+  if (loadEl) loadEl.style.display = 'none';
+  tbInit();
   tbRender();
 }
 
 function tbSelectSupervisor(supId) {
   tbState.selectedSup = supId;
-  tbInit(); // re-render tabs with new selection
+  tbInit();
   tbRender();
 }
 
@@ -1241,180 +1281,309 @@ async function tbRefresh() {
   await tbLoad();
 }
 
-function tbIsOverdue(dueDate) {
-  if (!dueDate) return false;
-  return new Date(dueDate) < new Date();
-}
-
+// ── Status helpers ────────────────────────────────────────────────────────
 function tbOppIsStale(opp) {
-  // Open opportunity stale for more than 1 day = highlight red
   const created = opp.createdAt || opp.dateAdded || opp.updatedAt;
   if (!created) return false;
-  const ageDays = (Date.now() - new Date(created).getTime()) / (1000*60*60*24);
-  return ageDays > 1;
+  return (Date.now() - new Date(created).getTime()) > 86400000; // > 1 day
 }
 
 function tbGetItemStatus(item, isTask) {
   if (isTask) {
     if (item.completed || item.status === 'completed') return 'completed';
-    if (tbIsOverdue(item.dueDate)) return 'overdue';
+    if (item.dueDate && new Date(item.dueDate) < new Date()) return 'overdue';
     return 'open';
   } else {
     const s = (item.status || '').toLowerCase();
     if (s === 'won' || s === 'completed') return 'completed';
     if (s === 'lost') return 'lost';
-    // Open opp older than 1 day = overdue (needs attention)
     if (s === 'open' && tbOppIsStale(item)) return 'overdue';
     return 'open';
   }
 }
 
+// ── Render staff cards ────────────────────────────────────────────────────
 function tbRender() {
-  const sup = TB_SUPERVISORS.find(s => s.id === tbState.selectedSup);
-  const team = TB_STAFF.filter(s => s.supervisor === tbState.selectedSup);
-  const grid = document.getElementById('tb-staff-grid');
+  const grid  = document.getElementById('tb-staff-grid');
   const label = document.getElementById('tb-team-label');
-  if (!grid || !sup) return;
+  if (!grid) return;
 
-  const teamLabel = team.length === 1 && team[0].isSuper
-    ? `${sup.name.toUpperCase()} — SUPERVISOR`
-    : `${sup.name.toUpperCase()}'S TEAM — ${team.length} STAFF`;
-  label.textContent = teamLabel;
+  const supUser  = tbState.users.find(u => u.id === tbState.selectedSup);
+  const supColor = tbSupColor(tbState.selectedSup);
+  const staffMap = tbGetStaffMap();
+  const staffIds = staffMap[tbState.selectedSup] || [];
 
-  let totalTasks = 0, overdueTasks = 0, openTasks = 0, doneTasks = 0;
+  // Team = supervisor themselves + their assigned staff
+  const teamUsers = [
+    supUser,
+    ...tbState.users.filter(u => staffIds.includes(u.id) && u.id !== tbState.selectedSup)
+  ].filter(Boolean);
 
-  const cards = team.map(staff => {
-    const supConfig = TB_SUPERVISORS.find(s => s.id === staff.id);
-    const userId = staff.ghlId; // hardcoded GHL user ID — no API needed
-    console.log(`${staff.name} → GHL ID: ${userId}`);
+  if (label) label.textContent = `${supUser?.name?.toUpperCase() || 'TEAM'} — ${teamUsers.length} MEMBER${teamUsers.length!==1?'S':''}`;
 
-    // Match by hardcoded GHL user ID — direct and reliable
-    const staffOpps = tbState.opps.filter(o => o.assignedTo === userId);
-    const staffTasks = tbState.tasks.filter(t =>
-      t.assigneeId === userId || t.assignedTo === userId
-    );
-    });
+  let totalItems = 0, overdueCount = 0, openCount = 0, doneCount = 0;
 
-    // Apply filters
+  const cards = teamUsers.map(user => {
+    const isSuper  = user.id === tbState.selectedSup;
+    const color    = isSuper ? supColor : supColor + 'aa';
+    const initials = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+
+    const userOpps  = tbState.opps.filter(o => o.assignedTo === user.id);
+    const userTasks = tbState.tasks.filter(t => t.assigneeId === user.id || t.assignedTo === user.id);
+
     let items = [];
-    if (tbState.filterType !== 'opps') {
-      staffTasks.forEach(t => items.push({ ...t, _type: 'task', _status: tbGetItemStatus(t, true) }));
-    }
-    if (tbState.filterType !== 'tasks') {
-      staffOpps.forEach(o => items.push({ ...o, _type: 'opp', _status: tbGetItemStatus(o, false) }));
-    }
-    if (tbState.filterStatus !== 'all') {
-      items = items.filter(i => i._status === tbState.filterStatus);
-    }
+    if (tbState.filterType !== 'opps')  userTasks.forEach(t => items.push({...t, _type:'task', _status:tbGetItemStatus(t,true)}));
+    if (tbState.filterType !== 'tasks') userOpps.forEach(o  => items.push({...o, _type:'opp',  _status:tbGetItemStatus(o,false)}));
+    if (tbState.filterStatus !== 'all') items = items.filter(i => i._status === tbState.filterStatus);
 
-    // Sort: overdue first, then open, then completed
-    items.sort((a,b) => {
-      const order = { overdue:0, open:1, completed:2, lost:3 };
-      return (order[a._status]||1) - (order[b._status]||1);
-    });
+    // Sort overdue first
+    items.sort((a,b) => ({overdue:0,open:1,completed:2,lost:3}[a._status]||1) - ({overdue:0,open:1,completed:2,lost:3}[b._status]||1));
 
-    const myOverdue   = items.filter(i => i._status === 'overdue').length;
-    const myOpen      = items.filter(i => i._status === 'open').length;
-    const myCompleted = items.filter(i => i._status === 'completed').length;
-    totalTasks += items.length;
-    overdueTasks += myOverdue;
-    openTasks += myOpen;
-    doneTasks += myCompleted;
-
-    const cardColor = supConfig?.color || sup.color;
-    const cardInitials = supConfig?.initials || staff.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-    const badgeLabel = staff.isSuper ? 'SUPERVISOR' : 'STAFF';
+    const myOver = items.filter(i=>i._status==='overdue').length;
+    const myOpen = items.filter(i=>i._status==='open').length;
+    const myDone = items.filter(i=>i._status==='completed').length;
+    totalItems += items.length; overdueCount += myOver; openCount += myOpen; doneCount += myDone;
 
     return `
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden">
+      <div style="background:var(--bg2);border:1px solid ${isSuper?supColor:'var(--border)'};border-radius:16px;overflow:hidden">
         <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);background:var(--bg3)">
-          <div style="width:42px;height:42px;border-radius:50%;background:${cardColor}33;border:2px solid ${cardColor};
-                      display:flex;align-items:center;justify-content:center;
-                      font-size:13px;font-weight:800;color:${cardColor};flex-shrink:0">
-            ${cardInitials}
-          </div>
+          <div style="width:42px;height:42px;border-radius:50%;background:${supColor}33;border:2px solid ${supColor};
+                      display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:${supColor};flex-shrink:0">${initials}</div>
           <div style="flex:1">
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:13px;font-weight:700;color:var(--text)">${staff.name}</span>
-              <span style="font-size:9px;background:${cardColor}22;color:${cardColor};padding:2px 6px;border-radius:4px;font-weight:700">${badgeLabel}</span>
+              <span style="font-size:13px;font-weight:700;color:var(--text)">${user.name}</span>
+              <span style="font-size:9px;background:${supColor}22;color:${supColor};padding:2px 6px;border-radius:4px;font-weight:700">${isSuper?'SUPERVISOR':'STAFF'}</span>
             </div>
             <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
-              ${myOverdue ? `<span style="font-size:10px;background:rgba(239,68,68,.15);color:#ef4444;padding:2px 7px;border-radius:20px;font-weight:700">${myOverdue} overdue</span>` : ''}
-              ${myOpen ? `<span style="font-size:10px;background:rgba(59,130,246,.15);color:#60a5fa;padding:2px 7px;border-radius:20px;font-weight:700">${myOpen} open</span>` : ''}
-              ${myCompleted ? `<span style="font-size:10px;background:rgba(16,185,129,.15);color:#34d399;padding:2px 7px;border-radius:20px;font-weight:700">${myCompleted} done</span>` : ''}
-              ${!items.length ? `<span style="font-size:10px;color:var(--text3)">No items</span>` : ''}
+              ${myOver ? `<span style="font-size:10px;background:rgba(239,68,68,.15);color:#ef4444;padding:2px 7px;border-radius:20px;font-weight:700">${myOver} overdue</span>`:''}
+              ${myOpen ? `<span style="font-size:10px;background:rgba(59,130,246,.15);color:#60a5fa;padding:2px 7px;border-radius:20px;font-weight:700">${myOpen} open</span>`:''}
+              ${myDone ? `<span style="font-size:10px;background:rgba(16,185,129,.15);color:#34d399;padding:2px 7px;border-radius:20px;font-weight:700">${myDone} done</span>`:''}
+              ${!items.length ? `<span style="font-size:10px;color:var(--text3)">No items</span>`:''}
             </div>
           </div>
-          <div style="font-size:22px;font-weight:800;color:${items.length ? cardColor : 'var(--text3)'}">
-            ${items.length}
-          </div>
+          <div style="font-size:22px;font-weight:800;color:${items.length?supColor:'var(--text3)'}">${items.length}</div>
         </div>
-
         <div style="max-height:360px;overflow-y:auto">
-          ${items.length === 0 ? `
+          ${items.length===0 ? `
             <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">
-              <i class="ti ti-circle-check" style="font-size:24px;display:block;margin-bottom:6px;color:var(--green)"></i>
-              All clear
-            </div>
-          ` : items.slice(0,25).map(item => {
-            const isTask = item._type === 'task';
-            const statusColor = item._status === 'overdue' ? '#ef4444'
-              : item._status === 'completed' ? '#34d399' : '#60a5fa';
-            const statusIcon = item._status === 'overdue' ? 'ti-alert-triangle'
-              : item._status === 'completed' ? 'ti-circle-check' : 'ti-clock';
-            const title = item.title || item.name || (isTask ? 'Task' : 'Opportunity');
-            const contact = item.contact?.name || item.contactName || '';
-            const dueDate = item.dueDate
-              ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})
-              : '';
-            // For opportunities, show age in days
-            const created = item.createdAt || item.dateAdded;
-            const ageDays = created ? Math.floor((Date.now() - new Date(created).getTime()) / (1000*60*60*24)) : null;
-            const ageLabel = !isTask && ageDays !== null ? `${ageDays}d old` : '';
-            const rowBg = item._status === 'overdue' ? 'rgba(239,68,68,0.05)' : 'transparent';
-            return `
-              <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px;background:${rowBg}">
-                <i class="ti ${statusIcon}" style="color:${statusColor};font-size:14px;margin-top:2px;flex-shrink:0"></i>
-                <div style="flex:1;min-width:0">
-                  <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
-                  ${contact ? `<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${contact}</div>` : ''}
-                </div>
-                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
-                  <span style="font-size:9px;background:var(--bg3);color:var(--text3);padding:2px 6px;border-radius:4px;font-weight:700">${isTask?'TASK':'OPP'}</span>
-                  ${dueDate ? `<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${dueDate}</span>` : ''}
-                  ${ageLabel ? `<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageLabel}</span>` : ''}
-                </div>
-              </div>
-            `;
+              <i class="ti ti-circle-check" style="font-size:24px;display:block;margin-bottom:6px;color:var(--green)"></i>All clear
+            </div>` : items.slice(0,25).map(item => {
+              const isTask = item._type==='task';
+              const sc = item._status==='overdue'?'#ef4444':item._status==='completed'?'#34d399':'#60a5fa';
+              const si = item._status==='overdue'?'ti-alert-triangle':item._status==='completed'?'ti-circle-check':'ti-clock';
+              const title   = item.title||item.name||(isTask?'Task':'Opportunity');
+              const contact = item.contact?.name||item.contactName||'';
+              const due     = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+              const created = item.createdAt||item.dateAdded;
+              const ageDays = !isTask&&created ? Math.floor((Date.now()-new Date(created).getTime())/86400000) : null;
+              return `
+                <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px;background:${item._status==='overdue'?'rgba(239,68,68,.04)':'transparent'}">
+                  <i class="ti ${si}" style="color:${sc};font-size:14px;margin-top:2px;flex-shrink:0"></i>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+                    ${contact?`<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${contact}</div>`:''}
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
+                    <span style="font-size:9px;background:var(--bg3);color:var(--text3);padding:2px 6px;border-radius:4px;font-weight:700">${isTask?'TASK':'OPP'}</span>
+                    ${due?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${due}</span>`:''}
+                    ${ageDays!==null?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageDays}d old</span>`:''}
+                  </div>
+                </div>`;
           }).join('')}
-          ${items.length > 25 ? `
-            <div style="padding:8px 16px;text-align:center;font-size:11px;color:var(--text3)">
-              +${items.length-25} more items
-            </div>` : ''}
+          ${items.length>25?`<div style="padding:8px 16px;text-align:center;font-size:11px;color:var(--text3)">+${items.length-25} more</div>`:''}
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 
-  grid.innerHTML = cards;
+  grid.innerHTML = cards || `<div style="color:var(--text3);padding:40px;text-align:center">No team members found. Use Admin to assign staff.</div>`;
 
   // Stats bar
-  const stats = document.getElementById('tb-stats');
-  stats.innerHTML = [
-    { label: 'Total Items', value: totalTasks,   icon: 'ti-list',           color: 'var(--primary)' },
-    { label: 'Overdue',     value: overdueTasks,  icon: 'ti-alert-triangle', color: '#ef4444'        },
-    { label: 'Open',        value: openTasks,     icon: 'ti-clock',          color: '#60a5fa'        },
-    { label: 'Completed',   value: doneTasks,     icon: 'ti-circle-check',   color: '#34d399'        },
-  ].map(s => `
+  document.getElementById('tb-stats').innerHTML = [
+    {label:'Total Items', value:totalItems,   icon:'ti-list',           color:'var(--primary)'},
+    {label:'Overdue',     value:overdueCount,  icon:'ti-alert-triangle', color:'#ef4444'},
+    {label:'Open',        value:openCount,     icon:'ti-clock',          color:'#60a5fa'},
+    {label:'Completed',   value:doneCount,     icon:'ti-circle-check',   color:'#34d399'},
+  ].map(s=>`
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px">
       <i class="ti ${s.icon}" style="font-size:22px;color:${s.color}"></i>
-      <div>
-        <div style="font-size:22px;font-weight:800;color:${s.color}">${s.value}</div>
-        <div style="font-size:11px;color:var(--text3)">${s.label}</div>
+      <div><div style="font-size:22px;font-weight:800;color:${s.color}">${s.value}</div>
+      <div style="font-size:11px;color:var(--text3)">${s.label}</div></div>
+    </div>`).join('');
+}
+
+// ── Admin panel — passphrase protected ───────────────────────────────────
+function tbOpenAdmin() {
+  // Show passphrase modal
+  const existing = document.getElementById('tb-admin-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'tb-admin-modal';
+  modal.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;
+    display:flex;align-items:center;justify-content:center`;
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:20px;
+                padding:32px;width:440px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+        <i class="ti ti-shield-lock" style="font-size:24px;color:#7c3aed"></i>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--text)">Admin Access</div>
+          <div style="font-size:12px;color:var(--text3)">Enter passphrase to manage supervisor roles</div>
+        </div>
       </div>
-    </div>
-  `).join('');
+      <input id="tb-admin-pass" type="password" placeholder="Enter passphrase..."
+        style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+               border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:12px;box-sizing:border-box"
+        onkeydown="if(event.key==='Enter')tbCheckPassphrase()">
+      <div id="tb-admin-err" style="color:#ef4444;font-size:12px;margin-bottom:12px;display:none">Incorrect passphrase</div>
+      <div style="display:flex;gap:8px">
+        <button onclick="tbCheckPassphrase()"
+          style="flex:1;background:#7c3aed;color:#fff;border:none;border-radius:10px;
+                 padding:12px;font-size:14px;font-weight:700;cursor:pointer">
+          Unlock
+        </button>
+        <button onclick="document.getElementById('tb-admin-modal').remove()"
+          style="background:var(--bg3);color:var(--text);border:1px solid var(--border);
+                 border-radius:10px;padding:12px 18px;font-size:14px;cursor:pointer">
+          Cancel
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  setTimeout(() => document.getElementById('tb-admin-pass')?.focus(), 100);
+}
+
+function tbCheckPassphrase() {
+  const val = document.getElementById('tb-admin-pass')?.value;
+  if (val === TB_PASSPHRASE) {
+    document.getElementById('tb-admin-modal').remove();
+    tbShowAdminPanel();
+  } else {
+    const err = document.getElementById('tb-admin-err');
+    if (err) { err.style.display='block'; err.textContent='Incorrect passphrase. Try again.'; }
+  }
+}
+
+function tbShowAdminPanel() {
+  const existing = document.getElementById('tb-admin-modal');
+  if (existing) existing.remove();
+
+  const supIds   = tbGetSupervisorIds();
+  const staffMap = tbGetStaffMap();
+
+  const modal = document.createElement('div');
+  modal.id = 'tb-admin-modal';
+  modal.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;
+    display:flex;align-items:center;justify-content:center;padding:20px`;
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:20px;
+                padding:28px;width:560px;max-width:95vw;max-height:85vh;overflow-y:auto;
+                box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <i class="ti ti-shield-check" style="font-size:22px;color:#7c3aed"></i>
+          <div style="font-size:16px;font-weight:700;color:var(--text)">Supervisor Management</div>
+        </div>
+        <button onclick="document.getElementById('tb-admin-modal').remove()"
+          style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:20px">✕</button>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:10px">
+        ALL USERS — TOGGLE SUPERVISOR ACCESS
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:14px">
+        <i class="ti ti-info-circle"></i> Mahad Said Q is always a supervisor and cannot be removed.
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">
+        ${tbState.users.map(u => {
+          const isSup     = supIds.has(u.id);
+          const isAdmin   = u.id === TB_ADMIN_ID;
+          const color     = isSup ? tbSupColor(u.id) : 'var(--text3)';
+          const initials  = u.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+          return `
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;
+                        background:var(--bg3);border-radius:10px;border:1px solid ${isSup?color:'var(--border)'}">
+              <div style="width:36px;height:36px;border-radius:50%;background:${color}22;border:2px solid ${color};
+                          display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:${color}">
+                ${initials}
+              </div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600;color:var(--text)">${u.name}</div>
+                <div style="font-size:11px;color:var(--text3)">${u.email||''}</div>
+              </div>
+              ${isAdmin
+                ? `<span style="font-size:10px;background:#7c3aed22;color:#7c3aed;padding:3px 8px;border-radius:6px;font-weight:700">ADMIN</span>`
+                : `<button onclick="tbToggleSupervisor('${u.id}')"
+                    style="background:${isSup?'rgba(239,68,68,.15)':'rgba(16,185,129,.15)'};
+                           color:${isSup?'#ef4444':'#34d399'};border:1px solid ${isSup?'#ef4444':'#34d399'};
+                           border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">
+                    ${isSup?'Remove Supervisor':'Make Supervisor'}
+                  </button>`
+              }
+            </div>`;
+        }).join('')}
+      </div>
+
+      <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:10px">
+        ASSIGN STAFF TO SUPERVISORS
+      </div>
+      ${[...supIds].map(supId => {
+        const supUser   = tbState.users.find(u=>u.id===supId);
+        if (!supUser) return '';
+        const myStaff   = staffMap[supId] || [];
+        const nonSups   = tbState.users.filter(u => !supIds.has(u.id));
+        const color     = tbSupColor(supId);
+        return `
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;
+                      padding:12px;margin-bottom:10px">
+            <div style="font-size:12px;font-weight:700;color:${color};margin-bottom:8px">
+              ${supUser.name}'s Staff
+            </div>
+            ${nonSups.length===0
+              ? `<div style="font-size:11px;color:var(--text3)">No non-supervisor users to assign</div>`
+              : nonSups.map(u => {
+                  const assigned = myStaff.includes(u.id);
+                  return `
+                    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
+                      <input type="checkbox" ${assigned?'checked':''} onchange="tbToggleStaff('${supId}','${u.id}',this.checked)"
+                        style="width:16px;height:16px;accent-color:${color}">
+                      <span style="font-size:12px;color:var(--text)">${u.name}</span>
+                    </label>`;
+                }).join('')
+            }
+          </div>`;
+      }).join('')}
+
+      <button onclick="document.getElementById('tb-admin-modal').remove();tbInit();tbRender();"
+        style="width:100%;background:#7c3aed;color:#fff;border:none;border-radius:10px;
+               padding:12px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px">
+        Save & Close
+      </button>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function tbToggleSupervisor(userId) {
+  const supIds = tbGetSupervisorIds();
+  if (userId === TB_ADMIN_ID) return; // Mahad always stays
+  if (supIds.has(userId)) { supIds.delete(userId); }
+  else                    { supIds.add(userId); }
+  tbSaveSupervisorIds(supIds);
+  tbState.supervisorIds = supIds;
+  // Re-render admin panel
+  tbShowAdminPanel();
+}
+
+function tbToggleStaff(supId, staffId, checked) {
+  const staffMap = tbGetStaffMap();
+  if (!staffMap[supId]) staffMap[supId] = [];
+  if (checked) {
+    if (!staffMap[supId].includes(staffId)) staffMap[supId].push(staffId);
+  } else {
+    staffMap[supId] = staffMap[supId].filter(id => id !== staffId);
+  }
+  tbSaveStaffMap(staffMap);
 }
 
 // end tasks board
-
