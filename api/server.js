@@ -90,7 +90,6 @@ const PIPELINE_MAP = {
   filing_irp_cab_card:  { name: '7. 2026 IRP Cab Card (Plate) Renewal' },
   filing_mcs150:        { name: '8. 2026 MCS-150 Mileage Update for 2025' },
   filing_ky_vehicle:    { name: '9. 2026 KY Annual Vehicle Update' },
-  filing_ny_permit:     { name: '10. 2026 NY Permit Renewal' },
   ifta_q1_2026:         { name: 'Q1 2026 IFTA Filing' },
   ifta_q2_2026:         { name: 'Q2 2026 IFTA Filing' },
   ifta_q4_2025:         { name: 'Q4 2025 IFTA Filing' },
@@ -255,7 +254,7 @@ app.post('/api/opportunities', async (req, res) => {
     const data = await ghl('POST', `${V2}/opportunities/`, {
       pipelineId: pInfo.pipelineId, locationId: LOC_ID,
       name: `${contactName||'Client'}${businessName?' | '+businessName:dotNumber?' DOT# '+dotNumber:''}`,
-      pipelineStageId: stageId, status:'open', contactId, monetaryValue:85,
+      pipelineStageId: stageId, status:'open', contactId, monetaryValue:0,
     });
     clientCache.data = null;
     res.status(201).json(data);
@@ -309,20 +308,6 @@ app.post('/api/contacts/:id/tasks', async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Live GHL contact search (bypasses cache — for DOT lookup) ─────────────────
-app.get('/api/contacts/search-live', async (req, res) => {
-  try {
-    const { query='' } = req.query;
-    if (!query || query.length < 2) return res.json({ contacts: [] });
-    const url = `${V2}/contacts/?locationId=${LOC_ID}&limit=20&query=${encodeURIComponent(query)}`;
-    const data = await ghl('GET', url);
-    const contacts = (data.contacts || []).map(c => mapContact(c, []));
-    res.json({ contacts });
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.post('/api/refresh', async (req, res) => {
   clientCache.data = null;
   try {
@@ -356,13 +341,12 @@ app.get('/api/debug/contact/:id', async (req, res) => {
 
 // ── Scrape SAFER website for full carrier data including mileage ──────────────
 async function scrapeSAFER(dotNumber) {
-  const result = { mc_number:'', mcs150_date:'', mcs150_mileage:'', mcs150_year:'', owner_name:'', phone:'', email:'', mailing_address:'', safer_inactive: false, safer_status: null };
+  const result = { mc_number:'', mcs150_date:'', mcs150_mileage:'', mcs150_year:'', owner_name:'', phone:'', email:'', mailing_address:'' };
   try {
     // Use SAFER registration page which has MCS-150 form date
-    // The correct SAFER page matching what users see in browser
-    // safer.fmcsa.dot.gov/query.asp with searchtype=ANY pulls the full carrier detail page
-    const saferUrl = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
-    const res = await fetch(saferUrl, {
+    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
+    const regUrl = `https://safer.fmcsa.dot.gov/query.asp?query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}&action=Register`;
+    const res = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -373,53 +357,8 @@ async function scrapeSAFER(dotNumber) {
     if (!res.ok) { console.log('SAFER returned:', res.status); return result; }
     const html = await res.text();
 
-    // ── Detect inactive/not-authorized records ────────────────────────────────
-    // SAFER shows "Record Inactive" or "Record Not Found" for dead carriers
-    if (/record\s+inactive/i.test(html) || /is\s+INACTIVE\s+in\s+the\s+SAFER/i.test(html)) {
-      console.log('SAFER: carrier is INACTIVE');
-      result.safer_inactive = true;
-      result.safer_status = 'I';
-      return result;
-    }
-    if (/record\s+not\s+found/i.test(html) || /no\s+record\s+found/i.test(html)) {
-      console.log('SAFER: carrier record not found');
-      result.safer_inactive = true;
-      result.safer_status = 'I';
-      return result;
-    }
-    // Detect Operating Authority Status — must look ONLY inside the
-    // "OPERATING AUTHORITY INFORMATION" section, NOT the USDOT section
-    let saferOpStatus = 'A';
-    // Find the OPERATING AUTHORITY INFORMATION section specifically
-    const opAuthSectionMatch = html.match(/OPERATING\s+AUTHORITY\s+INFORMATION[\s\S]{0,1000}/i);
-    if (opAuthSectionMatch) {
-      const section = opAuthSectionMatch[0];
-      // Find Operating Authority Status row value — it's the bold text in that row
-      const statusRowMatch = section.match(/Operating\s+Authority\s+Status[\s\S]{0,300}/i);
-      if (statusRowMatch) {
-        const rowChunk = statusRowMatch[0];
-        // Strip all HTML tags to get plain text
-        const plainText = rowChunk.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        console.log('SAFER Op Auth row text:', plainText.slice(0, 120));
-        // Check the FIRST meaningful word(s) after the label — before any disclaimer
-        // Disclaimer always starts with "*Please Note" so we cut there
-        const beforeDisclaimer = plainText.replace(/\*?Please\s+Note[\s\S]*/i, '').trim();
-        const statusPart = beforeDisclaimer.replace(/Operating\s+Authority\s+Status/i,'').trim();
-        console.log('SAFER status value:', statusPart.slice(0, 60));
-        if (/NOT\s+AUTHORIZED/i.test(statusPart)) {
-          saferOpStatus = 'N';
-          console.log('SAFER: NOT AUTHORIZED');
-        } else if (/OUT\s+OF\s+SERVICE/i.test(statusPart)) {
-          saferOpStatus = 'S';
-          console.log('SAFER: OUT OF SERVICE');
-        } else if (/AUTHORIZED/i.test(statusPart)) {
-          saferOpStatus = 'A';
-          console.log('SAFER: AUTHORIZED');
-        }
-      }
-    }
-    result.safer_status = saferOpStatus;
-    console.log('Final SAFER status:', saferOpStatus);
+    // Log a section around MCS-150 so we can see the exact HTML structure
+    // MC number
     const mcMatch = html.match(/MC-(\d+)/);
     if (mcMatch) result.mc_number = `MC-${mcMatch[1]}`;
 
@@ -437,8 +376,8 @@ async function scrapeSAFER(dotNumber) {
     const todayStr = String(now.getMonth()+1).padStart(2,'0') + '/' +
                      String(now.getDate()).padStart(2,'0') + '/' + now.getFullYear();
 
-    // Mileage: matches '1 (2025)' or '70,836 (2024)' — \d+ covers single digits
-    const mileageMatch = html.match(/([\d,]+)\s*\((\d{4})\)/);
+    // Mileage position
+    const mileageMatch = html.match(/(\d[\d,]+)\s*\((\d{4})\)/);
     if (mileageMatch) {
       result.mcs150_mileage = mileageMatch[1].replace(/,/g,'');
       result.mcs150_year    = mileageMatch[2];
@@ -547,30 +486,10 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
       } catch(e) { console.log('Docket fallback error:', e.message); }
     }
 
-    // Operating status — SAFER is authoritative when reachable, mobile API as fallback
-    let opStatus;
-    if (safer.safer_inactive) {
-      opStatus = 'I';
-      console.log(`⚠️  DOT ${dotNumber}: SAFER says INACTIVE`);
-    } else if (safer.safer_status && safer.safer_status !== 'A') {
-      // SAFER explicitly returned NOT AUTHORIZED or OUT OF SERVICE
-      opStatus = safer.safer_status;
-      console.log(`⚠️  DOT ${dotNumber}: SAFER says ${safer.safer_status}`);
-    } else if (safer.safer_status === 'A') {
-      // SAFER explicitly confirmed AUTHORIZED — trust it
-      opStatus = 'A';
-      console.log(`✓ DOT ${dotNumber}: SAFER confirms AUTHORIZED`);
-    } else {
-      // SAFER was unreachable (safer_status not set) — fall back to mobile API
-      // Check multiple fields — allowedToOperate, statusCode, and activeForHireFlag
-      const notAllowed = carrier.allowedToOperate === 'N';
-      const statusInactive = carrier.statusCode && !['A','ACTIVE'].includes(carrier.statusCode);
-      const hasNoAuthority = !carrier.activeForHireFlag && carrier.carrierOperation?.carrierOperationCode === 'A';
-      opStatus = notAllowed ? 'N'
-        : statusInactive ? 'I'
-        : 'A';
-      console.log(`DOT ${dotNumber}: SAFER unreachable, mobile API allowedToOperate=${carrier.allowedToOperate} statusCode=${carrier.statusCode} → ${opStatus}`);
-    }
+    // Operating status from confirmed fields
+    const opStatus = carrier.allowedToOperate === 'Y' ? 'A'
+      : carrier.allowedToOperate === 'N' ? 'N'
+      : carrier.statusCode || 'A';
 
     const info = {
       dot_number:        String(carrier.dotNumber || dotNumber),
@@ -598,7 +517,6 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
       raw:               carrier,
     };
 
-    console.log(`DOT ${dotNumber} mobile API key fields: allowedToOperate=${carrier.allowedToOperate} statusCode=${carrier.statusCode} activeForHireFlag=${carrier.activeForHireFlag} carrierOpCode=${carrier.carrierOperation?.carrierOperationCode}`);
     res.json({ success: true, info });
   } catch (err) {
     console.error('FMCSA lookup error:', err.message);
@@ -645,17 +563,15 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
     ].filter(Boolean);
 
     const payload = {
-      companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
+      companyName: info.legal_name || undefined,
       phone: info.phone || undefined,
       email: info.email || undefined,
       customFields,
     };
 
     const updated = await ghl('PUT', `${V2}/contacts/${contactId}`, payload);
-    // Bust cache so dashboard reflects changes immediately
+    // Bust cache so dashboard reflects changes
     clientCache.data = null;
-    // Trigger background reload so next page view is fresh
-    fetchAllClients(true).catch(e => console.log('Background reload after push:', e.message));
     res.json({ success: true, contact: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -674,7 +590,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
     const contactPayload = {
       firstName: info.legal_name || info.dba_name || `DOT#${info.dot_number}`,
       lastName: '',
-      companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : '',
+      companyName: info.legal_name || '',
       phone: info.phone || '',
       email: info.email || '',
       tags: ['ats-dashboard'],
@@ -689,76 +605,14 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
       locationId: process.env.GHL_LOCATION_ID,
     };
 
-    let contactResult, contactId;
-    try {
-      contactResult = await ghl('POST', `${V2}/contacts/`, contactPayload);
-      contactId = contactResult?.contact?.id;
-    } catch(createErr) {
-      // GHL rejects duplicate contacts (same email/phone already exists)
-      // Find the existing contact by email or phone and use it instead
-      const isDuplicate = String(createErr.message||'').toLowerCase().includes('duplicat') ||
-                          String(createErr.data?.message||'').toLowerCase().includes('duplicat');
-      if (isDuplicate) {
-        console.log('⚠️  Duplicate contact — searching for existing contact by email/phone...');
-        let foundId = null;
-        // Search by email first
-        if (info.email) {
-          try {
-            const emailSearch = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&email=${encodeURIComponent(info.email)}&limit=5`);
-            const match = (emailSearch.contacts||[]).find(c => c.email === info.email);
-            if (match) { foundId = match.id; console.log('Found existing contact by email:', foundId); }
-          } catch(e) { console.log('Email search failed:', e.message); }
-        }
-        // If not found by email, search by phone
-        if (!foundId && info.phone) {
-          try {
-            const phoneSearch = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&phone=${encodeURIComponent(info.phone)}&limit=5`);
-            const cleanPhone = info.phone.replace(/\D/g,'');
-            const match = (phoneSearch.contacts||[]).find(c => (c.phone||'').replace(/\D/g,'').endsWith(cleanPhone.slice(-10)));
-            if (match) { foundId = match.id; console.log('Found existing contact by phone:', foundId); }
-          } catch(e) { console.log('Phone search failed:', e.message); }
-        }
-        // If still not found, search by name
-        if (!foundId && info.legal_name) {
-          try {
-            const nameSearch = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&query=${encodeURIComponent(info.legal_name)}&limit=10`);
-            const match = (nameSearch.contacts||[]).find(c =>
-              (c.companyName||'').toLowerCase() === info.legal_name.toLowerCase() ||
-              (`${c.firstName||''} ${c.lastName||''}`).trim().toLowerCase() === info.legal_name.toLowerCase()
-            );
-            if (match) { foundId = match.id; console.log('Found existing contact by name:', foundId); }
-          } catch(e) { console.log('Name search failed:', e.message); }
-        }
-        if (!foundId) {
-          return res.status(409).json({
-            error: 'A contact with this email or phone already exists in GHL, but could not be located automatically. Please search for them manually in the Push to GHL Contact section above.',
-            duplicate: true,
-          });
-        }
-        // Use the existing contact — update it with the new FMCSA data
-        contactId = foundId;
-        contactResult = { contact: { id: foundId } };
-        console.log(`✅ Using existing GHL contact ${foundId} — will update with FMCSA data`);
-        // Update the existing contact with the FMCSA custom fields
-        try {
-          await ghl('PUT', `${V2}/contacts/${foundId}`, {
-            companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
-            phone: info.phone || undefined,
-            email: info.email || undefined,
-            customFields: contactPayload.customFields,
-          });
-          console.log('Updated existing contact with FMCSA data');
-        } catch(updateErr) { console.log('Update existing contact failed:', updateErr.message); }
-      } else {
-        throw createErr; // Not a duplicate error — re-throw
-      }
-    }
+    const contactResult = await ghl('POST', `${V2}/contacts/`, contactPayload);
+    const contactId = contactResult?.contact?.id;
     if (!contactId) throw new Error('Contact creation failed — no ID returned');
 
     // 2. Create default opportunities for annual compliance services
     const defaultServices = [
       'filing_2290', 'filing_ucr', 'filing_ifta_license', 'filing_mcs150',
-      'filing_ny_permit', 'new_company_setup', 'prorate_account', 'clearinghouse_setup'
+      'new_company_setup', 'prorate_account', 'clearinghouse_setup'
     ];
     const oppResults = [];
     for (const serviceKey of defaultServices) {
@@ -771,7 +625,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
           pipelineStageId: pipeline.stages?.[0]?.id,
           status: 'open',
           contactId,
-          monetaryValue: 85,
+          monetaryValue: 0,
           locationId: process.env.GHL_LOCATION_ID,
         };
         const oppResult = await ghl('POST', `${V2}/opportunities/`, oppPayload);
@@ -781,21 +635,49 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 
     // Bust cache
     clientCache.data = null;
-    res.json({
-      success: true,
-      contactId,
-      contact: contactResult.contact,
-      opportunitiesCreated: oppResults,
-      usedExistingContact: !contactResult?.contact?.dateAdded, // existing contacts don't have dateAdded freshly
-    });
+    res.json({ success: true, contactId, contact: contactResult.contact, opportunitiesCreated: oppResults });
   } catch(err) {
     console.error('Create contact error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
+// ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
+app.get('/api/tasks-board', async (req, res) => {
+  try {
+    // Fetch all contacts tasks from GHL
+    const tasksData = [];
+    let tasksPage = 1, tasksHasMore = true;
+    while (tasksHasMore && tasksPage <= 20) {
+      try {
+        const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&limit=100&skip=${(tasksPage-1)*100}`);
+        const batch = td.tasks || [];
+        tasksData.push(...batch);
+        tasksHasMore = batch.length === 100;
+        tasksPage++;
+      } catch(e) { tasksHasMore = false; }
+    }
 
+    // Fetch all opportunities from GHL
+    const oppsData = [];
+    let oppsPage = 1, oppsHasMore = true;
+    while (oppsHasMore && oppsPage <= 30) {
+      try {
+        const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=100&page=${oppsPage}`);
+        const batch = od.opportunities || [];
+        oppsData.push(...batch);
+        oppsHasMore = batch.length === 100;
+        oppsPage++;
+      } catch(e) { oppsHasMore = false; }
+    }
+
+    res.json({ tasks: tasksData, opportunities: oppsData });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getPipelineInfo(key) {
