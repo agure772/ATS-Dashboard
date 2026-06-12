@@ -1134,24 +1134,38 @@ async function dotPushToGHL() {
 // TASKS BOARD — Supervisor / Staff view
 // ═══════════════════════════════════════════════════════════════════════════
 
-// 4 supervisors — each is also a staff member with their own tasks
-// GHL initials shown in assignee column: SJ, AY, MS, AG
+// Names EXACTLY as they appear in GHL owner/assignee fields
 const TB_SUPERVISORS = [
-  { id: 'shucayb', name: 'Shucayb Jama',  ghlInitials: 'SJ', color: '#7c3aed', initials: 'SJ' },
-  { id: 'ahmed_y', name: 'Ahmed Yusuf',   ghlInitials: 'AY', color: '#0891b2', initials: 'AY' },
-  { id: 'mahad',   name: 'Mahad Said',    ghlInitials: 'MS', color: '#059669', initials: 'MS' },
-  { id: 'ahmed_g', name: 'Ahmed Gure',    ghlInitials: 'AG', color: '#d97706', initials: 'AG' },
+  { id: 'shucayb', name: 'Shucayb Jama', ghlNames: ['shucayb jama','shucayb'], color: '#7c3aed', initials: 'SJ' },
+  { id: 'ahmed_y', name: 'Ahmed Yusuf',  ghlNames: ['ahmed yusuf'],            color: '#0891b2', initials: 'AY' },
+  { id: 'mahad',   name: 'Mahad Said',   ghlNames: ['mahad said q','mahad said','mahad'], color: '#059669', initials: 'MS' },
+  { id: 'ahmed_g', name: 'Ahmed Gure',   ghlNames: ['ahmed gure','mandeed'],   color: '#d97706', initials: 'AG' },
 ];
 
-// TB_STAFF — currently just the supervisors themselves
-// Future: add non-supervisor staff here with supervisor: 'shucayb' etc.
+// GHL name aliases for non-supervisor staff
+const TB_STAFF_GHL_NAMES = {
+  ali:    ['ali ali'],
+  kamal:  ['kamal ahmed'],
+  yahya:  ['yahya yusuf'],
+  yusuf:  ['yusuf yusuf'],
+  mustaf: ['mustaf hassan','mustafe hassan'],
+};
+
 const TB_STAFF = [
-  { id: 'shucayb', name: 'Shucayb Jama', supervisor: 'shucayb', isSuper: true  },
-  { id: 'ahmed_y', name: 'Ahmed Yusuf',  supervisor: 'ahmed_y', isSuper: true  },
-  { id: 'mahad',   name: 'Mahad Said',   supervisor: 'mahad',   isSuper: true  },
-  { id: 'ahmed_g', name: 'Ahmed Gure',   supervisor: 'ahmed_g', isSuper: true  },
-  // Future staff example (commented out until hired):
-  // { id: 'staff_1', name: 'New Staff Member', supervisor: 'shucayb', isSuper: false },
+  // Shucayb Jama's team
+  { id: 'shucayb', name: 'shucayb Jama', supervisor: 'shucayb', isSuper: true  },
+  { id: 'ali',     name: 'Ali Ali',       supervisor: 'shucayb', isSuper: false },
+  { id: 'kamal',   name: 'Kamal Ahmed',   supervisor: 'shucayb', isSuper: false },
+  // Ahmed Yusuf's team
+  { id: 'ahmed_y', name: 'Ahmed Yusuf',   supervisor: 'ahmed_y', isSuper: true  },
+  { id: 'yahya',   name: 'Yahya Yusuf',   supervisor: 'ahmed_y', isSuper: false },
+  { id: 'yusuf',   name: 'Yusuf Yusuf',   supervisor: 'ahmed_y', isSuper: false },
+  // Mahad Said's team
+  { id: 'mahad',   name: 'Mahad Said',    supervisor: 'mahad',   isSuper: true  },
+  { id: 'mustaf',  name: 'Mustaf Hassan', supervisor: 'mahad',   isSuper: false },
+  // Ahmed Gure's team
+  { id: 'ahmed_g', name: 'Ahmed Gure',    supervisor: 'ahmed_g', isSuper: true  },
+  // Future staff added here as team grows
 ];
 
 let tbState = {
@@ -1165,28 +1179,32 @@ let tbState = {
 };
 
 function tbInit() {
-  const tabs = document.getElementById('tb-supervisor-tabs');
-  if (!tabs) return;
-  tabs.innerHTML = TB_SUPERVISORS.map(s => `
-    <button onclick="tbSelectSupervisor('${s.id}')" id="tb-sup-${s.id}"
-      style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-radius:12px;
-             border:2px solid ${tbState.selectedSup===s.id ? s.color : 'var(--border)'};
-             background:${tbState.selectedSup===s.id ? s.color+'22' : 'var(--bg3)'};
-             cursor:pointer;transition:all .15s">
-      <div style="width:36px;height:36px;border-radius:50%;background:${s.color};
-                  display:flex;align-items:center;justify-content:center;
-                  font-size:13px;font-weight:800;color:#fff">${s.initials}</div>
-      <div style="text-align:left">
-        <div style="font-size:13px;font-weight:700;color:${tbState.selectedSup===s.id ? s.color : 'var(--text)'}">
-          ${s.name}
-        </div>
-        <div style="font-size:11px;color:var(--text3)">
-          ${TB_STAFF.filter(st=>st.supervisor===s.id).length} staff
-          ${s.id === tbState.selectedSup ? '· viewing' : ''}
-        </div>
-      </div>
-    </button>
-  `).join('');
+  const container = document.getElementById('tb-supervisor-tabs');
+  if (!container) return;
+  const sup = TB_SUPERVISORS.find(s => s.id === tbState.selectedSup);
+
+  container.innerHTML = `
+    <select onchange="tbSelectSupervisor(this.value)"
+      style="width:100%;background:var(--bg3);border:2px solid ${sup?.color || 'var(--border)'};
+             color:var(--text);border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600;
+             cursor:pointer;appearance:none;-webkit-appearance:none;
+             background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23aaa%22 stroke-width=%222%22><polyline points=%226 9 12 15 18 9%22/></svg>');
+             background-repeat:no-repeat;background-position:right 12px center;padding-right:36px">
+      ${TB_SUPERVISORS.map(s => `
+        <option value="${s.id}" ${s.id === tbState.selectedSup ? 'selected' : ''}>
+          ${s.initials} — ${s.name} (${TB_STAFF.filter(st=>st.supervisor===s.id).length} staff)
+        </option>
+      `).join('')}
+    </select>
+  `;
+
+  // Update info line
+  const infoEl = document.getElementById('tb-sup-info');
+  if (infoEl && sup) {
+    const teamCount = TB_STAFF.filter(s => s.supervisor === sup.id).length;
+    const staffCount = TB_STAFF.filter(s => s.supervisor === sup.id && !s.isSuper).length;
+    infoEl.innerHTML = `<span style="color:${sup.color};font-weight:700">${sup.name}</span> · ${staffCount} direct report${staffCount!==1?'s':''} · ${teamCount} total`;
+  }
 }
 
 async function tbLoad() {
@@ -1234,13 +1252,12 @@ function tbIsOverdue(dueDate) {
   return new Date(dueDate) < new Date();
 }
 
-function tbMatchesStaff(item, staffName) {
-  const n = staffName.toLowerCase();
-  // Check assignee field (tasks) and owner/assignedTo (opportunities)
-  const assignee = (item.assignedTo || item.assignedUserId || item.owner || '').toLowerCase();
-  const assigneeName = (item.assigneeName || item.ownerName || '').toLowerCase();
-  return assignee.includes(n.split(' ')[0]) || assigneeName.includes(n.split(' ')[0]) ||
-         n.includes(assignee.split(' ')[0]);
+function tbOppIsStale(opp) {
+  // Open opportunity stale for more than 1 day = highlight red
+  const created = opp.createdAt || opp.dateAdded || opp.updatedAt;
+  if (!created) return false;
+  const ageDays = (Date.now() - new Date(created).getTime()) / (1000*60*60*24);
+  return ageDays > 1;
 }
 
 function tbGetItemStatus(item, isTask) {
@@ -1252,7 +1269,8 @@ function tbGetItemStatus(item, isTask) {
     const s = (item.status || '').toLowerCase();
     if (s === 'won' || s === 'completed') return 'completed';
     if (s === 'lost') return 'lost';
-    if (tbIsOverdue(item.dueDate)) return 'overdue';
+    // Open opp older than 1 day = overdue (needs attention)
+    if (s === 'open' && tbOppIsStale(item)) return 'overdue';
     return 'open';
   }
 }
@@ -1272,30 +1290,33 @@ function tbRender() {
   let totalTasks = 0, overdueTasks = 0, openTasks = 0, doneTasks = 0;
 
   const cards = team.map(staff => {
-    // Find GHL user by name match
-    const firstName = staff.name.split(' ')[0].toLowerCase();
-    const lastName  = staff.name.split(' ')[1]?.toLowerCase() || '';
-    const ghlUser   = tbState.users.find(u => {
+    // Get GHL name aliases — supervisor uses TB_SUPERVISORS, staff uses TB_STAFF_GHL_NAMES
+    const supConfig = TB_SUPERVISORS.find(s => s.id === staff.id);
+    const ghlNames = supConfig?.ghlNames
+      || TB_STAFF_GHL_NAMES[staff.id]
+      || [staff.name.toLowerCase()];
+
+    // Find GHL user by name match against ghlNames list
+    const ghlUser = tbState.users.find(u => {
       const un = (u.name || '').toLowerCase();
-      return un.includes(firstName) || (lastName && un.includes(lastName));
+      return ghlNames.some(n => un.includes(n) || n.includes(un));
     });
     const userId = ghlUser?.id || null;
+    if (ghlUser) console.log(`✓ ${staff.name} → GHL: ${ghlUser.name} (${userId})`);
+    else console.log(`✗ ${staff.name} — no GHL user matched`);
 
-    // Match supervisor config for GHL initials
-    const supConfig = TB_SUPERVISORS.find(s => s.id === staff.id);
-
-    // Match opportunities by user ID or name
+    // Match opportunities: by userId OR by name
     const staffOpps = tbState.opps.filter(o => {
       if (userId && o.assignedTo === userId) return true;
       const ownerName = (o.ownerName || o.assignedToName || '').toLowerCase();
-      return ownerName.includes(firstName) || (lastName && ownerName.includes(lastName));
+      return ghlNames.some(n => ownerName.includes(n.split(' ')[0]));
     });
 
-    // Match tasks by user ID or assigneeName
+    // Match tasks: by userId OR by assigneeName set from server
     const staffTasks = tbState.tasks.filter(t => {
       if (userId && (t.assigneeId === userId || t.assignedTo === userId)) return true;
       const aName = (t.assigneeName || t.assignedToName || '').toLowerCase();
-      return aName.includes(firstName) || (lastName && aName.includes(lastName));
+      return ghlNames.some(n => aName.includes(n.split(' ')[0]));
     });
 
     // Apply filters
@@ -1325,6 +1346,8 @@ function tbRender() {
     doneTasks += myCompleted;
 
     const cardColor = supConfig?.color || sup.color;
+    const cardInitials = supConfig?.initials
+      || staff.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     const badgeLabel = staff.isSuper ? 'SUPERVISOR' : 'STAFF';
 
     return `
@@ -1333,7 +1356,7 @@ function tbRender() {
           <div style="width:42px;height:42px;border-radius:50%;background:${cardColor}33;border:2px solid ${cardColor};
                       display:flex;align-items:center;justify-content:center;
                       font-size:13px;font-weight:800;color:${cardColor};flex-shrink:0">
-            ${supConfig?.ghlInitials || staff.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+            ${cardInitials}
           </div>
           <div style="flex:1">
             <div style="display:flex;align-items:center;gap:6px">
@@ -1369,8 +1392,13 @@ function tbRender() {
             const dueDate = item.dueDate
               ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})
               : '';
+            // For opportunities, show age in days
+            const created = item.createdAt || item.dateAdded;
+            const ageDays = created ? Math.floor((Date.now() - new Date(created).getTime()) / (1000*60*60*24)) : null;
+            const ageLabel = !isTask && ageDays !== null ? `${ageDays}d old` : '';
+            const rowBg = item._status === 'overdue' ? 'rgba(239,68,68,0.05)' : 'transparent';
             return `
-              <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px">
+              <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px;background:${rowBg}">
                 <i class="ti ${statusIcon}" style="color:${statusColor};font-size:14px;margin-top:2px;flex-shrink:0"></i>
                 <div style="flex:1;min-width:0">
                   <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
@@ -1379,6 +1407,7 @@ function tbRender() {
                 <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
                   <span style="font-size:9px;background:var(--bg3);color:var(--text3);padding:2px 6px;border-radius:4px;font-weight:700">${isTask?'TASK':'OPP'}</span>
                   ${dueDate ? `<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${dueDate}</span>` : ''}
+                  ${ageLabel ? `<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageLabel}</span>` : ''}
                 </div>
               </div>
             `;
