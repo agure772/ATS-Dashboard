@@ -1135,37 +1135,28 @@ async function dotPushToGHL() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Names EXACTLY as they appear in GHL owner/assignee fields
+// GHL User IDs — hardcoded from /api/debug/users
 const TB_SUPERVISORS = [
-  { id: 'shucayb', name: 'Shucayb Jama', ghlNames: ['shucayb jama','shucayb'], color: '#7c3aed', initials: 'SJ' },
-  { id: 'ahmed_y', name: 'Ahmed Yusuf',  ghlNames: ['ahmed yusuf'],            color: '#0891b2', initials: 'AY' },
-  { id: 'mahad',   name: 'Mahad Said',   ghlNames: ['mahad said q','mahad said','mahad'], color: '#059669', initials: 'MS' },
-  { id: 'ahmed_g', name: 'Ahmed Gure',   ghlNames: ['ahmed gure','mandeed'],   color: '#d97706', initials: 'AG' },
+  { id: 'shucayb', name: 'Shucayb Jama', ghlId: 's57KFI2a9N3LmRprzdJW', color: '#7c3aed', initials: 'SJ' },
+  { id: 'ahmed_y', name: 'Ahmed Yusuf',  ghlId: '48vCVBOEaRTpUJ23XC4K', color: '#0891b2', initials: 'AY' },
+  { id: 'mahad',   name: 'Mahad Said',   ghlId: 'yri669q8Ymx22zdFDPLK', color: '#059669', initials: 'MS' },
+  { id: 'ahmed_g', name: 'Ahmed Gure',   ghlId: 'FmjXHSLQ6XWMGgj0Y0w3', color: '#d97706', initials: 'AG' },
 ];
 
-// GHL name aliases for non-supervisor staff
-const TB_STAFF_GHL_NAMES = {
-  ali:    ['ali ali'],
-  kamal:  ['kamal ahmed'],
-  yahya:  ['yahya yusuf'],
-  yusuf:  ['yusuf yusuf'],
-  mustaf: ['mustaf hassan','mustafe hassan'],
-};
-
 const TB_STAFF = [
-  // Shucayb Jama's team
-  { id: 'shucayb', name: 'shucayb Jama', supervisor: 'shucayb', isSuper: true  },
-  { id: 'ali',     name: 'Ali Ali',       supervisor: 'shucayb', isSuper: false },
-  { id: 'kamal',   name: 'Kamal Ahmed',   supervisor: 'shucayb', isSuper: false },
+  // Shucayb's team
+  { id: 'shucayb', name: 'Shucayb Jama', ghlId: 's57KFI2a9N3LmRprzdJW', supervisor: 'shucayb', isSuper: true  },
+  { id: 'ali',     name: 'Ali Ali',       ghlId: '40ynNiHEBfnZq6gsh7IS', supervisor: 'shucayb', isSuper: false },
+  { id: 'kamal',   name: 'Kamal Ahmed',   ghlId: 'fnFKHlkLVfjYBzFxC5aG', supervisor: 'shucayb', isSuper: false },
   // Ahmed Yusuf's team
-  { id: 'ahmed_y', name: 'Ahmed Yusuf',   supervisor: 'ahmed_y', isSuper: true  },
-  { id: 'yahya',   name: 'Yahya Yusuf',   supervisor: 'ahmed_y', isSuper: false },
-  { id: 'yusuf',   name: 'Yusuf Yusuf',   supervisor: 'ahmed_y', isSuper: false },
-  // Mahad Said's team
-  { id: 'mahad',   name: 'Mahad Said',    supervisor: 'mahad',   isSuper: true  },
-  { id: 'mustaf',  name: 'Mustaf Hassan', supervisor: 'mahad',   isSuper: false },
+  { id: 'ahmed_y', name: 'Ahmed Yusuf',   ghlId: '48vCVBOEaRTpUJ23XC4K', supervisor: 'ahmed_y', isSuper: true  },
+  { id: 'yahya',   name: 'Yahya Yusuf',   ghlId: 'mIbzEna47UOXtsV2zzxD', supervisor: 'ahmed_y', isSuper: false },
+  { id: 'yusuf',   name: 'Yusuf Yusuf',   ghlId: 'DY4bAKCSR4dnw94zbj2a', supervisor: 'ahmed_y', isSuper: false },
+  // Mahad's team
+  { id: 'mahad',   name: 'Mahad Said',    ghlId: 'yri669q8Ymx22zdFDPLK', supervisor: 'mahad',   isSuper: true  },
+  { id: 'mustaf',  name: 'Mustaf Hassan', ghlId: 'zohmJyCbnyzoBtLiKNir', supervisor: 'mahad',   isSuper: false },
   // Ahmed Gure's team
-  { id: 'ahmed_g', name: 'Ahmed Gure',    supervisor: 'ahmed_g', isSuper: true  },
-  // Future staff added here as team grows
+  { id: 'ahmed_g', name: 'Ahmed Gure',    ghlId: 'FmjXHSLQ6XWMGgj0Y0w3', supervisor: 'ahmed_g', isSuper: true  },
 ];
 
 let tbState = {
@@ -1293,43 +1284,15 @@ function tbRender() {
   let totalTasks = 0, overdueTasks = 0, openTasks = 0, doneTasks = 0;
 
   const cards = team.map(staff => {
-    // Get GHL name aliases — supervisor uses TB_SUPERVISORS, staff uses TB_STAFF_GHL_NAMES
     const supConfig = TB_SUPERVISORS.find(s => s.id === staff.id);
-    const ghlNames = supConfig?.ghlNames
-      || TB_STAFF_GHL_NAMES[staff.id]
-      || [staff.name.toLowerCase()];
+    const userId = staff.ghlId; // hardcoded GHL user ID — no API needed
+    console.log(`${staff.name} → GHL ID: ${userId}`);
 
-    // Find GHL user ID by matching ghlNames against userMap values
-    const ghlUser = tbState.users.find(u => {
-      const un = (u.name || `${u.firstName||''} ${u.lastName||''}`.trim()).toLowerCase();
-      return ghlNames.some(n => un.includes(n) || n.includes(un));
-    });
-    // Also search userMap (id→name) for the right ID
-    let userId = ghlUser?.id || null;
-    if (!userId) {
-      for (const [id, name] of Object.entries(tbState.userMap || {})) {
-        const n = name.toLowerCase();
-        if (ghlNames.some(gn => n.includes(gn) || gn.includes(n))) {
-          userId = id;
-          console.log(`✓ ${staff.name} → userMap match: ${name} (${id})`);
-          break;
-        }
-      }
-    }
-    if (!userId) console.log(`✗ ${staff.name} — no match in users or userMap`);
-
-    // Match opportunities: by userId OR by name
-    const staffOpps = tbState.opps.filter(o => {
-      if (userId && o.assignedTo === userId) return true;
-      const ownerName = (o.ownerName || o.assignedToName || '').toLowerCase();
-      return ghlNames.some(n => ownerName.includes(n.split(' ')[0]));
-    });
-
-    // Match tasks: by userId OR by assigneeName set from server
-    const staffTasks = tbState.tasks.filter(t => {
-      if (userId && (t.assigneeId === userId || t.assignedTo === userId)) return true;
-      const aName = (t.assigneeName || t.assignedToName || '').toLowerCase();
-      return ghlNames.some(n => aName.includes(n.split(' ')[0]));
+    // Match by hardcoded GHL user ID — direct and reliable
+    const staffOpps = tbState.opps.filter(o => o.assignedTo === userId);
+    const staffTasks = tbState.tasks.filter(t =>
+      t.assigneeId === userId || t.assignedTo === userId
+    );
     });
 
     // Apply filters
@@ -1359,8 +1322,7 @@ function tbRender() {
     doneTasks += myCompleted;
 
     const cardColor = supConfig?.color || sup.color;
-    const cardInitials = supConfig?.initials
-      || staff.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    const cardInitials = supConfig?.initials || staff.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     const badgeLabel = staff.isSuper ? 'SUPERVISOR' : 'STAFF';
 
     return `
