@@ -1134,54 +1134,56 @@ async function dotPushToGHL() {
 // TASKS BOARD — Supervisor / Staff view
 // ═══════════════════════════════════════════════════════════════════════════
 
+// 4 supervisors — each is also a staff member with their own tasks
+// GHL initials shown in assignee column: SJ, AY, MS, AG
 const TB_SUPERVISORS = [
-  { id: 'mahad',   name: 'Mahad',    color: '#7c3aed', initials: 'MA' },
-  { id: 'shuab',   name: 'Shuab',    color: '#0891b2', initials: 'SH' },
-  { id: 'ahmed',   name: 'Ahmed',    color: '#059669', initials: 'AH' },
-  { id: 'mandeed', name: 'Mandeed',  color: '#d97706', initials: 'MD' },
+  { id: 'shucayb', name: 'Shucayb Jama',  ghlInitials: 'SJ', color: '#7c3aed', initials: 'SJ' },
+  { id: 'ahmed_y', name: 'Ahmed Yusuf',   ghlInitials: 'AY', color: '#0891b2', initials: 'AY' },
+  { id: 'mahad',   name: 'Mahad Said',    ghlInitials: 'MS', color: '#059669', initials: 'MS' },
+  { id: 'ahmed_g', name: 'Ahmed Gure',    ghlInitials: 'AG', color: '#d97706', initials: 'AG' },
 ];
 
-// Staff list — split across supervisors (roughly equal)
-// Names pulled from GHL assignee column screenshots; update as needed
+// TB_STAFF — currently just the supervisors themselves
+// Future: add non-supervisor staff here with supervisor: 'shucayb' etc.
 const TB_STAFF = [
-  // Mahad's team
-  { id: 'shucayb',   name: 'Shucayb Jama',      supervisor: 'mahad'   },
-  { id: 'abdulahi',  name: 'Abdulahi Muhudin',   supervisor: 'mahad'   },
-  { id: 'mustafe',   name: 'Mustafe Duale',      supervisor: 'mahad'   },
-  // Shuab's team
-  { id: 'bashir',    name: 'Bashir Hassan',      supervisor: 'shuab'   },
-  { id: 'yassin',    name: 'Yassin Dualeh',      supervisor: 'shuab'   },
-  { id: 'iqbal',     name: 'Iqbal Mohamed',      supervisor: 'shuab'   },
-  // Ahmed's team
-  { id: 'ahmed_g',   name: 'Ahmed Gure',         supervisor: 'ahmed'   },
-  { id: 'mohamud',   name: 'Mohamud Said',       supervisor: 'ahmed'   },
-  { id: 'faadumo',   name: 'Faadumo Ali',        supervisor: 'ahmed'   },
-  // Mandeed's team
-  { id: 'mandeed_s', name: 'Mandeed Staff 1',    supervisor: 'mandeed' },
-  { id: 'halima',    name: 'Halima Warsame',     supervisor: 'mandeed' },
-  { id: 'omar',      name: 'Omar Hassan',        supervisor: 'mandeed' },
+  { id: 'shucayb', name: 'Shucayb Jama', supervisor: 'shucayb', isSuper: true  },
+  { id: 'ahmed_y', name: 'Ahmed Yusuf',  supervisor: 'ahmed_y', isSuper: true  },
+  { id: 'mahad',   name: 'Mahad Said',   supervisor: 'mahad',   isSuper: true  },
+  { id: 'ahmed_g', name: 'Ahmed Gure',   supervisor: 'ahmed_g', isSuper: true  },
+  // Future staff example (commented out until hired):
+  // { id: 'staff_1', name: 'New Staff Member', supervisor: 'shucayb', isSuper: false },
 ];
 
 let tbState = {
-  selectedSup: 'mahad',
+  selectedSup: 'shucayb',
   tasks: [],
   opps: [],
+  users: [],
   loaded: false,
   filterType: 'all',
   filterStatus: 'all',
 };
 
 function tbInit() {
-  // Build supervisor tabs
   const tabs = document.getElementById('tb-supervisor-tabs');
   if (!tabs) return;
   tabs.innerHTML = TB_SUPERVISORS.map(s => `
     <button onclick="tbSelectSupervisor('${s.id}')" id="tb-sup-${s.id}"
-      style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-radius:12px;border:2px solid ${tbState.selectedSup===s.id ? s.color : 'var(--border)'};background:${tbState.selectedSup===s.id ? s.color+'22' : 'var(--bg3)'};cursor:pointer;transition:all .15s">
-      <div style="width:36px;height:36px;border-radius:50%;background:${s.color};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff">${s.initials}</div>
+      style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-radius:12px;
+             border:2px solid ${tbState.selectedSup===s.id ? s.color : 'var(--border)'};
+             background:${tbState.selectedSup===s.id ? s.color+'22' : 'var(--bg3)'};
+             cursor:pointer;transition:all .15s">
+      <div style="width:36px;height:36px;border-radius:50%;background:${s.color};
+                  display:flex;align-items:center;justify-content:center;
+                  font-size:13px;font-weight:800;color:#fff">${s.initials}</div>
       <div style="text-align:left">
-        <div style="font-size:13px;font-weight:700;color:${tbState.selectedSup===s.id ? s.color : 'var(--text)'}">${s.name}</div>
-        <div style="font-size:11px;color:var(--text3)">${TB_STAFF.filter(st=>st.supervisor===s.id).length} staff</div>
+        <div style="font-size:13px;font-weight:700;color:${tbState.selectedSup===s.id ? s.color : 'var(--text)'}">
+          ${s.name}
+        </div>
+        <div style="font-size:11px;color:var(--text3)">
+          ${TB_STAFF.filter(st=>st.supervisor===s.id).length} staff
+          ${s.id === tbState.selectedSup ? '· viewing' : ''}
+        </div>
       </div>
     </button>
   `).join('');
@@ -1193,10 +1195,15 @@ async function tbLoad() {
   document.getElementById('tb-staff-grid').innerHTML = '';
   try {
     const res = await fetch('/api/tasks-board');
+    if (!res.ok) throw new Error(`Server error: ${res.status}`);
     const data = await res.json();
     tbState.tasks = data.tasks || [];
     tbState.opps  = data.opportunities || [];
+    tbState.users = data.users || [];
     tbState.loaded = true;
+    console.log(`Loaded: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} users`);
+    console.log('Sample opp owner:', tbState.opps[0]?.assignedTo, tbState.opps[0]?.ownerName);
+    console.log('Sample task assignee:', tbState.tasks[0]?.assignedTo, tbState.tasks[0]?.assigneeName);
   } catch(e) {
     document.getElementById('tb-loading').innerHTML = `<div style="color:var(--red)">Failed to load: ${e.message}</div>`;
     return;
@@ -1257,24 +1264,38 @@ function tbRender() {
   const label = document.getElementById('tb-team-label');
   if (!grid || !sup) return;
 
-  label.textContent = `${sup.name.toUpperCase()}'S TEAM — ${team.length} STAFF`;
+  const teamLabel = team.length === 1 && team[0].isSuper
+    ? `${sup.name.toUpperCase()} — SUPERVISOR`
+    : `${sup.name.toUpperCase()}'S TEAM — ${team.length} STAFF`;
+  label.textContent = teamLabel;
 
-  // Build stats
   let totalTasks = 0, overdueTasks = 0, openTasks = 0, doneTasks = 0;
 
   const cards = team.map(staff => {
-    // Match tasks to this staff member
-    const staffTasks = tbState.tasks.filter(t => {
-      const assigneeName = (t.assignedTo || t.title || '').toLowerCase();
-      const firstName = staff.name.split(' ')[0].toLowerCase();
-      return assigneeName.includes(firstName) || (t.assignedUserName||'').toLowerCase().includes(firstName);
+    // Find GHL user by name match
+    const firstName = staff.name.split(' ')[0].toLowerCase();
+    const lastName  = staff.name.split(' ')[1]?.toLowerCase() || '';
+    const ghlUser   = tbState.users.find(u => {
+      const un = (u.name || '').toLowerCase();
+      return un.includes(firstName) || (lastName && un.includes(lastName));
+    });
+    const userId = ghlUser?.id || null;
+
+    // Match supervisor config for GHL initials
+    const supConfig = TB_SUPERVISORS.find(s => s.id === staff.id);
+
+    // Match opportunities by user ID or name
+    const staffOpps = tbState.opps.filter(o => {
+      if (userId && o.assignedTo === userId) return true;
+      const ownerName = (o.ownerName || o.assignedToName || '').toLowerCase();
+      return ownerName.includes(firstName) || (lastName && ownerName.includes(lastName));
     });
 
-    // Match opportunities to this staff member
-    const staffOpps = tbState.opps.filter(o => {
-      const ownerName = (o.ownerName || o.assignedTo || '').toLowerCase();
-      const firstName = staff.name.split(' ')[0].toLowerCase();
-      return ownerName.includes(firstName);
+    // Match tasks by user ID or assigneeName
+    const staffTasks = tbState.tasks.filter(t => {
+      if (userId && (t.assigneeId === userId || t.assignedTo === userId)) return true;
+      const aName = (t.assigneeName || t.assignedToName || '').toLowerCase();
+      return aName.includes(firstName) || (lastName && aName.includes(lastName));
     });
 
     // Apply filters
@@ -1289,7 +1310,12 @@ function tbRender() {
       items = items.filter(i => i._status === tbState.filterStatus);
     }
 
-    // Stats
+    // Sort: overdue first, then open, then completed
+    items.sort((a,b) => {
+      const order = { overdue:0, open:1, completed:2, lost:3 };
+      return (order[a._status]||1) - (order[b._status]||1);
+    });
+
     const myOverdue   = items.filter(i => i._status === 'overdue').length;
     const myOpen      = items.filter(i => i._status === 'open').length;
     const myCompleted = items.filter(i => i._status === 'completed').length;
@@ -1298,43 +1324,51 @@ function tbRender() {
     openTasks += myOpen;
     doneTasks += myCompleted;
 
-    const initials = staff.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    const cardColor = supConfig?.color || sup.color;
+    const badgeLabel = staff.isSuper ? 'SUPERVISOR' : 'STAFF';
 
     return `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden">
-        <!-- Staff header -->
         <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);background:var(--bg3)">
-          <div style="width:40px;height:40px;border-radius:50%;background:${sup.color}33;border:2px solid ${sup.color};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:${sup.color};flex-shrink:0">${initials}</div>
+          <div style="width:42px;height:42px;border-radius:50%;background:${cardColor}33;border:2px solid ${cardColor};
+                      display:flex;align-items:center;justify-content:center;
+                      font-size:13px;font-weight:800;color:${cardColor};flex-shrink:0">
+            ${supConfig?.ghlInitials || staff.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+          </div>
           <div style="flex:1">
-            <div style="font-size:13px;font-weight:700;color:var(--text)">${staff.name}</div>
-            <div style="display:flex;gap:8px;margin-top:3px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:13px;font-weight:700;color:var(--text)">${staff.name}</span>
+              <span style="font-size:9px;background:${cardColor}22;color:${cardColor};padding:2px 6px;border-radius:4px;font-weight:700">${badgeLabel}</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
               ${myOverdue ? `<span style="font-size:10px;background:rgba(239,68,68,.15);color:#ef4444;padding:2px 7px;border-radius:20px;font-weight:700">${myOverdue} overdue</span>` : ''}
               ${myOpen ? `<span style="font-size:10px;background:rgba(59,130,246,.15);color:#60a5fa;padding:2px 7px;border-radius:20px;font-weight:700">${myOpen} open</span>` : ''}
               ${myCompleted ? `<span style="font-size:10px;background:rgba(16,185,129,.15);color:#34d399;padding:2px 7px;border-radius:20px;font-weight:700">${myCompleted} done</span>` : ''}
               ${!items.length ? `<span style="font-size:10px;color:var(--text3)">No items</span>` : ''}
             </div>
           </div>
-          <div style="font-size:20px;font-weight:800;color:var(--text3)">${items.length}</div>
+          <div style="font-size:22px;font-weight:800;color:${items.length ? cardColor : 'var(--text3)'}">
+            ${items.length}
+          </div>
         </div>
 
-        <!-- Item list -->
-        <div style="max-height:320px;overflow-y:auto">
+        <div style="max-height:360px;overflow-y:auto">
           ${items.length === 0 ? `
             <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">
               <i class="ti ti-circle-check" style="font-size:24px;display:block;margin-bottom:6px;color:var(--green)"></i>
               All clear
             </div>
-          ` : items.slice(0,20).map(item => {
+          ` : items.slice(0,25).map(item => {
             const isTask = item._type === 'task';
             const statusColor = item._status === 'overdue' ? '#ef4444'
-              : item._status === 'completed' ? '#34d399'
-              : '#60a5fa';
+              : item._status === 'completed' ? '#34d399' : '#60a5fa';
             const statusIcon = item._status === 'overdue' ? 'ti-alert-triangle'
-              : item._status === 'completed' ? 'ti-circle-check'
-              : 'ti-clock';
+              : item._status === 'completed' ? 'ti-circle-check' : 'ti-clock';
             const title = item.title || item.name || (isTask ? 'Task' : 'Opportunity');
             const contact = item.contact?.name || item.contactName || '';
-            const dueDate = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+            const dueDate = item.dueDate
+              ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})
+              : '';
             return `
               <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px">
                 <i class="ti ${statusIcon}" style="color:${statusColor};font-size:14px;margin-top:2px;flex-shrink:0"></i>
@@ -1349,7 +1383,10 @@ function tbRender() {
               </div>
             `;
           }).join('')}
-          ${items.length > 20 ? `<div style="padding:8px 16px;text-align:center;font-size:11px;color:var(--text3)">+${items.length-20} more items</div>` : ''}
+          ${items.length > 25 ? `
+            <div style="padding:8px 16px;text-align:center;font-size:11px;color:var(--text3)">
+              +${items.length-25} more items
+            </div>` : ''}
         </div>
       </div>
     `;
@@ -1360,10 +1397,10 @@ function tbRender() {
   // Stats bar
   const stats = document.getElementById('tb-stats');
   stats.innerHTML = [
-    { label: 'Total Items', value: totalTasks, icon: 'ti-list', color: 'var(--primary)' },
-    { label: 'Overdue',     value: overdueTasks, icon: 'ti-alert-triangle', color: '#ef4444' },
-    { label: 'Open',        value: openTasks,  icon: 'ti-clock', color: '#60a5fa' },
-    { label: 'Completed',   value: doneTasks,  icon: 'ti-circle-check', color: '#34d399' },
+    { label: 'Total Items', value: totalTasks,   icon: 'ti-list',           color: 'var(--primary)' },
+    { label: 'Overdue',     value: overdueTasks,  icon: 'ti-alert-triangle', color: '#ef4444'        },
+    { label: 'Open',        value: openTasks,     icon: 'ti-clock',          color: '#60a5fa'        },
+    { label: 'Completed',   value: doneTasks,     icon: 'ti-circle-check',   color: '#34d399'        },
   ].map(s => `
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px">
       <i class="ti ${s.icon}" style="font-size:22px;color:${s.color}"></i>
