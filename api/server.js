@@ -645,16 +645,24 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 // ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
 app.get('/api/tasks-board', async (req, res) => {
   try {
-    // GHL Users — get all staff members with their IDs
+    // GHL Users — try multiple endpoints to get user list
     let usersData = [];
-    try {
-      const ud = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}&limit=100`);
-      usersData = ud.users || ud.data || [];
-      console.log(`Tasks Board: ${usersData.length} GHL users found`);
-      usersData.forEach(u => console.log(`  User: ${u.name} | id: ${u.id}`));
-    } catch(e) { console.log('Users fetch error:', e.message); }
+    const userEndpoints = [
+      `${V2}/users/?locationId=${LOC_ID}&limit=100`,
+      `${V2}/users?locationId=${LOC_ID}&limit=100`,
+    ];
+    for (const endpoint of userEndpoints) {
+      try {
+        const ud = await ghl('GET', endpoint);
+        const found = ud.users || ud.data || ud.members || [];
+        if (found.length) { usersData = found; break; }
+        console.log('Users endpoint returned:', JSON.stringify(ud).slice(0,150));
+      } catch(e) { console.log('Users endpoint error:', e.message); }
+    }
+    console.log(`Tasks Board: ${usersData.length} GHL users found`);
+    usersData.forEach(u => console.log(`  User: ${u.name||u.firstName} | id: ${u.id}`));
 
-    // GHL Opportunities — already paginated correctly
+    // GHL Opportunities
     const oppsData = [];
     let oppsPage = 1, oppsHasMore = true;
     while (oppsHasMore && oppsPage <= 30) {
@@ -668,18 +676,24 @@ app.get('/api/tasks-board', async (req, res) => {
     }
     console.log(`Tasks Board: ${oppsData.length} opportunities`);
 
-    // GHL Tasks — fetch via each user's assigned tasks
+    // Log unique owner IDs from opps so we can map them
+    if (oppsData.length) {
+      const uniqueOwners = [...new Set(oppsData.map(o => o.assignedTo).filter(Boolean))].slice(0,15);
+      console.log('Sample opp owner IDs:', uniqueOwners);
+    }
+
+    // GHL Tasks per user
     const tasksData = [];
     for (const user of usersData.slice(0, 20)) {
       try {
-        const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&assignedTo=${user.id}&limit=100`);
-        const batch = (td.tasks || td.data || []).map(t => ({ ...t, assigneeName: user.name, assigneeId: user.id }));
+        const uid = user.id;
+        const uname = user.name || `${user.firstName||''} ${user.lastName||''}`.trim();
+        const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&assignedTo=${uid}&limit=100`);
+        const batch = (td.tasks || td.data || []).map(t => ({ ...t, assigneeName: uname, assigneeId: uid }));
         tasksData.push(...batch);
-        if (batch.length) console.log(`  ${user.name}: ${batch.length} tasks`);
-      } catch(e) { console.log(`Task fetch error for ${user.name}:`, e.message); }
+        if (batch.length) console.log(`  ${uname}: ${batch.length} tasks`);
+      } catch(e) { console.log('Task fetch error:', e.message); }
     }
-
-    // If user-based task fetch returned nothing, try location-level
     if (!tasksData.length) {
       try {
         const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&limit=100`);
@@ -688,12 +702,24 @@ app.get('/api/tasks-board', async (req, res) => {
       } catch(e) { console.log('Location tasks error:', e.message); }
     }
 
-    console.log(`Tasks Board FINAL: ${tasksData.length} tasks, ${oppsData.length} opps`);
+    console.log(`FINAL: ${tasksData.length} tasks, ${oppsData.length} opps, ${usersData.length} users`);
     res.json({ tasks: tasksData, opportunities: oppsData, users: usersData });
   } catch(err) {
     console.log('Tasks board error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+// Debug: get raw user data to find correct IDs
+app.get('/api/debug/users', async (req, res) => {
+  const results = {};
+  try { results.v2_users = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}&limit=100`); } catch(e) { results.v2_users_err = e.message; }
+  try { results.v2_location = await ghl('GET', `${V2}/locations/${LOC_ID}/users`); } catch(e) { results.v2_location_err = e.message; }
+  try {
+    // Get owner names from first 5 opps
+    const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=5`);
+    results.sample_opps = (od.opportunities||[]).map(o => ({ id: o.id, assignedTo: o.assignedTo, ownerName: o.ownerName, name: o.name }));
+  } catch(e) { results.opps_err = e.message; }
+  res.json(results);
 });
 
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
