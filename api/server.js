@@ -645,22 +645,14 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 // ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
 app.get('/api/tasks-board', async (req, res) => {
   try {
-    // GHL Users — try multiple endpoints to get user list
+    // GHL Users — correct endpoint (no limit param)
     let usersData = [];
-    const userEndpoints = [
-      `${V2}/users/?locationId=${LOC_ID}&limit=100`,
-      `${V2}/users?locationId=${LOC_ID}&limit=100`,
-    ];
-    for (const endpoint of userEndpoints) {
-      try {
-        const ud = await ghl('GET', endpoint);
-        const found = ud.users || ud.data || ud.members || [];
-        if (found.length) { usersData = found; break; }
-        console.log('Users endpoint returned:', JSON.stringify(ud).slice(0,150));
-      } catch(e) { console.log('Users endpoint error:', e.message); }
-    }
-    console.log(`Tasks Board: ${usersData.length} GHL users found`);
-    usersData.forEach(u => console.log(`  User: ${u.name||u.firstName} | id: ${u.id}`));
+    try {
+      const ud = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}`);
+      usersData = ud.users || ud.data || ud.members || [];
+      console.log(`Users found: ${usersData.length}`);
+      usersData.forEach(u => console.log(`  ${u.id} | ${u.name||u.firstName+' '+u.lastName}`));
+    } catch(e) { console.log('Users err:', e.message); }
 
     // GHL Opportunities
     const oppsData = [];
@@ -672,52 +664,64 @@ app.get('/api/tasks-board', async (req, res) => {
         oppsData.push(...batch);
         oppsHasMore = batch.length === 100;
         oppsPage++;
-      } catch(e) { console.log('Opps fetch error:', e.message); oppsHasMore = false; }
+      } catch(e) { oppsHasMore = false; }
     }
-    console.log(`Tasks Board: ${oppsData.length} opportunities`);
+    console.log(`Opps: ${oppsData.length}`);
 
-    // Log unique owner IDs from opps so we can map them
-    if (oppsData.length) {
-      const uniqueOwners = [...new Set(oppsData.map(o => o.assignedTo).filter(Boolean))].slice(0,15);
-      console.log('Sample opp owner IDs:', uniqueOwners);
-    }
+    // Build userId→name map from users
+    const userMap = {};
+    usersData.forEach(u => {
+      const name = u.name || `${u.firstName||''} ${u.lastName||''}`.trim();
+      userMap[u.id] = name;
+    });
 
-    // GHL Tasks per user
+    // Also build from opp assignedTo IDs that have names attached
+    oppsData.forEach(o => {
+      if (o.assignedTo && o.ownerName) userMap[o.assignedTo] = o.ownerName;
+    });
+    console.log('User map:', JSON.stringify(userMap));
+
+    // Enrich opps with owner name
+    oppsData.forEach(o => {
+      if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo];
+    });
+
+    // Tasks — try fetching per user
     const tasksData = [];
-    for (const user of usersData.slice(0, 20)) {
+    for (const [uid, uname] of Object.entries(userMap)) {
       try {
-        const uid = user.id;
-        const uname = user.name || `${user.firstName||''} ${user.lastName||''}`.trim();
         const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&assignedTo=${uid}&limit=100`);
         const batch = (td.tasks || td.data || []).map(t => ({ ...t, assigneeName: uname, assigneeId: uid }));
         tasksData.push(...batch);
         if (batch.length) console.log(`  ${uname}: ${batch.length} tasks`);
-      } catch(e) { console.log('Task fetch error:', e.message); }
+      } catch(e) {}
     }
     if (!tasksData.length) {
       try {
         const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&limit=100`);
         tasksData.push(...(td.tasks || td.data || []));
-        console.log(`Location-level tasks: ${tasksData.length}`);
-      } catch(e) { console.log('Location tasks error:', e.message); }
+        console.log(`Location tasks: ${tasksData.length}`);
+      } catch(e) {}
     }
 
-    console.log(`FINAL: ${tasksData.length} tasks, ${oppsData.length} opps, ${usersData.length} users`);
-    res.json({ tasks: tasksData, opportunities: oppsData, users: usersData });
+    console.log(`FINAL: ${tasksData.length} tasks, ${oppsData.length} opps, ${Object.keys(userMap).length} users in map`);
+    res.json({ tasks: tasksData, opportunities: oppsData, users: usersData, userMap });
   } catch(err) {
-    console.log('Tasks board error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
+
+
 // Debug: get raw user data to find correct IDs
 app.get('/api/debug/users', async (req, res) => {
   const results = {};
-  try { results.v2_users = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}&limit=100`); } catch(e) { results.v2_users_err = e.message; }
-  try { results.v2_location = await ghl('GET', `${V2}/locations/${LOC_ID}/users`); } catch(e) { results.v2_location_err = e.message; }
+  try { results.v2_no_limit = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}`); } catch(e) { results.v2_no_limit_err = e.message; }
+  try { results.v2_with_limit = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}&limit=100`); } catch(e) { results.v2_with_limit_err = e.message; }
   try {
-    // Get owner names from first 5 opps
-    const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=5`);
-    results.sample_opps = (od.opportunities||[]).map(o => ({ id: o.id, assignedTo: o.assignedTo, ownerName: o.ownerName, name: o.name }));
+    const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=10&page=1`);
+    results.sample_opps = (od.opportunities||[]).map(o => ({
+      assignedTo: o.assignedTo, ownerName: o.ownerName, name: o.name?.slice(0,30)
+    }));
   } catch(e) { results.opps_err = e.message; }
   res.json(results);
 });
