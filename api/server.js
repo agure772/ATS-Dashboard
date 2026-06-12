@@ -645,20 +645,16 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 // ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
 app.get('/api/tasks-board', async (req, res) => {
   try {
-    // Fetch all contacts tasks from GHL
-    const tasksData = [];
-    let tasksPage = 1, tasksHasMore = true;
-    while (tasksHasMore && tasksPage <= 20) {
-      try {
-        const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&limit=100&skip=${(tasksPage-1)*100}`);
-        const batch = td.tasks || [];
-        tasksData.push(...batch);
-        tasksHasMore = batch.length === 100;
-        tasksPage++;
-      } catch(e) { tasksHasMore = false; }
-    }
+    // GHL Users — get all staff members with their IDs
+    let usersData = [];
+    try {
+      const ud = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}&limit=100`);
+      usersData = ud.users || ud.data || [];
+      console.log(`Tasks Board: ${usersData.length} GHL users found`);
+      usersData.forEach(u => console.log(`  User: ${u.name} | id: ${u.id}`));
+    } catch(e) { console.log('Users fetch error:', e.message); }
 
-    // Fetch all opportunities from GHL
+    // GHL Opportunities — already paginated correctly
     const oppsData = [];
     let oppsPage = 1, oppsHasMore = true;
     while (oppsHasMore && oppsPage <= 30) {
@@ -668,11 +664,34 @@ app.get('/api/tasks-board', async (req, res) => {
         oppsData.push(...batch);
         oppsHasMore = batch.length === 100;
         oppsPage++;
-      } catch(e) { oppsHasMore = false; }
+      } catch(e) { console.log('Opps fetch error:', e.message); oppsHasMore = false; }
+    }
+    console.log(`Tasks Board: ${oppsData.length} opportunities`);
+
+    // GHL Tasks — fetch via each user's assigned tasks
+    const tasksData = [];
+    for (const user of usersData.slice(0, 20)) {
+      try {
+        const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&assignedTo=${user.id}&limit=100`);
+        const batch = (td.tasks || td.data || []).map(t => ({ ...t, assigneeName: user.name, assigneeId: user.id }));
+        tasksData.push(...batch);
+        if (batch.length) console.log(`  ${user.name}: ${batch.length} tasks`);
+      } catch(e) { console.log(`Task fetch error for ${user.name}:`, e.message); }
     }
 
-    res.json({ tasks: tasksData, opportunities: oppsData });
+    // If user-based task fetch returned nothing, try location-level
+    if (!tasksData.length) {
+      try {
+        const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&limit=100`);
+        tasksData.push(...(td.tasks || td.data || []));
+        console.log(`Location-level tasks: ${tasksData.length}`);
+      } catch(e) { console.log('Location tasks error:', e.message); }
+    }
+
+    console.log(`Tasks Board FINAL: ${tasksData.length} tasks, ${oppsData.length} opps`);
+    res.json({ tasks: tasksData, opportunities: oppsData, users: usersData });
   } catch(err) {
+    console.log('Tasks board error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
