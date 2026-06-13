@@ -75,18 +75,19 @@ function navigateTo(page) {
     dashboard:    ['Dashboard', '2026 compliance overview'],
     compliance:   ['Compliance Grid', 'Click any cell to update the GHL opportunity'],
     deadlines:    ['Upcoming Deadlines', 'Filing calendar for all clients'],
-    'dot-lookup': ['FMCSA DOT Lookup', 'Search any DOT number and push to GHL'],
-    'tasks-board':['Tasks Board', 'Supervisor view — staff tasks & opportunities'],
+    'dot-lookup':  ['FMCSA DOT Lookup', 'Search any DOT number and push to GHL'],
+    'tasks-board': ['Tasks Board', 'Supervisor view — staff tasks & opportunities'],
+    'fmcsa-form':   ['FMCSA Support Form', 'Complete on the call — auto-creates GHL task'],
+    'skills-setup': ['Skills Setup', 'Assign service skills to each staff member'],
   };
   const [title, sub] = T[page] || ['ATS',''];
   document.getElementById('page-title').textContent = title;
   document.getElementById('page-sub').textContent   = sub;
 
   // Tasks board — init supervisor tabs and load data
-  if (page === 'tasks-board') {
-    tbInit();
-    tbLoad();
-  }
+  if (page === 'tasks-board')  { tbInit(); tbLoad(); }
+  if (page === 'fmcsa-form')   { ffInit(); }
+  if (page === 'skills-setup') { skInit(); }
 }
 
 
@@ -1312,111 +1313,143 @@ function tbRender() {
   const supColor = tbSupColor(tbState.selectedSup);
   const staffMap = tbGetStaffMap();
   const staffIds = staffMap[tbState.selectedSup] || [];
-
-  // Team = the assigned staff members (supervisor themselves shown separately at top)
   const staffUsers = tbState.users.filter(u => staffIds.includes(u.id));
-  const teamUsers  = [supUser, ...staffUsers.filter(u => u.id !== tbState.selectedSup)].filter(Boolean);
+  const allMembers = [supUser, ...staffUsers.filter(u => u.id !== tbState.selectedSup)].filter(Boolean);
 
-  if (label) label.textContent = `${supUser?.name?.toUpperCase() || 'TEAM'} — ${teamUsers.length} MEMBER${teamUsers.length!==1?'S':''}`;
+  if (label) label.textContent = `${supUser?.name?.toUpperCase() || 'TEAM'} — ${allMembers.length} MEMBER${allMembers.length!==1?'S':''}`;
 
   let totalItems = 0, overdueCount = 0, openCount = 0, doneCount = 0;
 
-  const cards = teamUsers.map(user => {
-    const isSuper  = user.id === tbState.selectedSup;
-    const color    = isSuper ? supColor : supColor + 'aa';
-    const initials = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-
+  // Build combined items for ALL members with staff name label
+  const allItems = [];
+  allMembers.forEach(user => {
+    const isSuper   = user.id === tbState.selectedSup;
     const userOpps  = tbState.opps.filter(o => o.assignedTo === user.id);
     const userTasks = tbState.tasks.filter(t => t.assigneeId === user.id || t.assignedTo === user.id);
-
     let items = [];
-    if (tbState.filterType !== 'opps')  userTasks.forEach(t => items.push({...t, _type:'task', _status:tbGetItemStatus(t,true)}));
-    if (tbState.filterType !== 'tasks') userOpps.forEach(o  => items.push({...o, _type:'opp',  _status:tbGetItemStatus(o,false)}));
+    if (tbState.filterType !== 'opps')  userTasks.forEach(t => items.push({...t, _type:'task', _status:tbGetItemStatus(t,true), _staffName:user.name, _isSuper:isSuper}));
+    if (tbState.filterType !== 'tasks') userOpps.forEach(o  => items.push({...o, _type:'opp',  _status:tbGetItemStatus(o,false), _staffName:user.name, _isSuper:isSuper}));
     if (tbState.filterStatus !== 'all') items = items.filter(i => i._status === tbState.filterStatus);
-
-    // Sort overdue first
     items.sort((a,b) => ({overdue:0,open:1,completed:2,lost:3}[a._status]||1) - ({overdue:0,open:1,completed:2,lost:3}[b._status]||1));
+    allItems.push({ user, isSuper, items });
+    totalItems += items.length;
+    overdueCount += items.filter(i=>i._status==='overdue').length;
+    openCount    += items.filter(i=>i._status==='open').length;
+    doneCount    += items.filter(i=>i._status==='completed').length;
+  });
 
-    const myOver = items.filter(i=>i._status==='overdue').length;
-    const myOpen = items.filter(i=>i._status==='open').length;
-    const myDone = items.filter(i=>i._status==='completed').length;
-    totalItems += items.length; overdueCount += myOver; openCount += myOpen; doneCount += myDone;
-
+  function renderItem(item) {
+    const isTask   = item._type==='task';
+    const sc = item._status==='overdue'?'#ef4444':item._status==='completed'?'#34d399':'#60a5fa';
+    const si = item._status==='overdue'?'ti-alert-triangle':item._status==='completed'?'ti-circle-check':'ti-clock';
+    const taskTitle   = item.title || 'Untitled Task';
+    const taskContact = item.contact?.name || item.contactName || '';
+    const taskDue     = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}) : 'No due date';
+    const oppName     = item.name || 'Untitled Opportunity';
+    const pipeline    = (item.pipelineName||'').replace(/^\d+\.\s*/,'').replace('2026 ','').trim();
+    const oppStage    = item.stageName || item.status || '';
+    const oppContact  = item.contact?.name || item.contactName || '';
+    const created     = item.createdAt||item.dateAdded;
+    const ageDays     = created ? Math.floor((Date.now()-new Date(created).getTime())/86400000) : null;
+    const title   = isTask ? taskTitle : pipeline || oppName;
+    const sub1    = isTask ? taskContact : oppContact;
+    const sub2    = isTask ? `Due: ${taskDue}` : oppStage ? `Stage: ${oppStage}` : '';
+    const ageTag  = !isTask && ageDays !== null ? `${ageDays}d open` : '';
+    const typeBg  = isTask ? 'rgba(139,92,246,.2)' : 'rgba(245,158,11,.2)';
+    const typeClr = isTask ? '#a78bfa' : '#fbbf24';
+    const typeLabel = isTask ? '✓ TASK' : '⬡ OPP';
+    const itemContactId = item.contactId || item.contact?.id || '';
+    const currentUser   = item.assigneeId || item.assignedTo || '';
     return `
-      <div style="background:var(--bg2);border:1px solid ${isSuper?supColor:'var(--border)'};border-radius:16px;overflow:hidden">
-        <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);background:var(--bg3)">
-          <div style="width:42px;height:42px;border-radius:50%;background:${supColor}33;border:2px solid ${supColor};
-                      display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:${supColor};flex-shrink:0">${initials}</div>
-          <div style="flex:1">
-            <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:13px;font-weight:700;color:var(--text)">${user.name}</span>
-              <span style="font-size:9px;background:${supColor}22;color:${supColor};padding:2px 6px;border-radius:4px;font-weight:700">${isSuper?'SUPERVISOR':'STAFF'}</span>
-            </div>
-            <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
-              ${myOver ? `<span style="font-size:10px;background:rgba(239,68,68,.15);color:#ef4444;padding:2px 7px;border-radius:20px;font-weight:700">${myOver} overdue</span>`:''}
-              ${myOpen ? `<span style="font-size:10px;background:rgba(59,130,246,.15);color:#60a5fa;padding:2px 7px;border-radius:20px;font-weight:700">${myOpen} open</span>`:''}
-              ${myDone ? `<span style="font-size:10px;background:rgba(16,185,129,.15);color:#34d399;padding:2px 7px;border-radius:20px;font-weight:700">${myDone} done</span>`:''}
-              ${!items.length ? `<span style="font-size:10px;color:var(--text3)">No items</span>`:''}
-            </div>
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}">
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <i class="ti ${si}" style="color:${sc};font-size:14px;margin-top:3px;flex-shrink:0"></i>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+            ${sub1?`<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub1}</div>`:''}
+            ${sub2?`<div style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${sub2}</div>`:''}
           </div>
-          <div style="font-size:22px;font-weight:800;color:${items.length?supColor:'var(--text3)'}">${items.length}</div>
-        </div>
-        <div style="max-height:360px;overflow-y:auto">
-          ${items.length===0 ? `
-            <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">
-              <i class="ti ti-circle-check" style="font-size:24px;display:block;margin-bottom:6px;color:var(--green)"></i>All clear
-            </div>` : items.slice(0,25).map(item => {
-              const isTask   = item._type==='task';
-              const sc = item._status==='overdue'?'#ef4444':item._status==='completed'?'#34d399':'#60a5fa';
-              const si = item._status==='overdue'?'ti-alert-triangle':item._status==='completed'?'ti-circle-check':'ti-clock';
-
-              // Task fields
-              const taskTitle   = item.title || 'Untitled Task';
-              const taskContact = item.contact?.name || item.contactName || '';
-              const taskDue     = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}) : 'No due date';
-
-              // Opportunity fields
-              const oppName     = item.name || 'Untitled Opportunity';
-              const pipeline    = (item.pipelineName||'').replace(/^\d+\.\s*/,'').replace('2026 ','').trim();
-              const oppStage    = item.stageName || item.status || '';
-              const oppContact  = item.contact?.name || item.contactName || oppName;
-              const created     = item.createdAt||item.dateAdded;
-              const ageDays     = created ? Math.floor((Date.now()-new Date(created).getTime())/86400000) : null;
-
-              const title   = isTask ? taskTitle   : pipeline || oppName;
-              const sub1    = isTask ? taskContact : oppContact !== oppName ? oppContact : '';
-              const sub2    = isTask ? `Due: ${taskDue}` : oppStage ? `Stage: ${oppStage}` : '';
-              const ageTag  = !isTask && ageDays !== null ? `${ageDays}d open` : '';
-              const typeBg  = isTask ? 'rgba(139,92,246,.2)' : 'rgba(245,158,11,.2)';
-              const typeClr = isTask ? '#a78bfa' : '#fbbf24';
-              const typeLabel = isTask ? '✓ TASK' : '⬡ OPP';
-
-              return `
-                <div style="padding:10px 16px;border-bottom:1px solid var(--border);
-                            background:${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}">
-                  <div style="display:flex;align-items:flex-start;gap:10px">
-                    <i class="ti ${si}" style="color:${sc};font-size:14px;margin-top:3px;flex-shrink:0"></i>
-                    <div style="flex:1;min-width:0">
-                      <div style="font-size:12px;font-weight:600;color:var(--text);
-                                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
-                      ${sub1?`<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub1}</div>`:''}
-                      ${sub2?`<div style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${sub2}</div>`:''}
-                    </div>
-                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
-                      <span style="font-size:9px;background:${typeBg};color:${typeClr};
-                                   padding:2px 7px;border-radius:4px;font-weight:700;white-space:nowrap">${typeLabel}</span>
-                      ${ageTag?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageTag}</span>`:''}
-                    </div>
-                  </div>
-                </div>`;
-          }).join('')}
-          ${items.length>25?`<div style="padding:8px 16px;text-align:center;font-size:11px;color:var(--text3)">+${items.length-25} more</div>`:''}
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
+            <span style="font-size:9px;background:${typeBg};color:${typeClr};padding:2px 7px;border-radius:4px;font-weight:700;white-space:nowrap">${typeLabel}</span>
+            ${ageTag?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageTag}</span>`:''}
+            <button onclick="tbShowReassignMenu('${item.id||''}','${isTask?'task':'opp'}','${itemContactId}','${currentUser}',this)"
+              style="font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text3);
+                     border-radius:4px;padding:2px 6px;cursor:pointer;margin-top:2px">
+              ↕ Assign
+            </button>
+          </div>
         </div>
       </div>`;
-  }).join('');
+  }
 
-  grid.innerHTML = cards || `<div style="color:var(--text3);padding:40px;text-align:center">No team members found. Use Admin to assign staff.</div>`;
+  // ONE card per supervisor — sections per staff member inside
+  const totalOver = allItems.reduce((s,m)=>s+m.items.filter(i=>i._status==='overdue').length,0);
+  const totalOpen = allItems.reduce((s,m)=>s+m.items.filter(i=>i._status==='open').length,0);
+  const totalDone = allItems.reduce((s,m)=>s+m.items.filter(i=>i._status==='completed').length,0);
+  const supInitials = supUser?.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()||'??';
 
+  const card = `
+    <div style="background:var(--bg2);border:1px solid ${supColor};border-radius:16px;overflow:hidden;grid-column:1/-1">
+      <!-- Supervisor header -->
+      <div style="padding:16px 20px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);background:var(--bg3)">
+        <div style="width:48px;height:48px;border-radius:50%;background:${supColor}33;border:2px solid ${supColor};
+                    display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:${supColor};flex-shrink:0">${supInitials}</div>
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:15px;font-weight:700;color:var(--text)">${supUser?.name||'Supervisor'}</span>
+            <span style="font-size:9px;background:${supColor}22;color:${supColor};padding:2px 8px;border-radius:4px;font-weight:700">SUPERVISOR</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:5px;flex-wrap:wrap">
+            ${totalOver?`<span style="font-size:10px;background:rgba(239,68,68,.15);color:#ef4444;padding:2px 8px;border-radius:20px;font-weight:700">${totalOver} overdue</span>`:''}
+            ${totalOpen?`<span style="font-size:10px;background:rgba(59,130,246,.15);color:#60a5fa;padding:2px 8px;border-radius:20px;font-weight:700">${totalOpen} open</span>`:''}
+            ${totalDone?`<span style="font-size:10px;background:rgba(16,185,129,.15);color:#34d399;padding:2px 8px;border-radius:20px;font-weight:700">${totalDone} done</span>`:''}
+            <span style="font-size:10px;color:var(--text3)">${allMembers.length} member${allMembers.length!==1?'s':''} · ${totalItems} total items</span>
+          </div>
+        </div>
+        <div style="font-size:28px;font-weight:800;color:${supColor}">${totalItems}</div>
+      </div>
+
+      <!-- Staff sections -->
+      ${allItems.length===0 ? `<div style="padding:32px;text-align:center;color:var(--text3)">No team members assigned. Use Admin to assign staff.</div>` :
+        allItems.map(({user, isSuper, items}) => {
+          const initials = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+          const myOver   = items.filter(i=>i._status==='overdue').length;
+          const myOpen   = items.filter(i=>i._status==='open').length;
+          const myDone   = items.filter(i=>i._status==='completed').length;
+          return `
+            <!-- Section header for this staff member -->
+            <div style="padding:10px 20px;background:${supColor}08;border-bottom:2px solid ${supColor}22;
+                        display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:1">
+              <div style="width:30px;height:30px;border-radius:50%;background:${isSuper?supColor:supColor+'66'}33;
+                          border:1.5px solid ${isSuper?supColor:supColor+'88'};
+                          display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;
+                          color:${isSuper?supColor:supColor+'cc'};flex-shrink:0">${initials}</div>
+              <div style="flex:1">
+                <span style="font-size:12px;font-weight:700;color:var(--text)">${user.name}</span>
+                <span style="font-size:9px;margin-left:6px;background:${isSuper?supColor+'22':'var(--bg3)'};
+                             color:${isSuper?supColor:'var(--text3)'};padding:1px 6px;border-radius:4px;font-weight:700">
+                  ${isSuper?'SUPERVISOR':'STAFF'}
+                </span>
+              </div>
+              <div style="display:flex;gap:5px">
+                ${myOver?`<span style="font-size:10px;color:#ef4444;font-weight:700">${myOver} overdue</span>`:''}
+                ${myOpen?`<span style="font-size:10px;color:#60a5fa;font-weight:700">${myOpen} open</span>`:''}
+                ${myDone?`<span style="font-size:10px;color:#34d399;font-weight:700">${myDone} done</span>`:''}
+                ${!items.length?`<span style="font-size:10px;color:var(--text3)">All clear ✓</span>`:''}
+              </div>
+              <span style="font-size:14px;font-weight:800;color:${items.length?supColor:'var(--text3)'}">${items.length}</span>
+            </div>
+            ${items.length===0 ? '' : items.slice(0,20).map(renderItem).join('')}
+            ${items.length>20?`<div style="padding:6px 20px;font-size:11px;color:var(--text3);text-align:center;border-bottom:1px solid var(--border)">+${items.length-20} more items for ${user.name}</div>`:''}
+          `;
+        }).join('')
+      }
+    </div>`;
+
+  grid.style.gridTemplateColumns = '1fr';
+  grid.innerHTML = card;
+
+  // Stats bar
   // Stats bar
   document.getElementById('tb-stats').innerHTML = [
     {label:'Total Items', value:totalItems,   icon:'ti-list',           color:'var(--primary)'},
@@ -1607,3 +1640,527 @@ function tbToggleStaff(supId, staffId, checked) {
 }
 
 // end tasks board
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FMCSA SUPPORT FORM
+// ═══════════════════════════════════════════════════════════════════════════
+
+let ffSelectedContact = null;
+
+function ffInit() {
+  // Populate assignee dropdown from GHL users
+  const sel = document.getElementById('ff-assignee');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">-- Select staff member --</option>' +
+    state.clients ? '' : '';
+  // Use GHL users if available from tasks board state
+  const users = tbState.users.length ? tbState.users : [];
+  users.forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u.id;
+    opt.textContent = u.name;
+    sel.appendChild(opt);
+  });
+
+  // Toggle new driver info
+  document.getElementById('ff-ch-new-driver')?.addEventListener('change', e => {
+    document.getElementById('ff-new-driver-info').style.display = e.target.checked ? 'block' : 'none';
+  });
+}
+
+async function ffSearchContact(query) {
+  if (!query || query.length < 2) {
+    document.getElementById('ff-contact-results').innerHTML = '';
+    return;
+  }
+  const q = query.toLowerCase();
+  const matches = state.clients.filter(c =>
+    c.name.toLowerCase().includes(q) ||
+    (c.dot_number||'').includes(q) ||
+    (c.business_name||'').toLowerCase().includes(q)
+  ).slice(0, 6);
+
+  document.getElementById('ff-contact-results').innerHTML = matches.map(c => `
+    <div onclick="ffSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.email||''}','${c.phone||''}')"
+      style="padding:8px 12px;border-radius:8px;cursor:pointer;border:1px solid var(--border);
+             background:var(--bg3);margin-bottom:5px;display:flex;align-items:center;gap:10px">
+      <div style="width:28px;height:28px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;
+                  justify-content:center;font-size:10px;font-weight:700;color:var(--primary)">
+        ${c.initials}
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${c.name}</div>
+        ${c.dot_number?`<div style="font-size:10px;color:var(--text3)">DOT# ${c.dot_number}</div>`:''}
+      </div>
+    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:8px">No results found</div>';
+}
+
+function ffSelectContact(id, name, email, phone) {
+  ffSelectedContact = { id, name, email, phone };
+  document.getElementById('ff-contact-results').innerHTML = '';
+  document.getElementById('ff-contact-search').value = name;
+  document.getElementById('ff-selected-contact').style.display = 'block';
+  document.getElementById('ff-selected-name').textContent = name;
+  if (email) document.getElementById('ff-email').value = email;
+  if (phone) document.getElementById('ff-phone').value = phone;
+}
+
+async function ffSubmit() {
+  const btn = document.querySelector('#page-fmcsa-form button[onclick="ffSubmit()"]');
+  const status = document.getElementById('ff-status');
+
+  if (!ffSelectedContact) {
+    status.innerHTML = '<span style="color:#ef4444">⚠ Please select a client first</span>';
+    return;
+  }
+
+  // Build task description
+  const mcs150 = [...document.querySelectorAll('.ff-mcs150:checked')].map(c=>c.value);
+  const chSetup     = document.getElementById('ff-ch-setup')?.checked;
+  const chNewDriver = document.getElementById('ff-ch-new-driver')?.checked;
+  const chAnnual    = document.getElementById('ff-ch-annual')?.checked;
+  const newDriverInfo = document.getElementById('ff-new-driver-name')?.value;
+  const notes       = document.getElementById('ff-notes')?.value;
+  const assigneeId  = document.getElementById('ff-assignee')?.value;
+  const email       = document.getElementById('ff-email')?.value;
+  const phone       = document.getElementById('ff-phone')?.value;
+
+  const parts = ['FMCSA Support Request'];
+  if (email) parts.push(`Email: ${email}`);
+  if (phone) parts.push(`Phone: ${phone}`);
+  if (mcs150.length) parts.push(`MCS-150 Updates: ${mcs150.join(', ')}`);
+  if (chSetup)     parts.push('Clearinghouse Account Setup');
+  if (chNewDriver) parts.push(`New Driver Query${newDriverInfo?' — '+newDriverInfo:''}`);
+  if (chAnnual)    parts.push('Annual Query Request');
+  if (notes)       parts.push(`Notes: ${notes}`);
+
+  const taskTitle = `FMCSA Support — ${ffSelectedContact.name}`;
+  const taskBody  = parts.join('\n');
+
+  btn.disabled = true;
+  btn.textContent = 'Creating task...';
+  status.innerHTML = '';
+
+  try {
+    const res = await fetch(`/api/contacts/${ffSelectedContact.id}/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: taskTitle,
+        body:  taskBody,
+        assignedTo: assigneeId || undefined,
+        dueDate: new Date(Date.now() + 86400000).toISOString(), // due tomorrow
+        status: 'open',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to create task');
+
+    status.innerHTML = `<span style="color:var(--green)">✓ Task created successfully in GHL for ${ffSelectedContact.name}!</span>`;
+    // Reset form
+    ffSelectedContact = null;
+    document.getElementById('ff-contact-search').value = '';
+    document.getElementById('ff-selected-contact').style.display = 'none';
+    document.querySelectorAll('.ff-mcs150').forEach(c=>c.checked=false);
+    ['ff-ch-setup','ff-ch-new-driver','ff-ch-annual'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el) el.checked = false;
+    });
+    document.getElementById('ff-new-driver-info').style.display='none';
+    document.getElementById('ff-notes').value='';
+    document.getElementById('ff-email').value='';
+    document.getElementById('ff-phone').value='';
+    document.getElementById('ff-assignee').value='';
+  } catch(e) {
+    status.innerHTML = `<span style="color:#ef4444">Error: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-send"></i> Submit & Create GHL Task';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SKILLS SETUP + AUTO-ASSIGN ENGINE
+// ═══════════════════════════════════════════════════════════════════════════
+
+// All service/task types staff can be trained on
+const SK_TYPES = [
+  { id: 'ucr',           label: 'UCR Filing',              color: '#7c3aed' },
+  { id: 'kyu',           label: 'KYU Annual Vehicle',      color: '#0891b2' },
+  { id: 'fmcsa',         label: 'FMCSA / MCS-150',         color: '#059669' },
+  { id: 'ifta',          label: 'IFTA License',            color: '#d97706' },
+  { id: 'irp',           label: 'IRP Cab Card',            color: '#e11d48' },
+  { id: '2290',          label: '2290 Filing',             color: '#0284c7' },
+  { id: 'clearinghouse', label: 'Clearinghouse',           color: '#7c3aed' },
+  { id: 'business_name', label: 'Business Name Renewal',   color: '#059669' },
+  { id: 'nm_permit',     label: 'NM Permit',               color: '#d97706' },
+  { id: 'ny_permit',     label: 'NY Permit',               color: '#e11d48' },
+  { id: 'new_company',   label: 'New Company Setup',       color: '#0891b2' },
+  { id: 'dot_reactivate',label: 'DOT Reactivation',        color: '#7c3aed' },
+];
+
+// Map pipeline/task names to skill IDs
+const SK_PIPELINE_MAP = {
+  ucr:            ['ucr','ucr filing'],
+  kyu:            ['kyu','ky annual','ky vehicle'],
+  fmcsa:          ['mcs-150','mcs150','fmcsa','mcs 150'],
+  ifta:           ['ifta'],
+  irp:            ['irp','cab card','plate renewal'],
+  '2290':         ['2290'],
+  clearinghouse:  ['clearinghouse'],
+  business_name:  ['business name'],
+  nm_permit:      ['nm permit'],
+  ny_permit:      ['ny permit'],
+  new_company:    ['new company','prorate','company setup'],
+  dot_reactivate: ['reactivate','reactivation'],
+};
+
+function skGetSkills() {
+  try { return JSON.parse(localStorage.getItem('tb_skills') || '{}'); } catch(e) { return {}; }
+}
+function skSaveSkills(data) { localStorage.setItem('tb_skills', JSON.stringify(data)); }
+
+function skGetItemType(item) {
+  const isTask = item._type === 'task';
+  const text = (isTask
+    ? (item.title || '')
+    : (item.pipelineName || item.name || '')
+  ).toLowerCase();
+  for (const [skillId, keywords] of Object.entries(SK_PIPELINE_MAP)) {
+    if (keywords.some(k => text.includes(k))) return skillId;
+  }
+  return null;
+}
+
+function skGetQualifiedStaff(skillId, allStaffIds) {
+  const skills = skGetSkills();
+  return allStaffIds.filter(uid => (skills[uid] || []).includes(skillId));
+}
+
+// ── Skills Setup page ─────────────────────────────────────────────────────
+function skInit() {
+  const grid = document.getElementById('sk-grid');
+  if (!grid) return;
+  // Load all GHL users — use tbState if loaded, else show message
+  const users = tbState.users.length ? tbState.users
+    : JSON.parse(localStorage.getItem('tb_cached_users') || '[]');
+  if (!users.length) {
+    grid.innerHTML = `<div style="color:var(--text3);padding:40px;text-align:center">
+      Please visit the <strong>Tasks Board</strong> page first to load staff, then come back here.
+    </div>`;
+    return;
+  }
+  // Cache users for next time
+  localStorage.setItem('tb_cached_users', JSON.stringify(users));
+  const skills = skGetSkills();
+  grid.innerHTML = users.filter(u => u.id !== '8261TQ73bG2PCyCaznmh') // skip Admin Truck Solutions system account
+    .map(user => {
+      const userSkills = skills[user.id] || [];
+      const initials = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+      return `
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
+          <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;background:var(--bg3);border-bottom:1px solid var(--border)">
+            <div style="width:38px;height:38px;border-radius:50%;background:var(--primary)22;border:2px solid var(--primary);
+                        display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--primary)">${initials}</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--text)">${user.name}</div>
+              <div style="font-size:11px;color:var(--text3)">${userSkills.length} skill${userSkills.length!==1?'s':''} assigned</div>
+            </div>
+          </div>
+          <div style="padding:14px 16px">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">
+              ${SK_TYPES.map(sk => `
+                <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;
+                              background:${userSkills.includes(sk.id)?sk.color+'18':'var(--bg3)'};
+                              border:1px solid ${userSkills.includes(sk.id)?sk.color:'var(--border)'};
+                              border-radius:8px;cursor:pointer;transition:all .15s">
+                  <input type="checkbox" data-user="${user.id}" data-skill="${sk.id}"
+                    ${userSkills.includes(sk.id)?'checked':''}
+                    onchange="skToggle('${user.id}','${sk.id}',this.checked,this)"
+                    style="accent-color:${sk.color};width:15px;height:15px">
+                  <span style="font-size:12px;font-weight:600;color:${userSkills.includes(sk.id)?sk.color:'var(--text)'}">${sk.label}</span>
+                </label>`).join('')}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+}
+
+function skToggle(userId, skillId, checked, el) {
+  const skills = skGetSkills();
+  if (!skills[userId]) skills[userId] = [];
+  if (checked) { if (!skills[userId].includes(skillId)) skills[userId].push(skillId); }
+  else          { skills[userId] = skills[userId].filter(s => s !== skillId); }
+  skSaveSkills(skills);
+  // Visual feedback on the label
+  const label = el.closest('label');
+  const sk    = SK_TYPES.find(s=>s.id===skillId);
+  if (label && sk) {
+    label.style.background = checked ? sk.color+'18' : 'var(--bg3)';
+    label.style.border     = `1px solid ${checked ? sk.color : 'var(--border)'}`;
+    label.querySelector('span').style.color = checked ? sk.color : 'var(--text)';
+  }
+}
+
+function skSave() {
+  document.getElementById('sk-status').innerHTML =
+    '<span style="color:var(--green)">✓ Skills saved successfully!</span>';
+  setTimeout(() => { document.getElementById('sk-status').innerHTML = ''; }, 3000);
+}
+
+// ── Auto-Assign Engine ────────────────────────────────────────────────────
+async function tbAutoAssign() {
+  const btn = document.getElementById('tb-auto-assign-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Assigning...'; }
+
+  const staffMap  = tbGetStaffMap();
+  const staffIds  = staffMap[tbState.selectedSup] || [];
+  const allIds    = [tbState.selectedSup, ...staffIds].filter(Boolean);
+  const skills    = skGetSkills();
+
+  // Count current open items per staff member
+  const workload = {};
+  allIds.forEach(uid => {
+    workload[uid] = tbState.opps.filter(o => o.assignedTo === uid && o.status === 'open').length
+                  + tbState.tasks.filter(t => (t.assigneeId===uid||t.assignedTo===uid) && !t.completed).length;
+  });
+
+  // Get all open items
+  const openOpps  = tbState.opps.filter(o => (o.status||'').toLowerCase() === 'open');
+  const openTasks = tbState.tasks.filter(t => !t.completed && t.status !== 'completed');
+
+  const assignments = []; // { type:'opp'|'task', id, contactId, newUserId, itemName }
+
+  function pickStaff(skillId) {
+    // Qualified staff for this skill
+    const qualified = skillId ? allIds.filter(uid => (skills[uid]||[]).includes(skillId)) : allIds;
+    const pool = qualified.length ? qualified : allIds; // fallback to all if no one trained
+    // Pick the one with lowest workload
+    return pool.reduce((best, uid) => (workload[uid]||0) < (workload[best]||0) ? uid : best, pool[0]);
+  }
+
+  // Assign opportunities
+  for (const opp of openOpps) {
+    const skillId  = skGetItemType({...opp, _type:'opp'});
+    const assignTo = pickStaff(skillId);
+    if (assignTo && opp.assignedTo !== assignTo) {
+      assignments.push({ type:'opp', id:opp.id, newUserId:assignTo, itemName:opp.name||'Opportunity' });
+      workload[assignTo] = (workload[assignTo]||0) + 1;
+    }
+  }
+
+  // Assign tasks
+  for (const task of openTasks) {
+    const skillId  = skGetItemType({...task, _type:'task'});
+    const assignTo = pickStaff(skillId);
+    if (assignTo && task.assignedTo !== assignTo) {
+      assignments.push({ type:'task', id:task.id, contactId:task.contactId, newUserId:assignTo, itemName:task.title||'Task' });
+      workload[assignTo] = (workload[assignTo]||0) + 1;
+    }
+  }
+
+  if (!assignments.length) {
+    if (btn) { btn.disabled=false; btn.innerHTML='<i class="ti ti-wand"></i> Auto-Assign All'; }
+    alert('All items are already optimally assigned based on current skills and workload!');
+    return;
+  }
+
+  // Show preview before applying
+  tbShowAutoAssignPreview(assignments, allIds, () => {
+    if (btn) { btn.disabled=false; btn.innerHTML='<i class="ti ti-wand"></i> Auto-Assign All'; }
+  });
+}
+
+function tbShowAutoAssignPreview(assignments, allIds, onClose) {
+  const existing = document.getElementById('tb-assign-modal');
+  if (existing) existing.remove();
+
+  const byUser = {};
+  allIds.forEach(uid => { byUser[uid] = []; });
+  assignments.forEach(a => { if (byUser[a.newUserId]) byUser[a.newUserId].push(a); });
+
+  const modal = document.createElement('div');
+  modal.id = 'tb-assign-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:20px;
+                padding:28px;width:600px;max-width:95vw;max-height:85vh;overflow-y:auto;
+                box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--text)">Auto-Assign Preview</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">${assignments.length} items will be reassigned based on skills + workload</div>
+        </div>
+        <button onclick="document.getElementById('tb-assign-modal').remove()"
+          style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:20px">✕</button>
+      </div>
+
+      ${allIds.map(uid => {
+        const user  = tbState.users.find(u=>u.id===uid);
+        const items = byUser[uid]||[];
+        if (!items.length) return '';
+        const initials = user?.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()||'??';
+        return `
+          <div style="margin-bottom:14px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--primary)22;border:1.5px solid var(--primary);
+                          display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--primary)">${initials}</div>
+              <span style="font-size:13px;font-weight:700;color:var(--text)">${user?.name||uid}</span>
+              <span style="font-size:11px;color:var(--text3)">(${items.length} items)</span>
+            </div>
+            ${items.slice(0,5).map(a=>`
+              <div style="padding:6px 10px;background:var(--bg3);border-radius:6px;margin-bottom:4px;
+                          display:flex;align-items:center;gap:8px;margin-left:36px">
+                <span style="font-size:9px;background:${a.type==='task'?'rgba(139,92,246,.2)':'rgba(245,158,11,.2)'};
+                             color:${a.type==='task'?'#a78bfa':'#fbbf24'};padding:1px 6px;border-radius:4px;font-weight:700">
+                  ${a.type==='task'?'TASK':'OPP'}
+                </span>
+                <span style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.itemName}</span>
+              </div>`).join('')}
+            ${items.length>5?`<div style="font-size:11px;color:var(--text3);margin-left:36px">+${items.length-5} more</div>`:''}
+          </div>`;
+      }).join('')}
+
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button onclick="tbApplyAutoAssign(${JSON.stringify(assignments).replace(/"/g,'&quot;')})"
+          style="flex:1;background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
+                 padding:12px;font-size:14px;font-weight:700;cursor:pointer">
+          ✓ Apply All Assignments
+        </button>
+        <button onclick="document.getElementById('tb-assign-modal').remove()"
+          style="background:var(--bg3);color:var(--text);border:1px solid var(--border);
+                 border-radius:10px;padding:12px 18px;font-size:14px;cursor:pointer">
+          Cancel
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function tbApplyAutoAssign(assignments) {
+  const modal = document.getElementById('tb-assign-modal');
+  if (modal) modal.innerHTML = `
+    <div style="background:var(--bg2);border-radius:20px;padding:40px;text-align:center">
+      <i class="ti ti-loader" style="font-size:32px;color:var(--primary);animation:spin 1s linear infinite;display:block;margin-bottom:12px"></i>
+      <div style="color:var(--text);font-weight:700">Applying ${assignments.length} assignments...</div>
+      <div id="tb-assign-progress" style="color:var(--text3);font-size:12px;margin-top:8px">0 / ${assignments.length}</div>
+    </div>`;
+
+  let done = 0;
+  const errors = [];
+
+  for (const a of assignments) {
+    try {
+      if (a.type === 'opp') {
+        await fetch(`/api/opportunities/${a.id}/assign`, {
+          method: 'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ assignedTo: a.newUserId }),
+        });
+      } else {
+        await fetch(`/api/contacts/${a.contactId}/tasks/${a.id}/assign`, {
+          method: 'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ assignedTo: a.newUserId }),
+        });
+      }
+      // Update local state immediately
+      if (a.type === 'opp') {
+        const opp = tbState.opps.find(o=>o.id===a.id);
+        if (opp) opp.assignedTo = a.newUserId;
+      } else {
+        const task = tbState.tasks.find(t=>t.id===a.id);
+        if (task) { task.assignedTo = a.newUserId; task.assigneeId = a.newUserId; }
+      }
+    } catch(e) { errors.push(a.itemName); }
+    done++;
+    const prog = document.getElementById('tb-assign-progress');
+    if (prog) prog.textContent = `${done} / ${assignments.length}`;
+  }
+
+  if (modal) modal.remove();
+  tbRender();
+  const msg = errors.length
+    ? `⚠ ${done-errors.length} assigned, ${errors.length} failed`
+    : `✓ ${done} items assigned successfully!`;
+  alert(msg);
+}
+
+// ── Per-item reassign dropdown ────────────────────────────────────────────
+function tbShowReassignMenu(itemId, itemType, contactId, currentUserId, anchorEl) {
+  // Remove any existing menu
+  document.querySelectorAll('.tb-reassign-menu').forEach(m=>m.remove());
+
+  const staffMap = tbGetStaffMap();
+  const allIds   = [tbState.selectedSup, ...(staffMap[tbState.selectedSup]||[])].filter(Boolean);
+  const skills   = skGetSkills();
+
+  // Find item to determine skill
+  const item = itemType==='opp'
+    ? tbState.opps.find(o=>o.id===itemId)
+    : tbState.tasks.find(t=>t.id===itemId);
+  const skillId = item ? skGetItemType({...item, _type:itemType}) : null;
+  const skillLabel = skillId ? SK_TYPES.find(s=>s.id===skillId)?.label : null;
+
+  const menu = document.createElement('div');
+  menu.className = 'tb-reassign-menu';
+  menu.style.cssText = `position:fixed;background:var(--bg2);border:1px solid var(--border);
+    border-radius:12px;padding:8px;min-width:200px;box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:9998`;
+
+  const rect = anchorEl.getBoundingClientRect();
+  menu.style.top  = (rect.bottom + 4) + 'px';
+  menu.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+
+  menu.innerHTML = `
+    <div style="font-size:10px;color:var(--text3);padding:4px 8px;font-weight:700;letter-spacing:.08em">
+      REASSIGN TO${skillLabel?` · ${skillLabel}`:''}
+    </div>
+    ${allIds.map(uid => {
+      const user      = tbState.users.find(u=>u.id===uid);
+      if (!user) return '';
+      const trained   = skillId ? (skills[uid]||[]).includes(skillId) : true;
+      const isCurrent = uid === currentUserId;
+      const initials  = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+      return `
+        <div onclick="tbReassignItem('${itemId}','${itemType}','${contactId||''}','${uid}',this)"
+          style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;
+                 background:${isCurrent?'var(--primary)11':'transparent'};
+                 opacity:${trained||!skillId?1:0.5}"
+          onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${isCurrent?'var(--primary)11':'transparent'}'">
+          <div style="width:26px;height:26px;border-radius:50%;background:var(--primary)22;
+                      display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:var(--primary)">${initials}</div>
+          <div style="flex:1">
+            <div style="font-size:12px;font-weight:600;color:var(--text)">${user.name}</div>
+            ${trained&&skillLabel?`<div style="font-size:10px;color:var(--green)">✓ Trained</div>`:''}
+            ${!trained&&skillLabel?`<div style="font-size:10px;color:var(--text3)">Not trained</div>`:''}
+          </div>
+          ${isCurrent?`<i class="ti ti-check" style="color:var(--primary);font-size:12px"></i>`:''}
+        </div>`;
+    }).join('')}`;
+
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', function rm(e) {
+    if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click',rm); }
+  }), 100);
+}
+
+async function tbReassignItem(itemId, itemType, contactId, newUserId, el) {
+  el.closest('.tb-reassign-menu')?.remove();
+  try {
+    if (itemType === 'opp') {
+      await fetch(`/api/opportunities/${itemId}/assign`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ assignedTo: newUserId }),
+      });
+      const opp = tbState.opps.find(o=>o.id===itemId);
+      if (opp) opp.assignedTo = newUserId;
+    } else {
+      await fetch(`/api/contacts/${contactId}/tasks/${itemId}/assign`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ assignedTo: newUserId }),
+      });
+      const task = tbState.tasks.find(t=>t.id===itemId);
+      if (task) { task.assignedTo = newUserId; task.assigneeId = newUserId; }
+    }
+    tbRender();
+  } catch(e) { alert('Failed to reassign: ' + e.message); }
+}
+
