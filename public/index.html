@@ -40,6 +40,8 @@
         <div class="nav-label">Tools</div>
         <button class="nav-item" data-page="dot-lookup"><i class="ti ti-search"></i>DOT Lookup</button>
         <button class="nav-item" data-page="tasks-board"><i class="ti ti-users-group"></i>Tasks Board</button>
+        <button class="nav-item" data-page="fmcsa-form"><i class="ti ti-shield-check"></i>FMCSA Support</button>
+        <button class="nav-item" data-page="skills-setup"><i class="ti ti-certificate"></i>Skills Setup</button>
       </div>
       <div class="nav-section">
         <div class="nav-label">Quick Submit</div>
@@ -297,7 +299,8 @@
       <!-- Staff cards grid -->
       <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
         <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em" id="tb-team-label">TEAM</div>
-        <div style="display:flex;gap:8px;align-items:center">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button id="tb-auto-assign-btn" onclick="tbAutoAssign()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px"><i class="ti ti-wand"></i> Auto-Assign All</button>
           <select id="tb-filter-type" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
             <option value="all">All Items</option>
             <option value="tasks">Tasks Only</option>
@@ -323,6 +326,136 @@
       <div id="tb-staff-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px"></div>
 
     </div><!-- /page-tasks-board -->
+
+    <!-- ── FMCSA Support Form Page ──────────────────────────────────────── -->
+    <div id="page-fmcsa-form" class="page" style="padding:24px;max-width:800px;margin:0 auto">
+
+      <div style="margin-bottom:24px">
+        <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:4px">FMCSA Support Request</div>
+        <div style="font-size:13px;color:var(--text3)">Complete on the call — creates a task in GHL automatically</div>
+      </div>
+
+      <!-- Contact lookup -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">CLIENT LOOKUP</div>
+        <div style="display:flex;gap:10px">
+          <input id="ff-contact-search" type="text" placeholder="Search by name or DOT number..."
+            oninput="ffSearchContact(this.value)"
+            style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                   border-radius:10px;padding:10px 14px;font-size:14px">
+          <button onclick="ffSearchContact(document.getElementById('ff-contact-search').value)"
+            style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
+                   padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer">Search</button>
+        </div>
+        <div id="ff-contact-results" style="margin-top:10px"></div>
+        <div id="ff-selected-contact" style="display:none;margin-top:10px;padding:10px 14px;
+             background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:10px">
+          <div style="font-size:12px;color:var(--green);font-weight:700">✓ Selected Contact</div>
+          <div id="ff-selected-name" style="font-size:14px;font-weight:700;color:var(--text);margin-top:2px"></div>
+        </div>
+      </div>
+
+      <!-- Form fields -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:16px">CONTACT INFO</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:11px;color:var(--text3);font-weight:600">Email</label>
+            <input id="ff-email" type="email" placeholder="carrier@email.com"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3);font-weight:600">Phone</label>
+            <input id="ff-phone" type="tel" placeholder="(612) 555-0000"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
+          </div>
+        </div>
+      </div>
+
+      <!-- MCS-150 -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">MCS-150 UPDATE REQUEST</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="ff-mcs150-options">
+          ${['Mileage Year Update','Address Change Update','Unit/Driver Update','Email/Phone Update'].map(opt=>`
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);
+                          border:1px solid var(--border);border-radius:8px;cursor:pointer">
+              <input type="checkbox" value="${opt}" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+              <span style="font-size:13px;color:var(--text)">${opt}</span>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <!-- Clearinghouse -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">CLEARINGHOUSE</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="ff-ch-setup" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Clearinghouse Account Setup Request</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="ff-ch-new-driver" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">New Driver Query Request</span>
+          </label>
+          <div id="ff-new-driver-info" style="display:none;margin-left:24px;margin-top:4px">
+            <input id="ff-new-driver-name" type="text" placeholder="New driver name / CDL info..."
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box">
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="ff-ch-annual" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Annual Query Request</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Assign to staff -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">ASSIGN TO STAFF</div>
+        <select id="ff-assignee"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:10px;padding:10px 14px;font-size:14px">
+          <option value="">-- Select staff member --</option>
+        </select>
+      </div>
+
+      <!-- Notes -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:20px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:8px">ADDITIONAL NOTES</div>
+        <textarea id="ff-notes" placeholder="Any additional details..."
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:10px;padding:10px 14px;font-size:13px;min-height:80px;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+
+      <!-- Submit -->
+      <button onclick="ffSubmit()"
+        style="width:100%;background:var(--primary);color:#0a1a0f;border:none;border-radius:12px;
+               padding:14px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:12px">
+        <i class="ti ti-send"></i> Submit & Create GHL Task
+      </button>
+      <div id="ff-status" style="text-align:center;font-size:13px"></div>
+
+    </div><!-- /page-fmcsa-form -->
+
+    <!-- ── Skills Setup Page ─────────────────────────────────────────────── -->
+    <div id="page-skills-setup" class="page" style="padding:24px;max-width:900px;margin:0 auto">
+      <div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:4px">Skills Setup</div>
+          <div style="font-size:13px;color:var(--text3)">Define which staff are trained on each service type — used for smart auto-assignment</div>
+        </div>
+        <button onclick="skSave()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
+          padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+          <i class="ti ti-device-floppy"></i> Save Skills
+        </button>
+      </div>
+      <div id="sk-status" style="margin-bottom:12px;font-size:13px;text-align:center"></div>
+      <div id="sk-grid" style="display:flex;flex-direction:column;gap:12px">
+        <div style="color:var(--text3);padding:40px;text-align:center">Loading staff...</div>
+      </div>
+    </div><!-- /page-skills-setup -->
 
     </div><!-- /page-content -->
   </main>
