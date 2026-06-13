@@ -1260,17 +1260,6 @@ async function tbLoad() {
     return;
   }
   if (loadEl) loadEl.style.display = 'none';
-
-  // Auto-clean: remove any staff who are now supervisors from all staff lists
-  const supIds   = tbGetSupervisorIds();
-  const staffMap = tbGetStaffMap();
-  let changed = false;
-  for (const supId of Object.keys(staffMap)) {
-    const cleaned = staffMap[supId].filter(id => !supIds.has(id));
-    if (cleaned.length !== staffMap[supId].length) { staffMap[supId] = cleaned; changed = true; }
-  }
-  if (changed) tbSaveStaffMap(staffMap);
-
   tbInit();
   tbRender();
 }
@@ -1324,11 +1313,9 @@ function tbRender() {
   const staffMap = tbGetStaffMap();
   const staffIds = staffMap[tbState.selectedSup] || [];
 
-  // Team = supervisor themselves + their assigned staff
-  const teamUsers = [
-    supUser,
-    ...tbState.users.filter(u => staffIds.includes(u.id) && u.id !== tbState.selectedSup)
-  ].filter(Boolean);
+  // Team = the assigned staff members (supervisor themselves shown separately at top)
+  const staffUsers = tbState.users.filter(u => staffIds.includes(u.id));
+  const teamUsers  = [supUser, ...staffUsers.filter(u => u.id !== tbState.selectedSup)].filter(Boolean);
 
   if (label) label.textContent = `${supUser?.name?.toUpperCase() || 'TEAM'} — ${teamUsers.length} MEMBER${teamUsers.length!==1?'S':''}`;
 
@@ -1382,27 +1369,44 @@ function tbRender() {
               const isTask   = item._type==='task';
               const sc = item._status==='overdue'?'#ef4444':item._status==='completed'?'#34d399':'#60a5fa';
               const si = item._status==='overdue'?'ti-alert-triangle':item._status==='completed'?'ti-circle-check':'ti-clock';
-              const title   = item.title||item.name||(isTask?'Task':'Opportunity');
-              const contact = item.contact?.name||item.contactName||'';
-              const due     = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
-              const created = item.createdAt||item.dateAdded;
-              const ageDays = !isTask&&created ? Math.floor((Date.now()-new Date(created).getTime())/86400000) : null;
-              // For opportunities: show pipeline name (shortened) and stage
-              const pipeline = !isTask ? (item.pipelineName||'').replace(/^\d+\.\s*/,'').replace('2026 ','') : '';
-              const stage    = !isTask ? (item.status||'open') : '';
-              const typeLabel = isTask ? 'TASK' : pipeline ? pipeline.slice(0,12) : 'OPP';
+
+              // Task fields
+              const taskTitle   = item.title || 'Untitled Task';
+              const taskContact = item.contact?.name || item.contactName || '';
+              const taskDue     = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}) : 'No due date';
+
+              // Opportunity fields
+              const oppName     = item.name || 'Untitled Opportunity';
+              const pipeline    = (item.pipelineName||'').replace(/^\d+\.\s*/,'').replace('2026 ','').trim();
+              const oppStage    = item.stageName || item.status || '';
+              const oppContact  = item.contact?.name || item.contactName || oppName;
+              const created     = item.createdAt||item.dateAdded;
+              const ageDays     = created ? Math.floor((Date.now()-new Date(created).getTime())/86400000) : null;
+
+              const title   = isTask ? taskTitle   : pipeline || oppName;
+              const sub1    = isTask ? taskContact : oppContact !== oppName ? oppContact : '';
+              const sub2    = isTask ? `Due: ${taskDue}` : oppStage ? `Stage: ${oppStage}` : '';
+              const ageTag  = !isTask && ageDays !== null ? `${ageDays}d open` : '';
+              const typeBg  = isTask ? 'rgba(139,92,246,.2)' : 'rgba(245,158,11,.2)';
+              const typeClr = isTask ? '#a78bfa' : '#fbbf24';
+              const typeLabel = isTask ? '✓ TASK' : '⬡ OPP';
+
               return `
-                <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px;background:${item._status==='overdue'?'rgba(239,68,68,.04)':'transparent'}">
-                  <i class="ti ${si}" style="color:${sc};font-size:14px;margin-top:2px;flex-shrink:0"></i>
-                  <div style="flex:1;min-width:0">
-                    <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
-                    ${contact?`<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${contact}</div>`:''}
-                    ${pipeline?`<div style="font-size:10px;color:var(--text3);margin-top:2px">${pipeline}${stage?' · '+stage:''}</div>`:''}
-                  </div>
-                  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
-                    <span style="font-size:9px;background:${isTask?'rgba(99,102,241,.15)':'rgba(245,158,11,.15)'};color:${isTask?'#818cf8':'#f59e0b'};padding:2px 6px;border-radius:4px;font-weight:700">${typeLabel}</span>
-                    ${due?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${due}</span>`:''}
-                    ${ageDays!==null?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageDays}d old</span>`:''}
+                <div style="padding:10px 16px;border-bottom:1px solid var(--border);
+                            background:${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}">
+                  <div style="display:flex;align-items:flex-start;gap:10px">
+                    <i class="ti ${si}" style="color:${sc};font-size:14px;margin-top:3px;flex-shrink:0"></i>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:12px;font-weight:600;color:var(--text);
+                                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+                      ${sub1?`<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub1}</div>`:''}
+                      ${sub2?`<div style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${sub2}</div>`:''}
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
+                      <span style="font-size:9px;background:${typeBg};color:${typeClr};
+                                   padding:2px 7px;border-radius:4px;font-weight:700;white-space:nowrap">${typeLabel}</span>
+                      ${ageTag?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageTag}</span>`:''}
+                    </div>
                   </div>
                 </div>`;
           }).join('')}
@@ -1548,17 +1552,18 @@ function tbShowAdminPanel() {
         const supUser   = tbState.users.find(u=>u.id===supId);
         if (!supUser) return '';
         const myStaff   = staffMap[supId] || [];
-        const nonSups   = tbState.users.filter(u => !supIds.has(u.id));
-        const color     = tbSupColor(supId);
+        // Any user can be staff under a supervisor — including other supervisors
+        const assignable = tbState.users.filter(u => u.id !== supId); // just exclude self
+        const color      = tbSupColor(supId);
         return `
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;
                       padding:12px;margin-bottom:10px">
             <div style="font-size:12px;font-weight:700;color:${color};margin-bottom:8px">
               ${supUser.name}'s Staff
             </div>
-            ${nonSups.length===0
-              ? `<div style="font-size:11px;color:var(--text3)">No non-supervisor users to assign</div>`
-              : nonSups.map(u => {
+            ${assignable.length===0
+              ? `<div style="font-size:11px;color:var(--text3)">All users are supervisors — no staff to assign</div>`
+              : assignable.map(u => {
                   const assigned = myStaff.includes(u.id);
                   return `
                     <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
@@ -1581,21 +1586,10 @@ function tbShowAdminPanel() {
 }
 
 function tbToggleSupervisor(userId) {
-  const supIds   = tbGetSupervisorIds();
-  const staffMap = tbGetStaffMap();
+  const supIds = tbGetSupervisorIds();
   if (userId === TB_ADMIN_ID) return;
-
-  if (supIds.has(userId)) {
-    // Demoting — remove from supervisors
-    supIds.delete(userId);
-  } else {
-    // Promoting to supervisor — remove from ALL staff lists first
-    supIds.add(userId);
-    for (const supId of Object.keys(staffMap)) {
-      staffMap[supId] = (staffMap[supId] || []).filter(id => id !== userId);
-    }
-    tbSaveStaffMap(staffMap);
-  }
+  if (supIds.has(userId)) supIds.delete(userId);
+  else supIds.add(userId);
   tbSaveSupervisorIds(supIds);
   tbState.supervisorIds = supIds;
   tbShowAdminPanel();
