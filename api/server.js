@@ -646,7 +646,16 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 });
 
 // ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
+let tasksBoardCache = { data: null, ts: 0 };
+const TASKS_BOARD_TTL = 3 * 60 * 1000; // 3 minutes
+
 app.get('/api/tasks-board', async (req, res) => {
+  const force = req.query.refresh === '1';
+  const now = Date.now();
+  if (!force && tasksBoardCache.data && (now - tasksBoardCache.ts) < TASKS_BOARD_TTL) {
+    console.log(`⚡ Serving tasks-board from cache (${Math.round((now-tasksBoardCache.ts)/1000)}s old)`);
+    return res.json(tasksBoardCache.data);
+  }
   try {
     // GHL Users — correct endpoint (no limit param)
     let usersData = [];
@@ -690,14 +699,30 @@ app.get('/api/tasks-board', async (req, res) => {
     });
 
     // Tasks — GHL tasks are stored per contact, not per user/location
-    // Strategy: get unique contactIds from opportunities, fetch tasks for each
+    // Strategy: combine contactIds from opportunities AND a full contact list fetch
     const tasksData = [];
-    const contactIds = [...new Set(oppsData.map(o => o.contactId || o.contact?.id).filter(Boolean))];
-    console.log(`Fetching tasks for ${contactIds.length} contacts...`);
+    const oppContactIds = oppsData.map(o => o.contactId || o.contact?.id).filter(Boolean);
 
-    // Batch fetch — process in groups of 10 concurrently to avoid rate limits
-    for (let i = 0; i < Math.min(contactIds.length, 500); i += 10) {
-      const batch = contactIds.slice(i, i + 10);
+    // Also fetch full contact list (catches contacts without opportunities)
+    const allContactIds = [];
+    let cPage = 1, cHasMore = true;
+    while (cHasMore && cPage <= 15) { // cap ~1500 contacts
+      try {
+        const cd = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&limit=100&page=${cPage}`);
+        const batch = cd.contacts || [];
+        allContactIds.push(...batch.map(c=>c.id));
+        cHasMore = batch.length === 100;
+        cPage++;
+      } catch(e) { console.log('Contacts fetch error:', e.message); cHasMore = false; }
+    }
+    console.log(`Contacts list: ${allContactIds.length}, from opps: ${oppContactIds.length}`);
+
+    const contactIds = [...new Set([...oppContactIds, ...allContactIds])];
+    console.log(`Fetching tasks for ${contactIds.length} unique contacts...`);
+
+    // Batch fetch — process in groups of 15 concurrently to avoid rate limits
+    for (let i = 0; i < contactIds.length; i += 15) {
+      const batch = contactIds.slice(i, i + 15);
       await Promise.all(batch.map(async cid => {
         try {
           const td = await ghl('GET', `${V2}/contacts/${cid}/tasks`);
@@ -715,7 +740,9 @@ app.get('/api/tasks-board', async (req, res) => {
 
     console.log(`FINAL: ${tasksData.length} tasks from ${contactIds.length} contacts, ${oppsData.length} opps`);
     if (tasksData.length) console.log('Sample task:', JSON.stringify(tasksData[0]).slice(0,300));
-    res.json({ tasks: tasksData, opportunities: oppsData, users: usersData, userMap });
+    const responseData = { tasks: tasksData, opportunities: oppsData, users: usersData, userMap };
+    tasksBoardCache = { data: responseData, ts: Date.now() };
+    res.json(responseData);
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
