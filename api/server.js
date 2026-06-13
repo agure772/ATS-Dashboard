@@ -686,44 +686,32 @@ app.get('/api/tasks-board', async (req, res) => {
       if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo];
     });
 
-    // Tasks — GHL tasks API: fetch by assignedUserId (not contactId)
+    // Tasks — GHL tasks are stored per contact, not per user/location
+    // Strategy: get unique contactIds from opportunities, fetch tasks for each
     const tasksData = [];
-    for (const [uid, uname] of Object.entries(userMap)) {
-      try {
-        // Try assignedUserId parameter
-        const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&assignedUserId=${uid}&limit=100`);
-        const batch = (td.tasks || td.data || []).map(t => ({ ...t, assigneeName: uname, assigneeId: uid }));
-        if (batch.length) {
-          tasksData.push(...batch);
-          console.log(`  Tasks for ${uname}: ${batch.length}`);
-        }
-      } catch(e) { console.log(`Task fetch error for ${uname}:`, e.message); }
+    const contactIds = [...new Set(oppsData.map(o => o.contactId || o.contact?.id).filter(Boolean))];
+    console.log(`Fetching tasks for ${contactIds.length} contacts...`);
+
+    // Batch fetch — process in groups of 10 concurrently to avoid rate limits
+    for (let i = 0; i < Math.min(contactIds.length, 500); i += 10) {
+      const batch = contactIds.slice(i, i + 10);
+      await Promise.all(batch.map(async cid => {
+        try {
+          const td = await ghl('GET', `${V2}/contacts/${cid}/tasks`);
+          const tasks = td.tasks || td.data || [];
+          if (tasks.length) {
+            // Enrich tasks with contact info and assignee name
+            tasks.forEach(t => {
+              const assigneeName = userMap[t.assignedTo] || '';
+              tasksData.push({ ...t, contactId: cid, assigneeId: t.assignedTo, assigneeName });
+            });
+          }
+        } catch(e) {} // silently skip contacts with no tasks
+      }));
     }
 
-    // Fallback: try fetching all tasks at location level
-    if (!tasksData.length) {
-      try {
-        const td = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&limit=100`);
-        const batch = td.tasks || td.data || [];
-        tasksData.push(...batch);
-        console.log(`Location-level tasks fallback: ${batch.length}`);
-        if (batch.length) console.log('Sample task:', JSON.stringify(batch[0]).slice(0,200));
-      } catch(e) { console.log('Location tasks error:', e.message); }
-    }
-
-    // Second fallback: try the newer tasks endpoint
-    if (!tasksData.length) {
-      try {
-        const td = await ghl('GET', `${V2}/tasks?locationId=${LOC_ID}&limit=100`);
-        const batch = td.tasks || td.data || [];
-        tasksData.push(...batch);
-        console.log(`V2 tasks endpoint: ${batch.length}`);
-        if (batch.length) console.log('Sample task v2:', JSON.stringify(batch[0]).slice(0,200));
-      } catch(e) { console.log('V2 tasks error:', e.message); }
-    }
-
-    console.log(`FINAL: ${tasksData.length} tasks, ${oppsData.length} opps, ${Object.keys(userMap).length} users in map`);
-    if (!tasksData.length) console.log('⚠️  No tasks found — check GHL tasks API endpoint');
+    console.log(`FINAL: ${tasksData.length} tasks from ${contactIds.length} contacts, ${oppsData.length} opps`);
+    if (tasksData.length) console.log('Sample task:', JSON.stringify(tasksData[0]).slice(0,300));
     res.json({ tasks: tasksData, opportunities: oppsData, users: usersData, userMap });
   } catch(err) {
     res.status(500).json({ error: err.message });
@@ -745,14 +733,65 @@ app.get('/api/debug/users', async (req, res) => {
   res.json(results);
 });
 
+// ── Assign opportunity to user ────────────────────────────────────────────
+app.post('/api/opportunities/:id/assign', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { assignedTo } = req.body;
+    if (!assignedTo) return res.status(400).json({ error: 'assignedTo required' });
+    const data = await ghl('PUT', `${V2}/opportunities/${id}`, { assignedTo });
+    res.json({ success: true, opportunity: data });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Assign task to user ───────────────────────────────────────────────────
+app.post('/api/contacts/:contactId/tasks/:taskId/assign', async (req, res) => {
+  try {
+    const { contactId, taskId } = req.params;
+    const { assignedTo } = req.body;
+    if (!assignedTo) return res.status(400).json({ error: 'assignedTo required' });
+    const data = await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, { assignedTo });
+    res.json({ success: true, task: data });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Create task for a contact (FMCSA Support Form) ────────────────────────
+app.post('/api/contacts/:id/tasks', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, body, assignedTo, dueDate, status } = req.body;
+    if (!title) return res.status(400).json({ error: 'title is required' });
+    const payload = {
+      title,
+      body:       body || '',
+      assignedTo: assignedTo || undefined,
+      dueDate:    dueDate || new Date(Date.now()+86400000).toISOString(),
+      status:     status || 'open',
+      contactId:  id,
+    };
+    const data = await ghl('POST', `${V2}/contacts/${id}/tasks`, payload);
+    res.json({ success: true, task: data });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Debug tasks API
 app.get('/api/debug/tasks', async (req, res) => {
   const results = {};
-  const testUserId = 's57KFI2a9N3LmRprzdJW'; // Shucayb — known to have tasks
-  try { results.by_assignedTo      = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&assignedTo=${testUserId}&limit=5`); } catch(e) { results.err1 = e.message; }
-  try { results.by_assignedUserId  = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&assignedUserId=${testUserId}&limit=5`); } catch(e) { results.err2 = e.message; }
-  try { results.location_level     = await ghl('GET', `${V2}/contacts/tasks?locationId=${LOC_ID}&limit=5`); } catch(e) { results.err3 = e.message; }
-  try { results.v2_tasks           = await ghl('GET', `${V2}/tasks?locationId=${LOC_ID}&limit=5`); } catch(e) { results.err4 = e.message; }
+  try {
+    // Get a contact that we know has tasks (Shucayb's contacts)
+    const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=5&page=1`);
+    const sampleContactId = od.opportunities?.[0]?.contactId || od.opportunities?.[0]?.contact?.id;
+    results.sampleContactId = sampleContactId;
+    if (sampleContactId) {
+      const td = await ghl('GET', `${V2}/contacts/${sampleContactId}/tasks`);
+      results.contact_tasks = td;
+    }
+    // Also show full opp structure to see all fields
+    results.sample_opp_fields = Object.keys(od.opportunities?.[0] || {});
+    results.sample_opp = od.opportunities?.[0];
+  } catch(e) { results.error = e.message; }
   res.json(results);
 });
 
