@@ -1265,6 +1265,16 @@ async function tbLoad() {
   tbRender();
 }
 
+function tbToggleSection(userId) {
+  const sec  = document.getElementById(`tb-sec-${userId}`);
+  const chev = document.getElementById(`tb-chev-${userId}`);
+  if (!sec) return;
+  const collapsed = sec.style.maxHeight === '0px';
+  sec.style.maxHeight  = collapsed ? '400px' : '0px';
+  sec.style.overflow   = collapsed ? 'auto'  : 'hidden';
+  if (chev) chev.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
 function tbSelectSupervisor(supId) {
   tbState.selectedSup = supId;
   tbInit();
@@ -1417,9 +1427,10 @@ function tbRender() {
           const myOpen   = items.filter(i=>i._status==='open').length;
           const myDone   = items.filter(i=>i._status==='completed').length;
           return `
-            <!-- Section header for this staff member -->
+            <!-- Staff section header — click to collapse/expand -->
             <div style="padding:10px 20px;background:${supColor}08;border-bottom:2px solid ${supColor}22;
-                        display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:1">
+                        display:flex;align-items:center;gap:10px;cursor:pointer"
+              onclick="tbToggleSection('${user.id}')">
               <div style="width:30px;height:30px;border-radius:50%;background:${isSuper?supColor:supColor+'66'}33;
                           border:1.5px solid ${isSuper?supColor:supColor+'88'};
                           display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;
@@ -1431,16 +1442,23 @@ function tbRender() {
                   ${isSuper?'SUPERVISOR':'STAFF'}
                 </span>
               </div>
-              <div style="display:flex;gap:5px">
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                 ${myOver?`<span style="font-size:10px;color:#ef4444;font-weight:700">${myOver} overdue</span>`:''}
                 ${myOpen?`<span style="font-size:10px;color:#60a5fa;font-weight:700">${myOpen} open</span>`:''}
                 ${myDone?`<span style="font-size:10px;color:#34d399;font-weight:700">${myDone} done</span>`:''}
                 ${!items.length?`<span style="font-size:10px;color:var(--text3)">All clear ✓</span>`:''}
               </div>
-              <span style="font-size:14px;font-weight:800;color:${items.length?supColor:'var(--text3)'}">${items.length}</span>
+              <span style="font-size:14px;font-weight:800;color:${items.length?supColor:'var(--text3)'};margin-right:4px">${items.length}</span>
+              <i class="ti ti-chevron-up" id="tb-chev-${user.id}" style="color:var(--text3);font-size:13px;transition:transform .25s"></i>
             </div>
-            ${items.length===0 ? '' : items.slice(0,20).map(renderItem).join('')}
-            ${items.length>20?`<div style="padding:6px 20px;font-size:11px;color:var(--text3);text-align:center;border-bottom:1px solid var(--border)">+${items.length-20} more items for ${user.name}</div>`:''}
+            <!-- Scrollable items — max 400px, shows all items -->
+            <div id="tb-sec-${user.id}" style="max-height:400px;overflow-y:auto">
+              ${items.length===0 ? `<div style="padding:16px 20px;text-align:center;font-size:12px;color:var(--text3)">All clear ✓</div>` : items.map(renderItem).join('')}
+              ${items.length>0?`<div style="padding:6px 20px;font-size:11px;color:var(--text3);text-align:center;
+                border-top:1px solid var(--border);background:var(--bg3)">
+                ${items.length} total items — scroll to see all
+              </div>`:''}
+            </div>
           `;
         }).join('')
       }
@@ -1647,25 +1665,33 @@ function tbToggleStaff(supId, staffId, checked) {
 
 let ffSelectedContact = null;
 
-function ffInit() {
-  // Populate assignee dropdown from GHL users
+async function ffInit() {
   const sel = document.getElementById('ff-assignee');
   if (!sel) return;
-  sel.innerHTML = '<option value="">-- Select staff member --</option>' +
-    state.clients ? '' : '';
-  // Use GHL users if available from tasks board state
-  const users = tbState.users.length ? tbState.users : [];
-  users.forEach(u => {
-    const opt = document.createElement('option');
-    opt.value = u.id;
-    opt.textContent = u.name;
-    sel.appendChild(opt);
-  });
 
-  // Toggle new driver info
-  document.getElementById('ff-ch-new-driver')?.addEventListener('change', e => {
-    document.getElementById('ff-new-driver-info').style.display = e.target.checked ? 'block' : 'none';
-  });
+  let users = tbState.users.length ? tbState.users
+    : JSON.parse(localStorage.getItem('tb_cached_users') || '[]');
+
+  if (!users.length) {
+    try {
+      const res = await fetch('/api/tasks-board');
+      const data = await res.json();
+      users = (data.users || []).filter(u => !u.deleted);
+      tbState.users = users;
+      localStorage.setItem('tb_cached_users', JSON.stringify(users));
+    } catch(e) { console.log('ffInit user fetch:', e.message); }
+  }
+
+  sel.innerHTML = '<option value="">-- Select staff member --</option>' +
+    users.filter(u => u.id !== '8261TQ73bG2PCyCaznmh')
+         .map(u => '<option value="' + u.id + '">' + u.name + '</option>')
+         .join('');
+
+  const chNew = document.getElementById('ff-ch-new-driver');
+  if (chNew) chNew.onchange = e => {
+    const el = document.getElementById('ff-new-driver-info');
+    if (el) el.style.display = e.target.checked ? 'block' : 'none';
+  };
 }
 
 async function ffSearchContact(query) {
