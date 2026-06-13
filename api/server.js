@@ -298,13 +298,16 @@ app.post('/api/opportunities/:id/notes', async (req, res) => {
 
 app.post('/api/contacts/:id/tasks', async (req, res) => {
   try {
-    const { title, dueDate, description } = req.body;
-    const data = await ghl('POST', `${V2}/contacts/${req.params.id}/tasks/`, {
-      title: title||'Compliance Deadline', body: description||'',
+    const { title, dueDate, description, body, assignedTo, status } = req.body;
+    const payload = {
+      title: title||'Compliance Deadline',
+      body: body||description||'',
       dueDate: dueDate||new Date(Date.now()+30*86400000).toISOString(),
-      completed: false,
-    });
-    res.status(201).json(data);
+      completed: status === 'completed',
+    };
+    if (assignedTo) payload.assignedTo = assignedTo;
+    const data = await ghl('POST', `${V2}/contacts/${req.params.id}/tasks/`, payload);
+    res.status(201).json({ success: true, task: data });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
