@@ -1155,6 +1155,7 @@ let tbState = {
   loaded:         false,
   filterType:     'all',
   filterStatus:   'all',
+  searchQuery:    '',
 };
 
 // ── Persistence helpers ────────────────────────────────────────────────────
@@ -1284,7 +1285,18 @@ function tbSelectSupervisor(supId) {
 function tbApplyFilters() {
   tbState.filterType   = document.getElementById('tb-filter-type').value;
   tbState.filterStatus = document.getElementById('tb-filter-status').value;
+  tbState.searchQuery  = (document.getElementById('tb-search')?.value || '').toLowerCase().trim();
   tbRender();
+}
+
+// Helper: does item match search query?
+function tbItemMatchesSearch(item, isTask) {
+  if (!tbState.searchQuery) return true;
+  const q = tbState.searchQuery;
+  const fields = isTask
+    ? [item.title, item.contact?.name, item.contactName, item.body]
+    : [item.name, item.pipelineName, item.contact?.name, item.contactName, item.stageName, item.status];
+  return fields.some(f => (f||'').toLowerCase().includes(q));
 }
 
 async function tbRefresh() {
@@ -1337,8 +1349,8 @@ function tbRender() {
     const userOpps  = tbState.opps.filter(o => o.assignedTo === user.id);
     const userTasks = tbState.tasks.filter(t => t.assigneeId === user.id || t.assignedTo === user.id);
     let items = [];
-    if (tbState.filterType !== 'opps')  userTasks.forEach(t => items.push({...t, _type:'task', _status:tbGetItemStatus(t,true), _staffName:user.name, _isSuper:isSuper}));
-    if (tbState.filterType !== 'tasks') userOpps.forEach(o  => items.push({...o, _type:'opp',  _status:tbGetItemStatus(o,false), _staffName:user.name, _isSuper:isSuper}));
+    if (tbState.filterType !== 'opps')  userTasks.forEach(t => { if(tbItemMatchesSearch(t,true))  items.push({...t, _type:'task', _status:tbGetItemStatus(t,true), _staffName:user.name, _isSuper:isSuper}); });
+    if (tbState.filterType !== 'tasks') userOpps.forEach(o  => { if(tbItemMatchesSearch(o,false)) items.push({...o, _type:'opp',  _status:tbGetItemStatus(o,false), _staffName:user.name, _isSuper:isSuper}); });
     if (tbState.filterStatus !== 'all') items = items.filter(i => i._status === tbState.filterStatus);
     items.sort((a,b) => ({overdue:0,open:1,completed:2,lost:3}[a._status]||1) - ({overdue:0,open:1,completed:2,lost:3}[b._status]||1));
     allItems.push({ user, isSuper, items });
@@ -2146,7 +2158,7 @@ function tbShowReassignMenu(itemId, itemType, contactId, currentUserId, anchorEl
       const isCurrent = uid === currentUserId;
       const initials  = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
       return `
-        <div onclick="tbReassignItem('${itemId}','${itemType}','${contactId||''}','${uid}',this)"
+        <div onclick="tbReassignItem('${itemId}','${itemType}','${contactId||''}','${uid}','${trained}','${(skillLabel||'').replace(/'/g,"\\'")}',this)"
           style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;
                  background:${isCurrent?'var(--primary)11':'transparent'};
                  opacity:${trained||!skillId?1:0.5}"
@@ -2168,8 +2180,212 @@ function tbShowReassignMenu(itemId, itemType, contactId, currentUserId, anchorEl
   }), 100);
 }
 
-async function tbReassignItem(itemId, itemType, contactId, newUserId, el) {
+// ── Add Task Modal ─────────────────────────────────────────────────────────
+let tbAddSelectedContact = null;
+
+function tbOpenAddItem() {
+  tbAddSelectedContact = null;
+  const existing = document.getElementById('tb-add-modal');
+  if (existing) existing.remove();
+
+  const staffMap = tbGetStaffMap();
+  const allIds   = [tbState.selectedSup, ...(staffMap[tbState.selectedSup]||[])].filter(Boolean);
+  const skills   = skGetSkills();
+
+  const modal = document.createElement('div');
+  modal.id = 'tb-add-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:28px;
+                width:500px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div style="font-size:16px;font-weight:700;color:var(--text)"><i class="ti ti-plus" style="color:var(--primary)"></i> Add New Task</div>
+        <button onclick="document.getElementById('tb-add-modal').remove()"
+          style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:20px">✕</button>
+      </div>
+
+      <!-- Client search -->
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em">CLIENT</label>
+        <input id="tb-add-contact-search" type="text" placeholder="Search by name or DOT number..."
+          oninput="tbAddSearchContact(this.value)"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
+        <div id="tb-add-contact-results" style="margin-top:6px"></div>
+        <div id="tb-add-selected" style="display:none;margin-top:6px;padding:8px 12px;
+             background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:8px;
+             font-size:12px;color:var(--green);font-weight:600"></div>
+      </div>
+
+      <!-- Title -->
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em">TASK TITLE</label>
+        <input id="tb-add-title" type="text" placeholder="e.g. UCR Filing Follow-up"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
+      </div>
+
+      <!-- Due date -->
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em">DUE DATE</label>
+        <input id="tb-add-due" type="date"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
+      </div>
+
+      <!-- Assign to -->
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em">ASSIGN TO</label>
+        <select id="tb-add-assignee"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px">
+          <option value="">-- Unassigned --</option>
+          ${allIds.map(uid=>{
+            const u = tbState.users.find(x=>x.id===uid);
+            return u ? `<option value="${uid}">${u.name}</option>` : '';
+          }).join('')}
+        </select>
+      </div>
+
+      <!-- Notes -->
+      <div style="margin-bottom:18px">
+        <label style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em">NOTES (OPTIONAL)</label>
+        <textarea id="tb-add-notes" placeholder="Additional details..."
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px;min-height:60px;
+                 resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+
+      <div id="tb-add-status" style="margin-bottom:10px;font-size:12px;text-align:center"></div>
+      <button onclick="tbSubmitAddItem()"
+        style="width:100%;background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
+               padding:12px;font-size:14px;font-weight:700;cursor:pointer">
+        Create Task
+      </button>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function tbAddSearchContact(query) {
+  if (!query || query.length < 2) {
+    document.getElementById('tb-add-contact-results').innerHTML = '';
+    return;
+  }
+  const q = query.toLowerCase();
+  const matches = (state.clients||[]).filter(c =>
+    c.name.toLowerCase().includes(q) ||
+    (c.dot_number||'').includes(q) ||
+    (c.business_name||'').toLowerCase().includes(q)
+  ).slice(0, 6);
+
+  document.getElementById('tb-add-contact-results').innerHTML = matches.map(c => `
+    <div onclick="tbAddSelectContact('${c.id}','${(c.name||'').replace(/'/g,"\\'")}')"
+      style="padding:8px 12px;border-radius:8px;cursor:pointer;border:1px solid var(--border);
+             background:var(--bg3);margin-bottom:4px;font-size:12px;color:var(--text)">
+      ${c.name}${c.dot_number?` · DOT# ${c.dot_number}`:''}
+    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px">No results</div>';
+}
+
+function tbAddSelectContact(id, name) {
+  tbAddSelectedContact = { id, name };
+  document.getElementById('tb-add-contact-results').innerHTML = '';
+  document.getElementById('tb-add-contact-search').value = name;
+  const sel = document.getElementById('tb-add-selected');
+  sel.style.display = 'block';
+  sel.textContent = `✓ ${name}`;
+}
+
+async function tbSubmitAddItem() {
+  const status = document.getElementById('tb-add-status');
+  const title  = document.getElementById('tb-add-title').value.trim();
+  const due    = document.getElementById('tb-add-due').value;
+  const notes  = document.getElementById('tb-add-notes').value.trim();
+  const assignee = document.getElementById('tb-add-assignee').value;
+
+  if (!tbAddSelectedContact) { status.innerHTML = '<span style="color:#ef4444">⚠ Please select a client</span>'; return; }
+  if (!title) { status.innerHTML = '<span style="color:#ef4444">⚠ Please enter a task title</span>'; return; }
+
+  // Skill warning check
+  if (assignee) {
+    const skillId = skGetItemType({ title, _type:'task' });
+    if (skillId) {
+      const skills  = skGetSkills();
+      const trained = (skills[assignee]||[]).includes(skillId);
+      if (!trained) {
+        const user = tbState.users.find(u=>u.id===assignee);
+        const skillLabel = SK_TYPES.find(s=>s.id===skillId)?.label;
+        const proceed = await tbShowSkillWarning(user?.name||'This person', skillLabel);
+        if (!proceed) return;
+      }
+    }
+  }
+
+  status.innerHTML = '<span style="color:var(--text3)">Creating task...</span>';
+  try {
+    const res = await fetch(`/api/contacts/${tbAddSelectedContact.id}/tasks`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        title, body: notes, assignedTo: assignee || undefined,
+        dueDate: due ? new Date(due).toISOString() : new Date(Date.now()+86400000).toISOString(),
+        status: 'open',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error||'Failed to create task');
+    status.innerHTML = '<span style="color:var(--green)">✓ Task created!</span>';
+    setTimeout(() => { document.getElementById('tb-add-modal')?.remove(); tbRefresh(); }, 800);
+  } catch(e) {
+    status.innerHTML = `<span style="color:#ef4444">Error: ${e.message}</span>`;
+  }
+}
+
+
+function tbShowSkillWarning(userName, skillLabel) {
+  return new Promise(resolve => {
+    const existing = document.getElementById('tb-skill-warn');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'tb-skill-warn';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+    modal.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid #f59e0b;border-radius:16px;padding:24px;width:420px;max-width:95vw;
+                  box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">
+          <i class="ti ti-alert-triangle" style="font-size:24px;color:#f59e0b;flex-shrink:0"></i>
+          <div>
+            <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px">Skill Mismatch Warning</div>
+            <div style="font-size:13px;color:var(--text3);line-height:1.5">
+              <strong style="color:var(--text)">${userName}</strong> is not trained on
+              <strong style="color:#f59e0b">${skillLabel}</strong>.
+              Assign anyway?
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button id="tb-skill-warn-yes" style="flex:1;background:#f59e0b;color:#1a1208;border:none;border-radius:10px;
+            padding:11px;font-size:13px;font-weight:700;cursor:pointer">Assign Anyway</button>
+          <button id="tb-skill-warn-no" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);
+            border-radius:10px;padding:11px 18px;font-size:13px;cursor:pointer">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    document.getElementById('tb-skill-warn-yes').onclick = () => { modal.remove(); resolve(true); };
+    document.getElementById('tb-skill-warn-no').onclick  = () => { modal.remove(); resolve(false); };
+  });
+}
+
+
+async function tbReassignItem(itemId, itemType, contactId, newUserId, trained, skillLabel, el) {
   el.closest('.tb-reassign-menu')?.remove();
+
+  // Show warning if assignee is not trained for this skill type
+  if (trained === 'false' && skillLabel) {
+    const user = tbState.users.find(u=>u.id===newUserId);
+    const proceed = await tbShowSkillWarning(user?.name||'This person', skillLabel);
+    if (!proceed) return;
+  }
+
   try {
     if (itemType === 'opp') {
       await fetch(`/api/opportunities/${itemId}/assign`, {
