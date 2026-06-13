@@ -1243,13 +1243,13 @@ function tbInit() {
 }
 
 // ── Load data from server ─────────────────────────────────────────────────
-async function tbLoad() {
-  if (tbState.loaded) { tbInit(); tbRender(); return; }
+async function tbLoad(forceRefresh) {
+  if (tbState.loaded && !forceRefresh) { tbInit(); tbRender(); return; }
   const loadEl = document.getElementById('tb-loading');
   if (loadEl) loadEl.style.display = 'block';
   document.getElementById('tb-staff-grid').innerHTML = '';
   try {
-    const res = await fetch('/api/tasks-board');
+    const res = await fetch(`/api/tasks-board${forceRefresh ? '?refresh=1' : ''}`);
     if (!res.ok) throw new Error(`Server ${res.status}`);
     const data = await res.json();
     tbState.tasks = data.tasks || [];
@@ -1292,16 +1292,18 @@ function tbApplyFilters() {
 // Helper: does item match search query?
 function tbItemMatchesSearch(item, isTask) {
   if (!tbState.searchQuery) return true;
-  const q = tbState.searchQuery;
+  const words = tbState.searchQuery.split(/\s+/).filter(Boolean);
   const fields = isTask
     ? [item.title, item.contact?.name, item.contactName, item.body]
     : [item.name, item.pipelineName, item.contact?.name, item.contactName, item.stageName, item.status];
-  return fields.some(f => (f||'').toLowerCase().includes(q));
+  const combined = fields.map(f=>(f||'').toLowerCase()).join(' ');
+  // Every word in the query must appear somewhere in the combined fields
+  return words.every(w => combined.includes(w));
 }
 
 async function tbRefresh() {
   tbState.loaded = false;
-  await tbLoad();
+  await tbLoad(true);
 }
 
 // ── Status helpers ────────────────────────────────────────────────────────
