@@ -294,7 +294,23 @@
       </div>
 
       <!-- Stats bar -->
-      <div id="tb-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px"></div>
+      <div id="tb-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+
+      <!-- Search + Add Task -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+        <div style="position:relative;flex:1;min-width:220px">
+          <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px"></i>
+          <input id="tb-search" type="text" placeholder="Search tasks & opportunities..."
+            oninput="tbApplyFilters()"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                   border-radius:8px;padding:8px 12px 8px 34px;font-size:13px;box-sizing:border-box">
+        </div>
+        <button onclick="tbOpenAddItem()" style="background:rgba(0,196,106,.15);color:var(--primary);
+          border:1px solid var(--primary);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;
+          cursor:pointer;display:flex;align-items:center;gap:6px">
+          <i class="ti ti-plus"></i> Add Task
+        </button>
+      </div>
 
       <!-- Staff cards grid -->
       <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
