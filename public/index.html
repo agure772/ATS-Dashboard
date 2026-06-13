@@ -378,12 +378,22 @@
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">MCS-150 UPDATE REQUEST</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="ff-mcs150-options">
-          ${['Mileage Year Update','Address Change Update','Unit/Driver Update','Email/Phone Update'].map(opt=>`
-            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);
-                          border:1px solid var(--border);border-radius:8px;cursor:pointer">
-              <input type="checkbox" value="${opt}" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
-              <span style="font-size:13px;color:var(--text)">${opt}</span>
-            </label>`).join('')}
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="Mileage Year Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Mileage Year Update</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="Address Change Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Address Change Update</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="Unit/Driver Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Unit/Driver Update</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="Email/Phone Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Email/Phone Update</span>
+          </label>
         </div>
       </div>
 
