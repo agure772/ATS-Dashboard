@@ -1839,7 +1839,27 @@ const SK_TYPES = [
   { id: 'dot_reactivate',label: 'DOT Reactivation',        color: '#7c3aed' },
 ];
 
-// Map pipeline/task names to skill IDs
+// Predefined task titles — each maps directly to a skill type for reliable matching
+const TB_TASK_TITLES = [
+  { skill: 'ucr',            label: '2026 UCR Filing Compliance Status' },
+  { skill: 'kyu',            label: '2026 KYU Annual Vehicle' },
+  { skill: 'fmcsa',          label: 'FMCSA Support — MCS-150 Update' },
+  { skill: 'fmcsa',          label: 'FMCSA Support — Clearinghouse' },
+  { skill: 'ifta',           label: '2026 IFTA Decals Request' },
+  { skill: 'ifta',           label: '2026 IFTA License Renewal' },
+  { skill: 'irp',            label: '2026 IRP Cab Card Renewal' },
+  { skill: '2290',           label: '2026 2290 Filing' },
+  { skill: 'clearinghouse',  label: '2026 Clearinghouse Annual Query' },
+  { skill: 'clearinghouse',  label: '2026 Clearinghouse New Driver Query' },
+  { skill: 'business_name',  label: '2026 Business Name Renewal' },
+  { skill: 'nm_permit',      label: '2026 NM Permit Setup' },
+  { skill: 'ny_permit',      label: '2026 NY Permit Setup' },
+  { skill: 'new_company',    label: '2026 New Company Setup' },
+  { skill: 'dot_reactivate', label: '2026 Reactivate DOT#' },
+  { skill: null,             label: 'Other (custom title)' },
+];
+
+
 const SK_PIPELINE_MAP = {
   ucr:            ['ucr','ucr filing'],
   kyu:            ['kyu','ky annual','ky vehicle'],
@@ -2222,9 +2242,15 @@ function tbOpenAddItem() {
       <!-- Title -->
       <div style="margin-bottom:14px">
         <label style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em">TASK TITLE</label>
-        <input id="tb-add-title" type="text" placeholder="e.g. UCR Filing Follow-up"
+        <select id="tb-add-title-select" onchange="tbOnTitleChange()"
           style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
+                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px">
+          <option value="">-- Select task title --</option>
+          ${TB_TASK_TITLES.map(t=>`<option value="${t.label}" data-skill="${t.skill||''}">${t.label}</option>`).join('')}
+        </select>
+        <input id="tb-add-title" type="text" placeholder="Enter custom task title..."
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:6px;box-sizing:border-box;display:none">
       </div>
 
       <!-- Due date -->
@@ -2238,7 +2264,7 @@ function tbOpenAddItem() {
       <!-- Assign to -->
       <div style="margin-bottom:14px">
         <label style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em">ASSIGN TO</label>
-        <select id="tb-add-assignee"
+        <select id="tb-add-assignee" onchange="tbOnAssigneeChange()"
           style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
                  border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px">
           <option value="">-- Unassigned --</option>
@@ -2247,6 +2273,12 @@ function tbOpenAddItem() {
             return u ? `<option value="${uid}">${u.name}</option>` : '';
           }).join('')}
         </select>
+        <div id="tb-add-skill-warning" style="display:none;margin-top:8px;padding:8px 12px;
+             background:rgba(245,158,11,.12);border:1px solid #f59e0b;border-radius:8px;
+             font-size:12px;color:#f59e0b;align-items:center;gap:6px">
+          <i class="ti ti-alert-triangle"></i>
+          <span id="tb-add-skill-warning-text"></span>
+        </div>
       </div>
 
       <!-- Notes -->
@@ -2297,19 +2329,62 @@ function tbAddSelectContact(id, name) {
   sel.textContent = `✓ ${name}`;
 }
 
+// ── Add Task modal: live skill check ──────────────────────────────────────
+function tbOnTitleChange() {
+  const sel = document.getElementById('tb-add-title-select');
+  const custom = document.getElementById('tb-add-title');
+  if (sel.value === 'Other (custom title)') {
+    custom.style.display = 'block';
+    custom.value = '';
+    custom.focus();
+  } else {
+    custom.style.display = 'none';
+    custom.value = sel.value;
+  }
+  tbCheckAddSkillWarning();
+}
+
+function tbOnAssigneeChange() { tbCheckAddSkillWarning(); }
+
+function tbCheckAddSkillWarning() {
+  const sel       = document.getElementById('tb-add-title-select');
+  const opt       = sel.options[sel.selectedIndex];
+  const skillId   = opt?.dataset?.skill || null;
+  const assignee  = document.getElementById('tb-add-assignee').value;
+  const warnBox   = document.getElementById('tb-add-skill-warning');
+  const warnText  = document.getElementById('tb-add-skill-warning-text');
+
+  if (!skillId || !assignee) { warnBox.style.display = 'none'; return; }
+
+  const skills  = skGetSkills();
+  const trained = (skills[assignee]||[]).includes(skillId);
+  const user    = tbState.users.find(u=>u.id===assignee);
+  const skillLabel = SK_TYPES.find(s=>s.id===skillId)?.label;
+
+  if (!trained) {
+    warnText.textContent = `${user?.name||'This person'} is not trained on ${skillLabel}.`;
+    warnBox.style.display = 'flex';
+  } else {
+    warnBox.style.display = 'none';
+  }
+}
+
 async function tbSubmitAddItem() {
   const status = document.getElementById('tb-add-status');
-  const title  = document.getElementById('tb-add-title').value.trim();
+  const titleSel = document.getElementById('tb-add-title-select');
+  const titleCustom = document.getElementById('tb-add-title');
+  const title  = titleSel.value === 'Other (custom title)' ? titleCustom.value.trim() : titleSel.value;
   const due    = document.getElementById('tb-add-due').value;
   const notes  = document.getElementById('tb-add-notes').value.trim();
   const assignee = document.getElementById('tb-add-assignee').value;
 
   if (!tbAddSelectedContact) { status.innerHTML = '<span style="color:#ef4444">⚠ Please select a client</span>'; return; }
-  if (!title) { status.innerHTML = '<span style="color:#ef4444">⚠ Please enter a task title</span>'; return; }
+  if (!title) { status.innerHTML = '<span style="color:#ef4444">⚠ Please select or enter a task title</span>'; return; }
 
-  // Skill warning check
+  // Skill warning check — use selected skill from dropdown, fallback to text matching for custom titles
   if (assignee) {
-    const skillId = skGetItemType({ title, _type:'task' });
+    const selOpt  = titleSel.options[titleSel.selectedIndex];
+    const skillId = selOpt?.dataset?.skill || skGetItemType({ title, _type:'task' });
     if (skillId) {
       const skills  = skGetSkills();
       const trained = (skills[assignee]||[]).includes(skillId);
