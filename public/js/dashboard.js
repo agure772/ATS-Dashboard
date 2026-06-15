@@ -1196,6 +1196,15 @@ function tbInit() {
   const container = document.getElementById('tb-supervisor-tabs');
   if (!container) return;
 
+  if (!tbState.users.length) {
+    container.innerHTML = `<div style="background:var(--bg3);border:1px solid var(--border);color:var(--text3);
+      border-radius:10px;padding:10px 14px;font-size:13px;min-width:220px">
+      <i class="ti ti-loader" style="animation:spin 1s linear infinite;display:inline-block;margin-right:6px"></i>
+      Loading staff...
+    </div>`;
+    return;
+  }
+
   const supIds = tbGetSupervisorIds();
   const supervisors = tbState.users.filter(u => supIds.has(u.id));
   if (!supervisors.length && tbState.users.length) {
@@ -1538,15 +1547,41 @@ function tbOpenAdmin() {
   setTimeout(() => document.getElementById('tb-admin-pass')?.focus(), 100);
 }
 
-function tbCheckPassphrase() {
+async function tbCheckPassphrase() {
   const val = document.getElementById('tb-admin-pass')?.value;
   if (val === TB_PASSPHRASE) {
     document.getElementById('tb-admin-modal').remove();
+    // Ensure user data is loaded before showing admin panel
+    if (!tbState.users.length) {
+      tbShowAdminLoading();
+      await tbLoad();
+    }
     tbShowAdminPanel();
   } else {
     const err = document.getElementById('tb-admin-err');
     if (err) { err.style.display='block'; err.textContent='Incorrect passphrase. Try again.'; }
   }
+}
+
+function tbShowAdminLoading() {
+  const existing = document.getElementById('tb-admin-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'tb-admin-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;text-align:center">
+      <i class="ti ti-loader" style="font-size:32px;color:#7c3aed;animation:spin 1s linear infinite;display:block;margin-bottom:12px"></i>
+      <div style="color:var(--text);font-weight:700">Loading staff list from GHL...</div>
+      <div style="color:var(--text3);font-size:12px;margin-top:6px">This may take up to 30 seconds on first load</div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function tbRetryAdminLoad() {
+  tbShowAdminLoading();
+  await tbLoad(true); // force fresh fetch
+  tbShowAdminPanel();
 }
 
 function tbShowAdminPanel() {
@@ -1581,6 +1616,15 @@ function tbShowAdminPanel() {
       </div>
 
       <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">
+        ${!tbState.users.length ? `
+          <div style="text-align:center;padding:24px;color:var(--text3)">
+            <i class="ti ti-alert-circle" style="font-size:28px;display:block;margin-bottom:8px;color:#f59e0b"></i>
+            Could not load staff list from GHL.
+            <button onclick="tbRetryAdminLoad()" style="display:block;margin:12px auto 0;background:var(--primary);
+              color:#0a1a0f;border:none;border-radius:8px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer">
+              Retry
+            </button>
+          </div>` : ''}
         ${tbState.users.map(u => {
           const isSup     = supIds.has(u.id);
           const isAdmin   = u.id === TB_ADMIN_ID;
