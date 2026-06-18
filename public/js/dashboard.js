@@ -1025,10 +1025,12 @@ function dotSearchGHL(query) {
 
   if (!matches.length) {
     document.getElementById('dot-ghl-matches').innerHTML = '';
-    document.getElementById('dot-create-section').style.display = 'block';
+    const sec = document.getElementById('dot-create-section');
+    if (sec) sec.style.display = 'block';
     return;
   }
-  document.getElementById('dot-create-section').style.display = 'none';
+  const sec2 = document.getElementById('dot-create-section');
+  if (sec2) sec2.style.display = 'none';
 
   document.getElementById('dot-ghl-matches').innerHTML = matches.map(c => `
     <div onclick="dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
@@ -1071,7 +1073,8 @@ async function dotCreateContact() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
 
-    document.getElementById('dot-create-section').style.display = 'none';
+    const sec3 = document.getElementById('dot-create-section');
+    if (sec3) sec3.style.display = 'none';
     document.getElementById('dot-push-status').innerHTML = `
       <div style="background:rgba(0,196,106,.1);border:1px solid rgba(0,196,106,.3);border-radius:8px;padding:10px 14px;margin-top:8px">
         <div style="font-size:13px;font-weight:700;color:var(--green)"><i class="ti ti-check"></i> Contact Created Successfully!</div>
@@ -2017,55 +2020,77 @@ async function tbAutoAssign() {
   const btn = document.getElementById('tb-auto-assign-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Assigning...'; }
 
-  const staffMap  = tbGetStaffMap();
-  const staffIds  = staffMap[tbState.selectedSup] || [];
-  const allIds    = [tbState.selectedSup, ...staffIds].filter(Boolean);
-  const skills    = skGetSkills();
+  const staffMap = tbGetStaffMap();
+  const staffIds = staffMap[tbState.selectedSup] || [];
+  const allIds   = [tbState.selectedSup, ...staffIds].filter(Boolean);
+  const skills   = skGetSkills();
 
-  // Count current open items per staff member
-  const workload = {};
-  allIds.forEach(uid => {
-    workload[uid] = tbState.opps.filter(o => o.assignedTo === uid && o.status === 'open').length
-                  + tbState.tasks.filter(t => (t.assigneeId===uid||t.assignedTo===uid) && !t.completed).length;
+  if (allIds.length < 2) {
+    if (btn) { btn.disabled=false; btn.innerHTML='<i class="ti ti-wand"></i> Auto-Assign All'; }
+    alert('This supervisor has no staff assigned yet. Use Admin to assign staff before auto-assigning.');
+    return;
+  }
+
+  // Scope: ONLY items currently assigned to someone on THIS team (selected supervisor + their staff)
+  // This prevents accidentally pulling in opportunities/tasks belonging to other teams.
+  const teamIdSet = new Set(allIds);
+  const teamOpenOpps  = tbState.opps.filter(o => teamIdSet.has(o.assignedTo) && (o.status||'').toLowerCase()==='open');
+  const teamOpenTasks = tbState.tasks.filter(t => {
+    const owner = t.assigneeId || t.assignedTo;
+    return teamIdSet.has(owner) && !t.completed && t.status !== 'completed';
   });
 
-  // Get all open items
-  const openOpps  = tbState.opps.filter(o => (o.status||'').toLowerCase() === 'open');
-  const openTasks = tbState.tasks.filter(t => !t.completed && t.status !== 'completed');
+  console.log(`Auto-Assign scope: ${teamOpenOpps.length} open opps, ${teamOpenTasks.length} open tasks for team of ${allIds.length}`);
+
+  if (!teamOpenOpps.length && !teamOpenTasks.length) {
+    if (btn) { btn.disabled=false; btn.innerHTML='<i class="ti ti-wand"></i> Auto-Assign All'; }
+    alert('No open tasks or opportunities found for this team to rebalance.');
+    return;
+  }
+
+  // Current workload snapshot (within this team only)
+  const workload = {};
+  allIds.forEach(uid => {
+    workload[uid] = teamOpenOpps.filter(o => o.assignedTo === uid).length
+                  + teamOpenTasks.filter(t => (t.assigneeId===uid||t.assignedTo===uid)).length;
+  });
 
   const assignments = []; // { type:'opp'|'task', id, contactId, newUserId, itemName }
 
+  // Round-robin pick: among staff QUALIFIED for the skill (or all, if nobody trained),
+  // pick whoever currently has the fewest items — keeps load balanced as we go.
   function pickStaff(skillId) {
-    // Qualified staff for this skill
-    const qualified = skillId ? allIds.filter(uid => (skills[uid]||[]).includes(skillId)) : allIds;
-    const pool = qualified.length ? qualified : allIds; // fallback to all if no one trained
-    // Pick the one with lowest workload
+    const qualified = skillId ? allIds.filter(uid => (skills[uid]||[]).includes(skillId)) : [];
+    const pool = qualified.length ? qualified : allIds; // fallback: nobody trained -> spread across everyone
     return pool.reduce((best, uid) => (workload[uid]||0) < (workload[best]||0) ? uid : best, pool[0]);
   }
 
-  // Assign opportunities
-  for (const opp of openOpps) {
+  // Assign opportunities (only within this team's open opps)
+  for (const opp of teamOpenOpps) {
     const skillId  = skGetItemType({...opp, _type:'opp'});
     const assignTo = pickStaff(skillId);
     if (assignTo && opp.assignedTo !== assignTo) {
-      assignments.push({ type:'opp', id:opp.id, newUserId:assignTo, itemName:opp.name||'Opportunity' });
+      assignments.push({ type:'opp', id:opp.id, newUserId:assignTo, itemName:opp.name||opp.pipelineName||'Opportunity' });
       workload[assignTo] = (workload[assignTo]||0) + 1;
+      workload[opp.assignedTo] = Math.max(0, (workload[opp.assignedTo]||0) - 1);
     }
   }
 
-  // Assign tasks
-  for (const task of openTasks) {
+  // Assign tasks (only within this team's open tasks)
+  for (const task of teamOpenTasks) {
     const skillId  = skGetItemType({...task, _type:'task'});
     const assignTo = pickStaff(skillId);
-    if (assignTo && task.assignedTo !== assignTo) {
+    const currentOwner = task.assigneeId || task.assignedTo;
+    if (assignTo && currentOwner !== assignTo) {
       assignments.push({ type:'task', id:task.id, contactId:task.contactId, newUserId:assignTo, itemName:task.title||'Task' });
       workload[assignTo] = (workload[assignTo]||0) + 1;
+      workload[currentOwner] = Math.max(0, (workload[currentOwner]||0) - 1);
     }
   }
 
   if (!assignments.length) {
     if (btn) { btn.disabled=false; btn.innerHTML='<i class="ti ti-wand"></i> Auto-Assign All'; }
-    alert('All items are already optimally assigned based on current skills and workload!');
+    alert('All items for this team are already optimally balanced based on current skills and workload!');
     return;
   }
 
@@ -2155,16 +2180,21 @@ async function tbApplyAutoAssign(assignments) {
 
   for (const a of assignments) {
     try {
+      let res;
       if (a.type === 'opp') {
-        await fetch(`/api/opportunities/${a.id}/assign`, {
+        res = await fetch(`/api/opportunities/${a.id}/assign`, {
           method: 'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ assignedTo: a.newUserId }),
         });
       } else {
-        await fetch(`/api/contacts/${a.contactId}/tasks/${a.id}/assign`, {
+        res = await fetch(`/api/contacts/${a.contactId}/tasks/${a.id}/assign`, {
           method: 'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ assignedTo: a.newUserId }),
         });
+      }
+      if (!res.ok) {
+        const errBody = await res.json().catch(()=>({}));
+        throw new Error(errBody.error || `HTTP ${res.status}`);
       }
       // Update local state immediately
       if (a.type === 'opp') {
@@ -2174,7 +2204,7 @@ async function tbApplyAutoAssign(assignments) {
         const task = tbState.tasks.find(t=>t.id===a.id);
         if (task) { task.assignedTo = a.newUserId; task.assigneeId = a.newUserId; }
       }
-    } catch(e) { errors.push(a.itemName); }
+    } catch(e) { console.log(`Assign failed for ${a.itemName}:`, e.message); errors.push(a.itemName); }
     done++;
     const prog = document.getElementById('tb-assign-progress');
     if (prog) prog.textContent = `${done} / ${assignments.length}`;
