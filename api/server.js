@@ -676,29 +676,62 @@ async function buildTasksBoardData() {
     return oppsData;
   };
 
-  const fetchAllContactIds = async () => {
-    const ids = [];
+  const fetchAllContacts = async () => {
+    const contacts = [];
     let cPage = 1, cHasMore = true;
     while (cHasMore && cPage <= 15) { // cap ~1500 contacts
       try {
         const cd = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&limit=100&page=${cPage}`);
         const batch = cd.contacts || [];
-        ids.push(...batch.map(c=>c.id));
+        contacts.push(...batch);
         cHasMore = batch.length === 100;
         cPage++;
       } catch(e) { cHasMore = false; }
     }
-    return ids;
+    return contacts;
   };
 
-  const [oppsData, allContactIds] = await Promise.all([fetchOpps(), fetchAllContactIds()]);
-  console.log(`Opps: ${oppsData.length}, Contacts: ${allContactIds.length}`);
+  const [oppsData, allContacts] = await Promise.all([fetchOpps(), fetchAllContacts()]);
+  const allContactIds = allContacts.map(c => c.id);
+  console.log(`Opps: ${oppsData.length}, Contacts: ${allContacts.length}`);
+
+  // Build contactId -> { name, companyName, tags } map for display on Tasks Board
+  const contactInfoMap = {};
+  allContacts.forEach(c => {
+    contactInfoMap[c.id] = {
+      name: c.name || `${c.firstName||''} ${c.lastName||''}`.trim() || c.companyName || 'Unknown',
+      companyName: c.companyName || '',
+      tags: (c.tags || []).map(t => String(t).toLowerCase()),
+    };
+  });
+  // Also capture contact info embedded directly in opportunities (covers contacts not in the bulk list, e.g. if pagination cap was hit)
+  oppsData.forEach(o => {
+    const cid = o.contactId || o.contact?.id;
+    if (cid && !contactInfoMap[cid] && o.contact) {
+      contactInfoMap[cid] = {
+        name: o.contact.name || `${o.contact.firstName||''} ${o.contact.lastName||''}`.trim() || 'Unknown',
+        companyName: o.contact.companyName || '',
+        tags: (o.contact.tags || []).map(t => String(t).toLowerCase()),
+      };
+    }
+  });
 
   // Build userId→name map
   const userMap = {};
   usersData.forEach(u => { userMap[u.id] = u.name || `${u.firstName||''} ${u.lastName||''}`.trim(); });
   oppsData.forEach(o => { if (o.assignedTo && o.ownerName) userMap[o.assignedTo] = o.ownerName; });
   oppsData.forEach(o => { if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo]; });
+
+  // Enrich opportunities with contact info (name, company, tags)
+  oppsData.forEach(o => {
+    const cid = o.contactId || o.contact?.id;
+    const info = cid ? contactInfoMap[cid] : null;
+    if (info) {
+      o.contactName    = o.contactName || info.name;
+      o.companyName    = info.companyName;
+      o.customerTags   = info.tags;
+    }
+  });
 
   // Tasks — per contact, high concurrency batches
   const tasksData = [];
@@ -713,8 +746,14 @@ async function buildTasksBoardData() {
       try {
         const td = await ghl('GET', `${V2}/contacts/${cid}/tasks`);
         const tasks = td.tasks || td.data || [];
+        const info = contactInfoMap[cid];
         tasks.forEach(t => {
-          tasksData.push({ ...t, contactId: cid, assigneeId: t.assignedTo, assigneeName: userMap[t.assignedTo] || '' });
+          tasksData.push({
+            ...t, contactId: cid, assigneeId: t.assignedTo, assigneeName: userMap[t.assignedTo] || '',
+            contactName:  info?.name || '',
+            companyName:  info?.companyName || '',
+            customerTags: info?.tags || [],
+          });
         });
       } catch(e) {} // skip contacts with no tasks
     }));
