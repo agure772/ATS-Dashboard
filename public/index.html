@@ -336,7 +336,8 @@
 
       <div id="tb-loading" style="display:none;text-align:center;padding:60px;color:var(--text3)">
         <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
-        Loading tasks from GHL...
+        <div>Loading tasks from GHL...</div>
+        <div id="tb-loading-sub" style="font-size:12px;margin-top:6px;color:var(--text3)">This can take up to a minute on first load</div>
       </div>
 
       <div id="tb-staff-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px"></div>
@@ -470,7 +471,7 @@
       <div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
         <div>
           <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:4px">Skills Setup</div>
-          <div style="font-size:13px;color:var(--text3)">Define which staff are trained on each service type — used for smart auto-assignment</div>
+          <div style="font-size:13px;color:var(--text3)">Mark each staff member's training level — Basic or Advanced — for every ATS service. Used for smart auto-assignment and skill-mismatch warnings.</div>
         </div>
         <button onclick="skSave()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
           padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
