@@ -770,8 +770,12 @@ app.post('/api/opportunities/:id/assign', async (req, res) => {
     const { assignedTo } = req.body;
     if (!assignedTo) return res.status(400).json({ error: 'assignedTo required' });
     const data = await ghl('PUT', `${V2}/opportunities/${id}`, { assignedTo });
+    console.log(`✓ Opp ${id} reassigned to ${assignedTo}`);
     res.json({ success: true, opportunity: data });
-  } catch(err) { res.status(500).json({ error: err.message }); }
+  } catch(err) {
+    console.log(`✗ Opp assign failed for ${req.params.id}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Assign task to user ───────────────────────────────────────────────────
@@ -781,8 +785,12 @@ app.post('/api/contacts/:contactId/tasks/:taskId/assign', async (req, res) => {
     const { assignedTo } = req.body;
     if (!assignedTo) return res.status(400).json({ error: 'assignedTo required' });
     const data = await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, { assignedTo });
+    console.log(`✓ Task ${taskId} reassigned to ${assignedTo}`);
     res.json({ success: true, task: data });
-  } catch(err) { res.status(500).json({ error: err.message }); }
+  } catch(err) {
+    console.log(`✗ Task assign failed for ${req.params.taskId}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Create task for a contact (FMCSA Support Form) ────────────────────────
