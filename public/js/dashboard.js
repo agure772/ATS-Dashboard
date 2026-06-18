@@ -1886,61 +1886,135 @@ async function ffSubmit() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // All service/task types staff can be trained on
-const SK_TYPES = [
-  { id: 'ucr',           label: 'UCR Filing',              color: '#7c3aed' },
-  { id: 'kyu',           label: 'KYU Annual Vehicle',      color: '#0891b2' },
-  { id: 'fmcsa',         label: 'FMCSA / MCS-150',         color: '#059669' },
-  { id: 'ifta',          label: 'IFTA License',            color: '#d97706' },
-  { id: 'irp',           label: 'IRP Cab Card',            color: '#e11d48' },
-  { id: '2290',          label: '2290 Filing',             color: '#0284c7' },
-  { id: 'clearinghouse', label: 'Clearinghouse',           color: '#7c3aed' },
-  { id: 'business_name', label: 'Business Name Renewal',   color: '#059669' },
-  { id: 'nm_permit',     label: 'NM Permit',               color: '#d97706' },
-  { id: 'ny_permit',     label: 'NY Permit',               color: '#e11d48' },
-  { id: 'new_company',   label: 'New Company Setup',       color: '#0891b2' },
-  { id: 'dot_reactivate',label: 'DOT Reactivation',        color: '#7c3aed' },
+// ── ATS Services catalog — categories with sub-services ───────────────────
+// Each leaf service has a unique id used for skill matching, task titles, and search.
+// Categories with no sub-services (isLeaf:true at category level) are trainable directly.
+const SK_CATEGORIES = [
+  {
+    id: 'fmcsa', label: 'FMCSA Support', color: '#059669',
+    children: [
+      { id: 'fmcsa_motus_biennial',  label: 'Motus Update — Biennial Update' },
+      { id: 'fmcsa_motus_bizinfo',   label: 'Motus Update — Business Info Update' },
+      { id: 'fmcsa_motus_operation', label: 'Motus Update — Operation Update' },
+      { id: 'fmcsa_motus_users',     label: 'Motus Update — Managed Authorized Users' },
+      { id: 'fmcsa_dataq',           label: 'DataQ Challenge' },
+      { id: 'fmcsa_inactivate',      label: 'Inactivate USDOT' },
+      { id: 'fmcsa_reactivate',      label: 'Reactivate USDOT' },
+      { id: 'fmcsa_reapplication',   label: 'Reapplication (after revocation of new entrant)' },
+      { id: 'fmcsa_other',           label: 'Other Changes' },
+    ],
+  },
+  {
+    id: 'irp', label: 'IRP Support', color: '#e11d48',
+    children: [
+      { id: 'irp_renewal',    label: 'IRP Renewal Cab Card Registration' },
+      { id: 'irp_supplement', label: 'IRP New Supplement' },
+    ],
+  },
+  {
+    id: 'ifta', label: 'IFTA Support', color: '#d97706',
+    children: [
+      { id: 'ifta_license_renewal', label: 'IFTA License Renewal' },
+      { id: 'ifta_decals',          label: 'IFTA Decals Request' },
+      { id: 'ifta_q1_filing',       label: 'Q1 IFTA Filing' },
+      { id: 'ifta_previous_filing', label: 'Previous IFTA Filing' },
+      { id: 'ifta_copy_license',    label: 'Copy of IFTA License' },
+      { id: 'ifta_insurance',       label: 'Insurance Support IFTA Filing (Last 4 quarters)' },
+    ],
+  },
+  {
+    id: 'permits', label: 'Permits Support', color: '#0891b2',
+    children: [
+      { id: 'permits_ky_setup',  label: 'KY Permit Setup Request' },
+      { id: 'permits_ny_setup',  label: 'NY Permit Setup Request' },
+      { id: 'permits_nm_setup',  label: 'NM Permit Setup Request' },
+      { id: 'permits_ct_setup',  label: 'CT Permit Setup Request' },
+      { id: 'permits_ny_decals', label: 'NY Decals Request' },
+      { id: 'permits_nm_req',    label: 'NM Permit Request' },
+      { id: 'permits_ky_cancel', label: 'KY Account Cancel Request' },
+      { id: 'permits_ny_cancel', label: 'NY Account Cancel Request' },
+      { id: 'permits_nm_cancel', label: 'NM Account Cancel Request' },
+      { id: 'permits_ct_cancel', label: 'CT Account Cancel Request' },
+      { id: 'permits_ky_reinstate', label: 'KY Reinstatement (Account Revoked) Request' },
+    ],
+  },
+  {
+    id: 'other', label: 'Other Support', color: '#7c3aed',
+    children: [
+      { id: 'other_amazon',    label: 'Amazon Relay Account Setup' },
+      { id: 'other_insurance', label: 'Insurance Support' },
+      { id: 'other_factoring', label: 'Factoring Support' },
+    ],
+  },
 ];
 
-// Predefined task titles — each maps directly to a skill type for reliable matching
+// Flattened list of every leaf service — used for skills setup, task dropdown, and search
+const SK_TYPES = SK_CATEGORIES.flatMap(cat => cat.children.map(child => ({
+  id: child.id, label: child.label, color: cat.color, categoryId: cat.id, categoryLabel: cat.label,
+})));
+
+// Predefined task titles — directly map 1:1 to SK_TYPES leaf services
 const TB_TASK_TITLES = [
-  { skill: 'ucr',            label: '2026 UCR Filing Compliance Status' },
-  { skill: 'kyu',            label: '2026 KYU Annual Vehicle' },
-  { skill: 'fmcsa',          label: 'FMCSA Support — MCS-150 Update' },
-  { skill: 'fmcsa',          label: 'FMCSA Support — Clearinghouse' },
-  { skill: 'ifta',           label: '2026 IFTA Decals Request' },
-  { skill: 'ifta',           label: '2026 IFTA License Renewal' },
-  { skill: 'irp',            label: '2026 IRP Cab Card Renewal' },
-  { skill: '2290',           label: '2026 2290 Filing' },
-  { skill: 'clearinghouse',  label: '2026 Clearinghouse Annual Query' },
-  { skill: 'clearinghouse',  label: '2026 Clearinghouse New Driver Query' },
-  { skill: 'business_name',  label: '2026 Business Name Renewal' },
-  { skill: 'nm_permit',      label: '2026 NM Permit Setup' },
-  { skill: 'ny_permit',      label: '2026 NY Permit Setup' },
-  { skill: 'new_company',    label: '2026 New Company Setup' },
-  { skill: 'dot_reactivate', label: '2026 Reactivate DOT#' },
-  { skill: null,             label: 'Other (custom title)' },
+  ...SK_TYPES.map(s => ({ skill: s.id, label: `${s.categoryLabel} — ${s.label}` })),
+  { skill: null, label: 'Other (custom title)' },
 ];
 
-
+// Map free-text task/pipeline names to skill leaf ids — best-effort keyword matching
+// (used only as a fallback for items created outside the dropdown, e.g. via GHL directly)
 const SK_PIPELINE_MAP = {
-  ucr:            ['ucr','ucr filing'],
-  kyu:            ['kyu','ky annual','ky vehicle'],
-  fmcsa:          ['mcs-150','mcs150','fmcsa','mcs 150'],
-  ifta:           ['ifta'],
-  irp:            ['irp','cab card','plate renewal'],
-  '2290':         ['2290'],
-  clearinghouse:  ['clearinghouse'],
-  business_name:  ['business name'],
-  nm_permit:      ['nm permit'],
-  ny_permit:      ['ny permit'],
-  new_company:    ['new company','prorate','company setup'],
-  dot_reactivate: ['reactivate','reactivation'],
+  fmcsa_motus_biennial:  ['biennial'],
+  fmcsa_motus_bizinfo:   ['business info update'],
+  fmcsa_motus_operation: ['operation update'],
+  fmcsa_motus_users:     ['authorized users','managed authorized'],
+  fmcsa_dataq:           ['dataq'],
+  fmcsa_inactivate:      ['inactivate usdot','inactivate dot'],
+  fmcsa_reactivate:      ['reactivate usdot','reactivate dot','reactivation'],
+  fmcsa_reapplication:   ['reapplication','revocation of new entrant'],
+  fmcsa_other:           ['fmcsa other','mcs-150','mcs150'],
+  irp_renewal:           ['irp renewal','cab card'],
+  irp_supplement:        ['irp supplement','new supplement'],
+  ifta_license_renewal:  ['ifta license renewal'],
+  ifta_decals:           ['ifta decals'],
+  ifta_q1_filing:        ['q1 ifta'],
+  ifta_previous_filing:  ['previous ifta'],
+  ifta_copy_license:     ['copy of ifta'],
+  ifta_insurance:        ['insurance support ifta','ifta insurance'],
+  permits_ky_setup:      ['ky permit setup'],
+  permits_ny_setup:      ['ny permit setup'],
+  permits_nm_setup:      ['nm permit setup'],
+  permits_ct_setup:      ['ct permit setup'],
+  permits_ny_decals:     ['ny decals'],
+  permits_nm_req:        ['nm permit request'],
+  permits_ky_cancel:     ['ky account cancel','ky cancel'],
+  permits_ny_cancel:     ['ny account cancel','ny cancel'],
+  permits_nm_cancel:     ['nm account cancel','nm cancel'],
+  permits_ct_cancel:     ['ct account cancel','ct cancel'],
+  permits_ky_reinstate:  ['ky reinstat'],
+  other_amazon:          ['amazon relay'],
+  other_insurance:       ['insurance support'],
+  other_factoring:       ['factoring support'],
 };
 
 function skGetSkills() {
   try { return JSON.parse(localStorage.getItem('tb_skills') || '{}'); } catch(e) { return {}; }
 }
 function skSaveSkills(data) { localStorage.setItem('tb_skills', JSON.stringify(data)); }
+
+// Check if a user is trained (basic OR advanced) on a given skill leaf id
+function skIsTrained(userId, skillId) {
+  const skills = skGetSkills();
+  const entry  = skills[userId]?.[skillId];
+  return !!(entry && (entry.basic || entry.advanced));
+}
+
+function skGetLevel(userId, skillId) {
+  const skills = skGetSkills();
+  const entry  = skills[userId]?.[skillId];
+  if (!entry) return null;
+  if (entry.advanced) return 'advanced';
+  if (entry.basic) return 'basic';
+  return null;
+}
 
 function skGetItemType(item) {
   const isTask = item._type === 'task';
@@ -1955,15 +2029,13 @@ function skGetItemType(item) {
 }
 
 function skGetQualifiedStaff(skillId, allStaffIds) {
-  const skills = skGetSkills();
-  return allStaffIds.filter(uid => (skills[uid] || []).includes(skillId));
+  return allStaffIds.filter(uid => skIsTrained(uid, skillId));
 }
 
-// ── Skills Setup page ─────────────────────────────────────────────────────
+// ── Skills Setup page — grouped by category, Basic + Advanced checkboxes ──
 function skInit() {
   const grid = document.getElementById('sk-grid');
   if (!grid) return;
-  // Load all GHL users — use tbState if loaded, else show message
   const users = tbState.users.length ? tbState.users
     : JSON.parse(localStorage.getItem('tb_cached_users') || '[]');
   if (!users.length) {
@@ -1972,12 +2044,13 @@ function skInit() {
     </div>`;
     return;
   }
-  // Cache users for next time
   localStorage.setItem('tb_cached_users', JSON.stringify(users));
   const skills = skGetSkills();
-  grid.innerHTML = users.filter(u => u.id !== '8261TQ73bG2PCyCaznmh') // skip Admin Truck Solutions system account
+
+  grid.innerHTML = users.filter(u => u.id !== '8261TQ73bG2PCyCaznmh')
     .map(user => {
-      const userSkills = skills[user.id] || [];
+      const userSkillMap = skills[user.id] || {};
+      const trainedCount = Object.values(userSkillMap).filter(e => e.basic || e.advanced).length;
       const initials = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
       return `
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
@@ -1986,42 +2059,49 @@ function skInit() {
                         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--primary)">${initials}</div>
             <div>
               <div style="font-size:14px;font-weight:700;color:var(--text)">${user.name}</div>
-              <div style="font-size:11px;color:var(--text3)">${userSkills.length} skill${userSkills.length!==1?'s':''} assigned</div>
+              <div style="font-size:11px;color:var(--text3)">${trainedCount} service${trainedCount!==1?'s':''} trained</div>
             </div>
           </div>
-          <div style="padding:14px 16px">
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">
-              ${SK_TYPES.map(sk => `
-                <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;
-                              background:${userSkills.includes(sk.id)?sk.color+'18':'var(--bg3)'};
-                              border:1px solid ${userSkills.includes(sk.id)?sk.color:'var(--border)'};
-                              border-radius:8px;cursor:pointer;transition:all .15s">
-                  <input type="checkbox" data-user="${user.id}" data-skill="${sk.id}"
-                    ${userSkills.includes(sk.id)?'checked':''}
-                    onchange="skToggle('${user.id}','${sk.id}',this.checked,this)"
-                    style="accent-color:${sk.color};width:15px;height:15px">
-                  <span style="font-size:12px;font-weight:600;color:${userSkills.includes(sk.id)?sk.color:'var(--text)'}">${sk.label}</span>
-                </label>`).join('')}
-            </div>
+          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+            ${SK_CATEGORIES.map(cat => `
+              <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
+                <div style="padding:8px 12px;background:${cat.color}10;border-bottom:1px solid var(--border);
+                            display:flex;align-items:center;gap:8px">
+                  <span style="font-size:12px;font-weight:700;color:${cat.color}">${cat.label}</span>
+                </div>
+                <div style="padding:8px 12px;display:flex;flex-direction:column;gap:6px">
+                  <div style="display:grid;grid-template-columns:1fr 60px 70px;gap:8px;font-size:10px;
+                              color:var(--text3);font-weight:700;letter-spacing:.04em;padding:0 2px">
+                    <span>SERVICE</span><span style="text-align:center">BASIC</span><span style="text-align:center">ADVANCED</span>
+                  </div>
+                  ${cat.children.map(child => {
+                    const entry = userSkillMap[child.id] || {};
+                    return `
+                      <div style="display:grid;grid-template-columns:1fr 60px 70px;gap:8px;align-items:center;
+                                  padding:5px 2px;border-radius:6px;
+                                  background:${entry.basic||entry.advanced?cat.color+'0c':'transparent'}">
+                        <span style="font-size:12px;color:var(--text)">${child.label}</span>
+                        <input type="checkbox" ${entry.basic?'checked':''}
+                          onchange="skToggleLevel('${user.id}','${child.id}','basic',this.checked)"
+                          style="accent-color:${cat.color};width:15px;height:15px;margin:0 auto;display:block">
+                        <input type="checkbox" ${entry.advanced?'checked':''}
+                          onchange="skToggleLevel('${user.id}','${child.id}','advanced',this.checked)"
+                          style="accent-color:${cat.color};width:15px;height:15px;margin:0 auto;display:block">
+                      </div>`;
+                  }).join('')}
+                </div>
+              </div>`).join('')}
           </div>
         </div>`;
     }).join('');
 }
 
-function skToggle(userId, skillId, checked, el) {
+function skToggleLevel(userId, skillId, level, checked) {
   const skills = skGetSkills();
-  if (!skills[userId]) skills[userId] = [];
-  if (checked) { if (!skills[userId].includes(skillId)) skills[userId].push(skillId); }
-  else          { skills[userId] = skills[userId].filter(s => s !== skillId); }
+  if (!skills[userId]) skills[userId] = {};
+  if (!skills[userId][skillId]) skills[userId][skillId] = { basic: false, advanced: false };
+  skills[userId][skillId][level] = checked;
   skSaveSkills(skills);
-  // Visual feedback on the label
-  const label = el.closest('label');
-  const sk    = SK_TYPES.find(s=>s.id===skillId);
-  if (label && sk) {
-    label.style.background = checked ? sk.color+'18' : 'var(--bg3)';
-    label.style.border     = `1px solid ${checked ? sk.color : 'var(--border)'}`;
-    label.querySelector('span').style.color = checked ? sk.color : 'var(--text)';
-  }
 }
 
 function skSave() {
@@ -2075,7 +2155,7 @@ async function tbAutoAssign() {
   // Round-robin pick: among staff QUALIFIED for the skill (or all, if nobody trained),
   // pick whoever currently has the fewest items — keeps load balanced as we go.
   function pickStaff(skillId) {
-    const qualified = skillId ? allIds.filter(uid => (skills[uid]||[]).includes(skillId)) : [];
+    const qualified = skillId ? allIds.filter(uid => skIsTrained(uid, skillId)) : [];
     const pool = qualified.length ? qualified : allIds; // fallback: nobody trained -> spread across everyone
     return pool.reduce((best, uid) => (workload[uid]||0) < (workload[best]||0) ? uid : best, pool[0]);
   }
@@ -2265,7 +2345,8 @@ function tbShowReassignMenu(itemId, itemType, contactId, currentUserId, anchorEl
     ${allIds.map(uid => {
       const user      = tbState.users.find(u=>u.id===uid);
       if (!user) return '';
-      const trained   = skillId ? (skills[uid]||[]).includes(skillId) : true;
+      const trained   = skillId ? skIsTrained(uid, skillId) : true;
+      const level     = skillId ? skGetLevel(uid, skillId) : null;
       const isCurrent = uid === currentUserId;
       const initials  = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
       return `
@@ -2278,7 +2359,8 @@ function tbShowReassignMenu(itemId, itemType, contactId, currentUserId, anchorEl
                       display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:var(--primary)">${initials}</div>
           <div style="flex:1">
             <div style="font-size:12px;font-weight:600;color:var(--text)">${user.name}</div>
-            ${trained&&skillLabel?`<div style="font-size:10px;color:var(--green)">✓ Trained</div>`:''}
+            ${level==='advanced'&&skillLabel?`<div style="font-size:10px;color:var(--green)">✓ Advanced</div>`:''}
+            ${level==='basic'&&skillLabel?`<div style="font-size:10px;color:#60a5fa">✓ Basic</div>`:''}
             ${!trained&&skillLabel?`<div style="font-size:10px;color:var(--text3)">Not trained</div>`:''}
           </div>
           ${isCurrent?`<i class="ti ti-check" style="color:var(--primary);font-size:12px"></i>`:''}
@@ -2335,7 +2417,11 @@ function tbOpenAddItem() {
           style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
                  border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px">
           <option value="">-- Select task title --</option>
-          ${TB_TASK_TITLES.map(t=>`<option value="${t.label}" data-skill="${t.skill||''}">${t.label}</option>`).join('')}
+          ${SK_CATEGORIES.map(cat => `
+            <optgroup label="${cat.label}">
+              ${cat.children.map(child => `<option value="${cat.label} — ${child.label}" data-skill="${child.id}">${child.label}</option>`).join('')}
+            </optgroup>`).join('')}
+          <option value="Other (custom title)" data-skill="">Other (custom title)</option>
         </select>
         <input id="tb-add-title" type="text" placeholder="Enter custom task title..."
           style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
@@ -2445,10 +2531,9 @@ function tbCheckAddSkillWarning() {
 
   if (!skillId || !assignee) { warnBox.style.display = 'none'; return; }
 
-  const skills  = skGetSkills();
-  const trained = (skills[assignee]||[]).includes(skillId);
-  const user    = tbState.users.find(u=>u.id===assignee);
-  const skillLabel = SK_TYPES.find(s=>s.id===skillId)?.label;
+  const trained     = skIsTrained(assignee, skillId);
+  const user        = tbState.users.find(u=>u.id===assignee);
+  const skillLabel  = SK_TYPES.find(s=>s.id===skillId)?.label;
 
   if (!trained) {
     warnText.textContent = `${user?.name||'This person'} is not trained on ${skillLabel}.`;
@@ -2475,8 +2560,7 @@ async function tbSubmitAddItem() {
     const selOpt  = titleSel.options[titleSel.selectedIndex];
     const skillId = selOpt?.dataset?.skill || skGetItemType({ title, _type:'task' });
     if (skillId) {
-      const skills  = skGetSkills();
-      const trained = (skills[assignee]||[]).includes(skillId);
+      const trained = skIsTrained(assignee, skillId);
       if (!trained) {
         const user = tbState.users.find(u=>u.id===assignee);
         const skillLabel = SK_TYPES.find(s=>s.id===skillId)?.label;
