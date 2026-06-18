@@ -1260,6 +1260,19 @@ async function tbLoad(forceRefresh) {
   const loadEl = document.getElementById('tb-loading');
   if (loadEl) loadEl.style.display = 'block';
   document.getElementById('tb-staff-grid').innerHTML = '';
+
+  // Elapsed-time indicator so it doesn't feel frozen during the first slow load
+  const startTime = Date.now();
+  const subEl = document.getElementById('tb-loading-sub');
+  const timer = setInterval(() => {
+    if (subEl) {
+      const secs = Math.round((Date.now()-startTime)/1000);
+      subEl.textContent = secs < 8
+        ? 'This can take up to a minute on first load'
+        : `Still working... ${secs}s elapsed (pulling tasks from ~1,500 contacts)`;
+    }
+  }, 1000);
+
   try {
     const res = await fetch(`/api/tasks-board${forceRefresh ? '?refresh=1' : ''}`);
     if (!res.ok) throw new Error(`Server ${res.status}`);
@@ -1271,8 +1284,10 @@ async function tbLoad(forceRefresh) {
     console.log(`TB loaded: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} users`);
   } catch(e) {
     if (loadEl) loadEl.innerHTML = `<div style="color:var(--red)">Failed to load: ${e.message}</div>`;
+    clearInterval(timer);
     return;
   }
+  clearInterval(timer);
   if (loadEl) loadEl.style.display = 'none';
   tbInit();
   tbRender();
