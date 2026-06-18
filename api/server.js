@@ -647,26 +647,21 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 
 // ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
 let tasksBoardCache = { data: null, ts: 0 };
-const TASKS_BOARD_TTL = 3 * 60 * 1000; // 3 minutes
+let tasksBoardRefreshing = false;
+const TASKS_BOARD_TTL  = 5 * 60 * 1000;  // serve cached data for 5 min without refetch
+const TASKS_BOARD_STALE = 20 * 60 * 1000; // after 20 min, cache is too old to serve at all
 
-app.get('/api/tasks-board', async (req, res) => {
-  const force = req.query.refresh === '1';
-  const now = Date.now();
-  if (!force && tasksBoardCache.data && (now - tasksBoardCache.ts) < TASKS_BOARD_TTL) {
-    console.log(`⚡ Serving tasks-board from cache (${Math.round((now-tasksBoardCache.ts)/1000)}s old)`);
-    return res.json(tasksBoardCache.data);
-  }
+async function buildTasksBoardData() {
+  // GHL Users
+  let usersData = [];
   try {
-    // GHL Users — correct endpoint (no limit param)
-    let usersData = [];
-    try {
-      const ud = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}`);
-      usersData = ud.users || ud.data || ud.members || [];
-      console.log(`Users found: ${usersData.length}`);
-      usersData.forEach(u => console.log(`  ${u.id} | ${u.name||u.firstName+' '+u.lastName}`));
-    } catch(e) { console.log('Users err:', e.message); }
+    const ud = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}`);
+    usersData = ud.users || ud.data || ud.members || [];
+    console.log(`Users found: ${usersData.length}`);
+  } catch(e) { console.log('Users err:', e.message); }
 
-    // GHL Opportunities
+  // Fetch Opportunities and full Contact list IN PARALLEL (was sequential before)
+  const fetchOpps = async () => {
     const oppsData = [];
     let oppsPage = 1, oppsHasMore = true;
     while (oppsHasMore && oppsPage <= 30) {
@@ -678,71 +673,87 @@ app.get('/api/tasks-board', async (req, res) => {
         oppsPage++;
       } catch(e) { oppsHasMore = false; }
     }
-    console.log(`Opps: ${oppsData.length}`);
+    return oppsData;
+  };
 
-    // Build userId→name map from users
-    const userMap = {};
-    usersData.forEach(u => {
-      const name = u.name || `${u.firstName||''} ${u.lastName||''}`.trim();
-      userMap[u.id] = name;
-    });
-
-    // Also build from opp assignedTo IDs that have names attached
-    oppsData.forEach(o => {
-      if (o.assignedTo && o.ownerName) userMap[o.assignedTo] = o.ownerName;
-    });
-    console.log('User map:', JSON.stringify(userMap));
-
-    // Enrich opps with owner name
-    oppsData.forEach(o => {
-      if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo];
-    });
-
-    // Tasks — GHL tasks are stored per contact, not per user/location
-    // Strategy: combine contactIds from opportunities AND a full contact list fetch
-    const tasksData = [];
-    const oppContactIds = oppsData.map(o => o.contactId || o.contact?.id).filter(Boolean);
-
-    // Also fetch full contact list (catches contacts without opportunities)
-    const allContactIds = [];
+  const fetchAllContactIds = async () => {
+    const ids = [];
     let cPage = 1, cHasMore = true;
     while (cHasMore && cPage <= 15) { // cap ~1500 contacts
       try {
         const cd = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&limit=100&page=${cPage}`);
         const batch = cd.contacts || [];
-        allContactIds.push(...batch.map(c=>c.id));
+        ids.push(...batch.map(c=>c.id));
         cHasMore = batch.length === 100;
         cPage++;
-      } catch(e) { console.log('Contacts fetch error:', e.message); cHasMore = false; }
+      } catch(e) { cHasMore = false; }
     }
-    console.log(`Contacts list: ${allContactIds.length}, from opps: ${oppContactIds.length}`);
+    return ids;
+  };
 
-    const contactIds = [...new Set([...oppContactIds, ...allContactIds])];
-    console.log(`Fetching tasks for ${contactIds.length} unique contacts...`);
+  const [oppsData, allContactIds] = await Promise.all([fetchOpps(), fetchAllContactIds()]);
+  console.log(`Opps: ${oppsData.length}, Contacts: ${allContactIds.length}`);
 
-    // Batch fetch — process in groups of 15 concurrently to avoid rate limits
-    for (let i = 0; i < contactIds.length; i += 15) {
-      const batch = contactIds.slice(i, i + 15);
-      await Promise.all(batch.map(async cid => {
-        try {
-          const td = await ghl('GET', `${V2}/contacts/${cid}/tasks`);
-          const tasks = td.tasks || td.data || [];
-          if (tasks.length) {
-            // Enrich tasks with contact info and assignee name
-            tasks.forEach(t => {
-              const assigneeName = userMap[t.assignedTo] || '';
-              tasksData.push({ ...t, contactId: cid, assigneeId: t.assignedTo, assigneeName });
-            });
-          }
-        } catch(e) {} // silently skip contacts with no tasks
-      }));
+  // Build userId→name map
+  const userMap = {};
+  usersData.forEach(u => { userMap[u.id] = u.name || `${u.firstName||''} ${u.lastName||''}`.trim(); });
+  oppsData.forEach(o => { if (o.assignedTo && o.ownerName) userMap[o.assignedTo] = o.ownerName; });
+  oppsData.forEach(o => { if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo]; });
+
+  // Tasks — per contact, high concurrency batches
+  const tasksData = [];
+  const oppContactIds = oppsData.map(o => o.contactId || o.contact?.id).filter(Boolean);
+  const contactIds = [...new Set([...oppContactIds, ...allContactIds])];
+  console.log(`Fetching tasks for ${contactIds.length} unique contacts...`);
+
+  const CONCURRENCY = 40; // raised from 15 — GHL allows higher burst rates
+  for (let i = 0; i < contactIds.length; i += CONCURRENCY) {
+    const batch = contactIds.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(async cid => {
+      try {
+        const td = await ghl('GET', `${V2}/contacts/${cid}/tasks`);
+        const tasks = td.tasks || td.data || [];
+        tasks.forEach(t => {
+          tasksData.push({ ...t, contactId: cid, assigneeId: t.assignedTo, assigneeName: userMap[t.assignedTo] || '' });
+        });
+      } catch(e) {} // skip contacts with no tasks
+    }));
+  }
+
+  console.log(`FINAL: ${tasksData.length} tasks from ${contactIds.length} contacts, ${oppsData.length} opps`);
+  return { tasks: tasksData, opportunities: oppsData, users: usersData, userMap };
+}
+
+app.get('/api/tasks-board', async (req, res) => {
+  const force = req.query.refresh === '1';
+  const now = Date.now();
+  const age = now - tasksBoardCache.ts;
+
+  // Fresh cache — serve instantly
+  if (!force && tasksBoardCache.data && age < TASKS_BOARD_TTL) {
+    console.log(`⚡ Serving tasks-board from cache (${Math.round(age/1000)}s old)`);
+    return res.json(tasksBoardCache.data);
+  }
+
+  // Stale-but-usable cache — serve immediately, refresh in background for next time
+  if (!force && tasksBoardCache.data && age < TASKS_BOARD_STALE) {
+    console.log(`⚡ Serving STALE tasks-board (${Math.round(age/1000)}s old), refreshing in background`);
+    res.json(tasksBoardCache.data);
+    if (!tasksBoardRefreshing) {
+      tasksBoardRefreshing = true;
+      buildTasksBoardData()
+        .then(data => { tasksBoardCache = { data, ts: Date.now() }; })
+        .catch(e => console.log('Background refresh failed:', e.message))
+        .finally(() => { tasksBoardRefreshing = false; });
     }
+    return;
+  }
 
-    console.log(`FINAL: ${tasksData.length} tasks from ${contactIds.length} contacts, ${oppsData.length} opps`);
-    if (tasksData.length) console.log('Sample task:', JSON.stringify(tasksData[0]).slice(0,300));
-    const responseData = { tasks: tasksData, opportunities: oppsData, users: usersData, userMap };
-    tasksBoardCache = { data: responseData, ts: Date.now() };
-    res.json(responseData);
+  // No usable cache (first load, or forced refresh) — must wait for fresh fetch
+  try {
+    const data = await buildTasksBoardData();
+    tasksBoardCache = { data, ts: Date.now() };
+    res.json(data);
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
