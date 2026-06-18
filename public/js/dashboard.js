@@ -1321,8 +1321,8 @@ function tbItemMatchesSearch(item, isTask) {
   if (!tbState.searchQuery) return true;
   const words = tbState.searchQuery.split(/\s+/).filter(Boolean);
   const fields = isTask
-    ? [item.title, item.contact?.name, item.contactName, item.body]
-    : [item.name, item.pipelineName, item.contact?.name, item.contactName, item.stageName, item.status];
+    ? [item.title, item.contact?.name, item.contactName, item.companyName, item.body]
+    : [item.name, item.pipelineName, item.contact?.name, item.contactName, item.companyName, item.stageName, item.status];
   const combined = fields.map(f=>(f||'').toLowerCase()).join(' ');
   // Every word in the query must appear somewhere in the combined fields
   return words.every(w => combined.includes(w));
@@ -1394,16 +1394,13 @@ function tbRender() {
     const sc = item._status==='overdue'?'#ef4444':item._status==='completed'?'#34d399':'#60a5fa';
     const si = item._status==='overdue'?'ti-alert-triangle':item._status==='completed'?'ti-circle-check':'ti-clock';
     const taskTitle   = item.title || 'Untitled Task';
-    const taskContact = item.contact?.name || item.contactName || '';
     const taskDue     = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}) : 'No due date';
     const oppName     = item.name || 'Untitled Opportunity';
     const pipeline    = (item.pipelineName||'').replace(/^\d+\.\s*/,'').replace('2026 ','').trim();
     const oppStage    = item.stageName || item.status || '';
-    const oppContact  = item.contact?.name || item.contactName || '';
     const created     = item.createdAt||item.dateAdded;
     const ageDays     = created ? Math.floor((Date.now()-new Date(created).getTime())/86400000) : null;
     const title   = isTask ? taskTitle : pipeline || oppName;
-    const sub1    = isTask ? taskContact : oppContact;
     const sub2    = isTask ? `Due: ${taskDue}` : oppStage ? `Stage: ${oppStage}` : '';
     const ageTag  = !isTask && ageDays !== null ? `${ageDays}d open` : '';
     const typeBg  = isTask ? 'rgba(139,92,246,.2)' : 'rgba(245,158,11,.2)';
@@ -1411,14 +1408,32 @@ function tbRender() {
     const typeLabel = isTask ? '✓ TASK' : '⬡ OPP';
     const itemContactId = item.contactId || item.contact?.id || '';
     const currentUser   = item.assigneeId || item.assignedTo || '';
+
+    // Contact / company display — always show who this is for
+    const contactName = item.contact?.name || item.contactName || 'Unknown contact';
+    const companyName = item.companyName || item.contact?.companyName || '';
+
+    // Customer tier tag from GHL tags (advance/recurring/basic)
+    const tags = (item.customerTags || item.contact?.tags || []).map(t=>String(t).toLowerCase());
+    let tierTag = null;
+    if (tags.some(t=>t.includes('advance'))) tierTag = { label:'Advanced', color:'#34d399' };
+    else if (tags.some(t=>t.includes('recurring'))) tierTag = { label:'Recurring', color:'#60a5fa' };
+    else if (tags.some(t=>t.includes('basic'))) tierTag = { label:'Basic', color:'#a3a3a3' };
+
     return `
       <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}">
         <div style="display:flex;align-items:flex-start;gap:10px">
           <i class="ti ${si}" style="color:${sc};font-size:14px;margin-top:3px;flex-shrink:0"></i>
           <div style="flex:1;min-width:0">
             <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
-            ${sub1?`<div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub1}</div>`:''}
-            ${sub2?`<div style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${sub2}</div>`:''}
+            <div style="display:flex;align-items:center;gap:6px;margin-top:2px;flex-wrap:wrap">
+              <span style="font-size:11px;color:var(--primary);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                <i class="ti ti-user" style="font-size:10px"></i> ${contactName}
+              </span>
+              ${companyName?`<span style="font-size:10px;color:var(--text3)"><i class="ti ti-building" style="font-size:10px"></i> ${companyName}</span>`:''}
+              ${tierTag?`<span style="font-size:9px;background:${tierTag.color}22;color:${tierTag.color};padding:1px 6px;border-radius:4px;font-weight:700">${tierTag.label}</span>`:''}
+            </div>
+            ${sub2?`<div style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'};margin-top:2px">${sub2}</div>`:''}
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
             <span style="font-size:9px;background:${typeBg};color:${typeClr};padding:2px 7px;border-radius:4px;font-weight:700;white-space:nowrap">${typeLabel}</span>
@@ -2000,20 +2015,10 @@ function skGetSkills() {
 }
 function skSaveSkills(data) { localStorage.setItem('tb_skills', JSON.stringify(data)); }
 
-// Check if a user is trained (basic OR advanced) on a given skill leaf id
+// Check if a user is trained on a given skill leaf id
 function skIsTrained(userId, skillId) {
   const skills = skGetSkills();
-  const entry  = skills[userId]?.[skillId];
-  return !!(entry && (entry.basic || entry.advanced));
-}
-
-function skGetLevel(userId, skillId) {
-  const skills = skGetSkills();
-  const entry  = skills[userId]?.[skillId];
-  if (!entry) return null;
-  if (entry.advanced) return 'advanced';
-  if (entry.basic) return 'basic';
-  return null;
+  return !!skills[userId]?.[skillId]?.trained;
 }
 
 function skGetItemType(item) {
@@ -2050,7 +2055,7 @@ function skInit() {
   grid.innerHTML = users.filter(u => u.id !== '8261TQ73bG2PCyCaznmh')
     .map(user => {
       const userSkillMap = skills[user.id] || {};
-      const trainedCount = Object.values(userSkillMap).filter(e => e.basic || e.advanced).length;
+      const trainedCount = Object.values(userSkillMap).filter(e => e.trained).length;
       const initials = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
       return `
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
@@ -2069,25 +2074,18 @@ function skInit() {
                             display:flex;align-items:center;gap:8px">
                   <span style="font-size:12px;font-weight:700;color:${cat.color}">${cat.label}</span>
                 </div>
-                <div style="padding:8px 12px;display:flex;flex-direction:column;gap:6px">
-                  <div style="display:grid;grid-template-columns:1fr 60px 70px;gap:8px;font-size:10px;
-                              color:var(--text3);font-weight:700;letter-spacing:.04em;padding:0 2px">
-                    <span>SERVICE</span><span style="text-align:center">BASIC</span><span style="text-align:center">ADVANCED</span>
-                  </div>
+                <div style="padding:8px 12px;display:flex;flex-direction:column;gap:4px">
                   ${cat.children.map(child => {
-                    const entry = userSkillMap[child.id] || {};
+                    const trained = !!userSkillMap[child.id]?.trained;
                     return `
-                      <div style="display:grid;grid-template-columns:1fr 60px 70px;gap:8px;align-items:center;
-                                  padding:5px 2px;border-radius:6px;
-                                  background:${entry.basic||entry.advanced?cat.color+'0c':'transparent'}">
-                        <span style="font-size:12px;color:var(--text)">${child.label}</span>
-                        <input type="checkbox" ${entry.basic?'checked':''}
-                          onchange="skToggleLevel('${user.id}','${child.id}','basic',this.checked)"
-                          style="accent-color:${cat.color};width:15px;height:15px;margin:0 auto;display:block">
-                        <input type="checkbox" ${entry.advanced?'checked':''}
-                          onchange="skToggleLevel('${user.id}','${child.id}','advanced',this.checked)"
-                          style="accent-color:${cat.color};width:15px;height:15px;margin:0 auto;display:block">
-                      </div>`;
+                      <label style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:6px;
+                                  cursor:pointer;background:${trained?cat.color+'12':'transparent'}">
+                        <input type="checkbox" ${trained?'checked':''}
+                          onchange="skToggleTrained('${user.id}','${child.id}',this.checked)"
+                          style="accent-color:${cat.color};width:16px;height:16px;flex-shrink:0">
+                        <span style="font-size:12px;color:${trained?'var(--text)':'var(--text3)'};font-weight:${trained?600:400}">${child.label}</span>
+                        ${trained?`<span style="margin-left:auto;font-size:9px;color:${cat.color};font-weight:700">TRAINED</span>`:''}
+                      </label>`;
                   }).join('')}
                 </div>
               </div>`).join('')}
@@ -2096,11 +2094,10 @@ function skInit() {
     }).join('');
 }
 
-function skToggleLevel(userId, skillId, level, checked) {
+function skToggleTrained(userId, skillId, checked) {
   const skills = skGetSkills();
   if (!skills[userId]) skills[userId] = {};
-  if (!skills[userId][skillId]) skills[userId][skillId] = { basic: false, advanced: false };
-  skills[userId][skillId][level] = checked;
+  skills[userId][skillId] = { trained: checked };
   skSaveSkills(skills);
 }
 
@@ -2346,7 +2343,6 @@ function tbShowReassignMenu(itemId, itemType, contactId, currentUserId, anchorEl
       const user      = tbState.users.find(u=>u.id===uid);
       if (!user) return '';
       const trained   = skillId ? skIsTrained(uid, skillId) : true;
-      const level     = skillId ? skGetLevel(uid, skillId) : null;
       const isCurrent = uid === currentUserId;
       const initials  = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
       return `
@@ -2359,8 +2355,7 @@ function tbShowReassignMenu(itemId, itemType, contactId, currentUserId, anchorEl
                       display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:var(--primary)">${initials}</div>
           <div style="flex:1">
             <div style="font-size:12px;font-weight:600;color:var(--text)">${user.name}</div>
-            ${level==='advanced'&&skillLabel?`<div style="font-size:10px;color:var(--green)">✓ Advanced</div>`:''}
-            ${level==='basic'&&skillLabel?`<div style="font-size:10px;color:#60a5fa">✓ Basic</div>`:''}
+            ${trained&&skillLabel?`<div style="font-size:10px;color:var(--green)">✓ Trained</div>`:''}
             ${!trained&&skillLabel?`<div style="font-size:10px;color:var(--text3)">Not trained</div>`:''}
           </div>
           ${isCurrent?`<i class="ti ti-check" style="color:var(--primary);font-size:12px"></i>`:''}
