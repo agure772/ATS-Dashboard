@@ -2468,6 +2468,16 @@ function tbOpenAddItem() {
       </button>
     </div>`;
   document.body.appendChild(modal);
+
+  // Default due date to today
+  const dueInput = document.getElementById('tb-add-due');
+  if (dueInput) {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm   = String(today.getMonth()+1).padStart(2,'0');
+    const dd   = String(today.getDate()).padStart(2,'0');
+    dueInput.value = `${yyyy}-${mm}-${dd}`;
+  }
 }
 
 function tbAddSearchContact(query) {
