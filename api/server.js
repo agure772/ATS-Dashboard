@@ -296,20 +296,7 @@ app.post('/api/opportunities/:id/notes', async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/contacts/:id/tasks', async (req, res) => {
-  try {
-    const { title, dueDate, description, body, assignedTo, status } = req.body;
-    const payload = {
-      title: title||'Compliance Deadline',
-      body: body||description||'',
-      dueDate: dueDate||new Date(Date.now()+30*86400000).toISOString(),
-      completed: status === 'completed',
-    };
-    if (assignedTo) payload.assignedTo = assignedTo;
-    const data = await ghl('POST', `${V2}/contacts/${req.params.id}/tasks/`, payload);
-    res.status(201).json({ success: true, task: data });
-  } catch(err) { res.status(500).json({ error: err.message }); }
-});
+// NOTE: task creation endpoint is defined below near line 924 — single source of truth
 
 app.post('/api/refresh', async (req, res) => {
   clientCache.data = null;
@@ -921,7 +908,7 @@ app.post('/api/opportunities/:id/win', async (req, res) => {
   }
 });
 
-// ── Create task for a contact (FMCSA Support Form) ────────────────────────
+// ── Create task for a contact (Tasks Board + FMCSA Support Form) ─────────
 app.post('/api/contacts/:id/tasks', async (req, res) => {
   try {
     const { id } = req.params;
@@ -936,6 +923,9 @@ app.post('/api/contacts/:id/tasks', async (req, res) => {
       contactId:  id,
     };
     const data = await ghl('POST', `${V2}/contacts/${id}/tasks`, payload);
+    // Bust tasks-board cache so the new task appears immediately on next Refresh
+    tasksBoardCache = { data: null, ts: 0 };
+    console.log(`✓ Task created for contact ${id}, tasks-board cache busted`);
     res.json({ success: true, task: data });
   } catch(err) {
     res.status(500).json({ error: err.message });
