@@ -1337,6 +1337,9 @@ function tbItemMatchesSearch(item, isTask) {
 
 async function tbRefresh() {
   tbState.loaded = false;
+  tbState.searchQuery = '';
+  const searchEl = document.getElementById('tb-search');
+  if (searchEl) searchEl.value = '';
   await tbLoad(true);
 }
 
@@ -1383,7 +1386,12 @@ function tbRender() {
   allMembers.forEach(user => {
     const isSuper   = user.id === tbState.selectedSup;
     const userOpps  = tbState.opps.filter(o => o.assignedTo === user.id);
-    const userTasks = tbState.tasks.filter(t => t.assigneeId === user.id || t.assignedTo === user.id);
+    const userTasks = tbState.tasks.filter(t =>
+      t.assigneeId === user.id ||
+      t.assignedTo === user.id ||
+      t.assignedUserId === user.id ||
+      t.userId === user.id
+    );
     let items = [];
     if (tbState.filterType !== 'opps')  userTasks.forEach(t => { if(tbItemMatchesSearch(t,true))  items.push({...t, _type:'task', _status:tbGetItemStatus(t,true), _staffName:user.name, _isSuper:isSuper}); });
     if (tbState.filterType !== 'tasks') userOpps.forEach(o  => { if(tbItemMatchesSearch(o,false)) items.push({...o, _type:'opp',  _status:tbGetItemStatus(o,false), _staffName:user.name, _isSuper:isSuper}); });
