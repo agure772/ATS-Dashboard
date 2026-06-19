@@ -755,7 +755,8 @@ async function buildTasksBoardData() {
   const contactIds = [...new Set([...oppContactIds, ...allContactIds])];
   console.log(`Fetching tasks for ${contactIds.length} unique contacts...`);
 
-  const CONCURRENCY = 40; // raised from 15 — GHL allows higher burst rates
+  const CONCURRENCY = 40;
+  let firstTaskLogged = false;
   for (let i = 0; i < contactIds.length; i += CONCURRENCY) {
     const batch = contactIds.slice(i, i + CONCURRENCY);
     await Promise.all(batch.map(async cid => {
@@ -764,8 +765,16 @@ async function buildTasksBoardData() {
         const tasks = td.tasks || td.data || [];
         const info = contactInfoMap[cid];
         tasks.forEach(t => {
+          // Log first task to see exact field names GHL uses
+          if (!firstTaskLogged) {
+            console.log('GHL task fields:', Object.keys(t));
+            console.log('GHL task sample:', JSON.stringify(t).slice(0,500));
+            firstTaskLogged = true;
+          }
+          // GHL may use assignedTo, assignedUserId, or userId for the staff member
+          const assigneeId = t.assignedTo || t.assignedUserId || t.userId || '';
           tasksData.push({
-            ...t, contactId: cid, assigneeId: t.assignedTo, assigneeName: userMap[t.assignedTo] || '',
+            ...t, contactId: cid, assigneeId, assigneeName: userMap[assigneeId] || '',
             contactName:  info?.name || '',
             companyName:  info?.companyName || '',
             customerTags: info?.tags || [],
@@ -774,9 +783,14 @@ async function buildTasksBoardData() {
             dotNumber:    info?.dotNumber || extractDot(t.title),
           });
         });
-      } catch(e) {} // skip contacts with no tasks
+      } catch(e) {}
     }));
   }
+
+  // Log how many tasks each user has for debugging
+  const tasksByUser = {};
+  tasksData.forEach(t => { tasksByUser[t.assigneeId] = (tasksByUser[t.assigneeId]||0)+1; });
+  console.log('Tasks by user:', JSON.stringify(tasksByUser));
 
   const mahadOpps = oppsData.filter(o => o.assignedTo === 'yri669q8Ymx22zdFDPLK');
   console.log(`FINAL: ${tasksData.length} tasks, ${oppsData.length} opps, Mahad opps: ${mahadOpps.length}`);
