@@ -695,13 +695,21 @@ async function buildTasksBoardData() {
   const allContactIds = allContacts.map(c => c.id);
   console.log(`Opps: ${oppsData.length}, Contacts: ${allContacts.length}`);
 
-  // Build contactId -> { name, companyName, tags } map for display on Tasks Board
+  // Build contactId -> { name, companyName, tags, phone, email, dotNumber } map for Tasks Board display
   const contactInfoMap = {};
+  const extractDot = (text) => {
+    const m = (text||'').match(/DOT#?\s*(\d{4,9})/i);
+    return m ? m[1] : '';
+  };
   allContacts.forEach(c => {
+    const name = c.name || `${c.firstName||''} ${c.lastName||''}`.trim() || c.companyName || 'Unknown';
     contactInfoMap[c.id] = {
-      name: c.name || `${c.firstName||''} ${c.lastName||''}`.trim() || c.companyName || 'Unknown',
+      name,
       companyName: c.companyName || '',
       tags: (c.tags || []).map(t => String(t).toLowerCase()),
+      phone: c.phone || '',
+      email: c.email || '',
+      dotNumber: extractDot(name) || extractDot(c.companyName),
     };
   });
   // Also capture contact info embedded directly in opportunities (covers contacts not in the bulk list, e.g. if pagination cap was hit)
@@ -712,6 +720,9 @@ async function buildTasksBoardData() {
         name: o.contact.name || `${o.contact.firstName||''} ${o.contact.lastName||''}`.trim() || 'Unknown',
         companyName: o.contact.companyName || '',
         tags: (o.contact.tags || []).map(t => String(t).toLowerCase()),
+        phone: o.contact.phone || '',
+        email: o.contact.email || '',
+        dotNumber: '',
       };
     }
   });
@@ -722,7 +733,7 @@ async function buildTasksBoardData() {
   oppsData.forEach(o => { if (o.assignedTo && o.ownerName) userMap[o.assignedTo] = o.ownerName; });
   oppsData.forEach(o => { if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo]; });
 
-  // Enrich opportunities with contact info (name, company, tags)
+  // Enrich opportunities with contact info (name, company, tags, phone, email, DOT#)
   oppsData.forEach(o => {
     const cid = o.contactId || o.contact?.id;
     const info = cid ? contactInfoMap[cid] : null;
@@ -730,6 +741,11 @@ async function buildTasksBoardData() {
       o.contactName    = o.contactName || info.name;
       o.companyName    = info.companyName;
       o.customerTags   = info.tags;
+      o.contactPhone   = info.phone;
+      o.contactEmail   = info.email;
+      o.dotNumber      = info.dotNumber || extractDot(o.name);
+    } else {
+      o.dotNumber = extractDot(o.name);
     }
   });
 
@@ -753,6 +769,9 @@ async function buildTasksBoardData() {
             contactName:  info?.name || '',
             companyName:  info?.companyName || '',
             customerTags: info?.tags || [],
+            contactPhone: info?.phone || '',
+            contactEmail: info?.email || '',
+            dotNumber:    info?.dotNumber || extractDot(t.title),
           });
         });
       } catch(e) {} // skip contacts with no tasks
@@ -839,6 +858,32 @@ app.post('/api/contacts/:contactId/tasks/:taskId/assign', async (req, res) => {
     res.json({ success: true, task: data });
   } catch(err) {
     console.log(`✗ Task assign failed for ${req.params.taskId}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Mark task as completed ─────────────────────────────────────────────────
+app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => {
+  try {
+    const { contactId, taskId } = req.params;
+    const data = await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, { completed: true });
+    console.log(`✓ Task ${taskId} marked complete`);
+    res.json({ success: true, task: data });
+  } catch(err) {
+    console.log(`✗ Task complete failed for ${req.params.taskId}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Mark opportunity as Won ────────────────────────────────────────────────
+app.post('/api/opportunities/:id/win', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = await ghl('PUT', `${V2}/opportunities/${id}`, { status: 'won' });
+    console.log(`✓ Opp ${id} marked won`);
+    res.json({ success: true, opportunity: data });
+  } catch(err) {
+    console.log(`✗ Opp win failed for ${req.params.id}:`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
