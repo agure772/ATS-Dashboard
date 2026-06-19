@@ -778,7 +778,9 @@ async function buildTasksBoardData() {
     }));
   }
 
-  console.log(`FINAL: ${tasksData.length} tasks from ${contactIds.length} contacts, ${oppsData.length} opps`);
+  const mahadOpps = oppsData.filter(o => o.assignedTo === 'yri669q8Ymx22zdFDPLK');
+  console.log(`FINAL: ${tasksData.length} tasks, ${oppsData.length} opps, Mahad opps: ${mahadOpps.length}`);
+  if (mahadOpps.length) console.log('Sample Mahad opp:', JSON.stringify(mahadOpps[0]).slice(0,200));
   return { tasks: tasksData, opportunities: oppsData, users: usersData, userMap };
 }
 
@@ -819,6 +821,23 @@ app.get('/api/tasks-board', async (req, res) => {
 
 
 // Debug: get raw user data to find correct IDs
+// Debug: find opps assigned to Mahad and check their field structure
+app.get('/api/debug/mahad-opps', async (req, res) => {
+  try {
+    const mahadId = 'yri669q8Ymx22zdFDPLK';
+    const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=20&page=1`);
+    const all = od.opportunities || [];
+    const sample = all.slice(0,3).map(o => ({
+      id: o.id, name: o.name, assignedTo: o.assignedTo, ownerName: o.ownerName,
+      status: o.status, contactId: o.contactId,
+    }));
+    const mahadOpps = all.filter(o => o.assignedTo === mahadId).slice(0,5).map(o => ({
+      id: o.id, name: o.name, assignedTo: o.assignedTo, status: o.status,
+    }));
+    res.json({ mahadId, totalOpps: all.length, mahadOpps, sample });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/users', async (req, res) => {
   const results = {};
   try { results.v2_no_limit = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}`); } catch(e) { results.v2_no_limit_err = e.message; }
