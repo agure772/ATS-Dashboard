@@ -919,8 +919,7 @@ app.post('/api/contacts/:id/tasks', async (req, res) => {
       body:       body || '',
       assignedTo: assignedTo || undefined,
       dueDate:    dueDate || new Date(Date.now()+86400000).toISOString(),
-      status:     status || 'open',
-      contactId:  id,
+      completed:  false,
     };
     const data = await ghl('POST', `${V2}/contacts/${id}/tasks`, payload);
     // Bust tasks-board cache so the new task appears immediately on next Refresh
