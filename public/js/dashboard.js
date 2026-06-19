@@ -935,6 +935,9 @@ async function dotLookup() {
 
     renderDotResult(data.info);
     document.getElementById('dot-result').style.display = 'block';
+    // Show create section as soon as we have FMCSA data
+    const createSec = document.getElementById('dot-create-section');
+    if (createSec) createSec.style.display = 'block';
     status.textContent = `✓ Found: ${data.info.legal_name}`;
     status.style.color = 'var(--green)';
 
@@ -1017,11 +1020,14 @@ function dotSearchGHL(query) {
     return;
   }
   const q = query.toLowerCase().replace(/dot#?\s*/i,'');
-  const matches = state.clients.filter(c =>
-    c.name.toLowerCase().includes(q) ||
-    (c.dot_number || '').includes(q) ||
-    (c.business_name || '').toLowerCase().includes(q)
-  ).slice(0, 6);
+  const seen = new Set();
+  const matches = state.clients.filter(c => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return c.name.toLowerCase().includes(q) ||
+      (c.dot_number || '').includes(q) ||
+      (c.business_name || '').toLowerCase().includes(q);
+  }).slice(0, 6);
 
   if (!matches.length) {
     document.getElementById('dot-ghl-matches').innerHTML = '';
@@ -1071,6 +1077,19 @@ async function dotCreateContact() {
       body: JSON.stringify({ info: dotCurrentInfo }),
     });
     const data = await res.json();
+    if (res.status === 409) {
+      // Already exists — show warning instead of error
+      const sec3 = document.getElementById('dot-create-section');
+      if (sec3) sec3.style.display = 'none';
+      document.getElementById('dot-push-status').innerHTML = `
+        <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:10px 14px;margin-top:8px">
+          <div style="font-size:13px;font-weight:700;color:var(--yellow)"><i class="ti ti-alert-triangle"></i> Contact Already Exists</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">${data.error} — search for them above and use "Update GHL Contact" instead.</div>
+        </div>`;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities';
+      return;
+    }
     if (!res.ok) throw new Error(data.error);
 
     const sec3 = document.getElementById('dot-create-section');
