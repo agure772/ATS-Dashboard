@@ -2830,8 +2830,7 @@ async function tbSubmitAddItem() {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
         title, body: notes, assignedTo: assignee || undefined,
-        dueDate: due ? new Date(due).toISOString() : new Date(Date.now()+86400000).toISOString(),
-        status: 'open',
+        dueDate: due ? new Date(due + 'T12:00:00').toISOString() : new Date(Date.now()+86400000).toISOString(),
       }),
     });
     const data = await res.json();
