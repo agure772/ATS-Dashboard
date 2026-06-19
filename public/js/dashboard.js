@@ -1283,6 +1283,12 @@ async function tbLoad(forceRefresh) {
     tbState.users = (data.users || []).filter(u => !u.deleted);
     tbState.loaded = true;
     console.log(`TB loaded: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} users`);
+    const mahadId = 'yri669q8Ymx22zdFDPLK';
+    const mahadOpps = tbState.opps.filter(o => o.assignedTo === mahadId);
+    const mahadTasks = tbState.tasks.filter(t => t.assigneeId === mahadId || t.assignedTo === mahadId);
+    console.log(`Mahad opps: ${mahadOpps.length}, Mahad tasks: ${mahadTasks.length}`);
+    const uniqueOwners = [...new Set(tbState.opps.map(o=>o.assignedTo).filter(Boolean))];
+    console.log('Unique opp owner IDs in data:', uniqueOwners);
   } catch(e) {
     if (loadEl) loadEl.innerHTML = `<div style="color:var(--red)">Failed to load: ${e.message}</div>`;
     clearInterval(timer);
