@@ -1143,6 +1143,7 @@ async function dotPushToGHL() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const TB_ADMIN_ID   = 'yri669q8Ymx22zdFDPLK'; // Mahad Said Q — permanent admin
+const LOC_ID_FRONTEND = 'SS9SXQU94ZExykvAta0y'; // ATS GHL location ID, for deep links to GHL
 const TB_PASSPHRASE = 'ATS2026admin';           // Change this to your preferred passphrase
 
 // Supervisor color palette — assigned by index
@@ -1420,8 +1421,33 @@ function tbRender() {
     else if (tags.some(t=>t.includes('recurring'))) tierTag = { label:'Recurring', color:'#60a5fa' };
     else if (tags.some(t=>t.includes('basic'))) tierTag = { label:'Basic', color:'#a3a3a3' };
 
+    // Build a JSON-safe inline data blob for the detail modal (avoid re-fetching)
+    const detailData = {
+      contactId: itemContactId, contactName, companyName, tags,
+      dotNumber: item.dotNumber || '',
+      phone: item.contactPhone || '',
+      email: item.contactEmail || '',
+      title, sub2, type: isTask?'task':'opp', status: item._status,
+    };
+    const detailJson = JSON.stringify(detailData).replace(/'/g,"&#39;").replace(/"/g,'&quot;');
+
+    const isDone = item._status === 'completed';
+    const completeBtn = isDone ? '' : `
+            <button onclick="event.stopPropagation();${isTask
+              ?`tbCompleteTask('${item.id||''}','${itemContactId}',this)`
+              :`tbCompleteOpp('${item.id||''}',this)`}"
+              title="${isTask?'Mark task complete':'Mark opportunity as Won'}"
+              style="font-size:9px;background:rgba(52,211,153,.12);border:1px solid #34d399;color:#34d399;
+                     border-radius:4px;padding:2px 6px;cursor:pointer;margin-top:2px;display:flex;align-items:center;gap:3px">
+              <i class="ti ti-check" style="font-size:10px"></i> ${isTask?'Done':'Won'}
+            </button>`;
+
     return `
-      <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}">
+      <div onclick='tbShowItemDetail(${detailJson})'
+        style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;
+               background:${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}"
+        onmouseover="this.style.background='var(--bg3)'"
+        onmouseout="this.style.background='${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}'">
         <div style="display:flex;align-items:flex-start;gap:10px">
           <i class="ti ${si}" style="color:${sc};font-size:14px;margin-top:3px;flex-shrink:0"></i>
           <div style="flex:1;min-width:0">
@@ -1438,11 +1464,12 @@ function tbRender() {
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
             <span style="font-size:9px;background:${typeBg};color:${typeClr};padding:2px 7px;border-radius:4px;font-weight:700;white-space:nowrap">${typeLabel}</span>
             ${ageTag?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageTag}</span>`:''}
-            <button onclick="tbShowReassignMenu('${item.id||''}','${isTask?'task':'opp'}','${itemContactId}','${currentUser}',this)"
+            <button onclick="event.stopPropagation();tbShowReassignMenu('${item.id||''}','${isTask?'task':'opp'}','${itemContactId}','${currentUser}',this)"
               style="font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text3);
                      border-radius:4px;padding:2px 6px;cursor:pointer;margin-top:2px">
               ↕ Assign
             </button>
+            ${completeBtn}
           </div>
         </div>
       </div>`;
@@ -2311,6 +2338,104 @@ async function tbApplyAutoAssign(assignments) {
 }
 
 // ── Per-item reassign dropdown ────────────────────────────────────────────
+// ── Item Detail Modal — contact & company info on click ───────────────────
+function tbShowItemDetail(data) {
+  const existing = document.getElementById('tb-detail-modal');
+  if (existing) existing.remove();
+
+  let tierTag = null;
+  if (data.tags.some(t=>t.includes('advance'))) tierTag = { label:'Advanced', color:'#34d399' };
+  else if (data.tags.some(t=>t.includes('recurring'))) tierTag = { label:'Recurring', color:'#60a5fa' };
+  else if (data.tags.some(t=>t.includes('basic'))) tierTag = { label:'Basic', color:'#a3a3a3' };
+
+  const modal = document.createElement('div');
+  modal.id = 'tb-detail-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:18px;padding:26px;
+                width:460px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px">
+        <div>
+          <div style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.06em">${data.type==='task'?'TASK':'OPPORTUNITY'} DETAILS</div>
+          <div style="font-size:15px;font-weight:700;color:var(--text);margin-top:4px">${data.title}</div>
+        </div>
+        <button onclick="document.getElementById('tb-detail-modal').remove()"
+          style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:20px">✕</button>
+      </div>
+
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--primary)22;border:2px solid var(--primary);
+                      display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--primary)">
+            <i class="ti ti-user"></i>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:700;color:var(--text)">${data.contactName}</div>
+            ${data.companyName?`<div style="font-size:12px;color:var(--text3)">${data.companyName}</div>`:''}
+          </div>
+          ${tierTag?`<span style="font-size:10px;background:${tierTag.color}22;color:${tierTag.color};padding:3px 8px;border-radius:6px;font-weight:700">${tierTag.label}</span>`:''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text3);padding-top:8px;border-top:1px solid var(--border)">
+          ${data.dotNumber?`<div><i class="ti ti-id-badge" style="width:16px"></i> DOT# ${data.dotNumber}</div>`:''}
+          ${data.phone?`<div><i class="ti ti-phone" style="width:16px"></i> ${data.phone}</div>`:''}
+          ${data.email?`<div><i class="ti ti-mail" style="width:16px"></i> ${data.email}</div>`:''}
+          ${!data.dotNumber && !data.phone && !data.email ? '<div style="color:var(--text3)">No additional contact info on file</div>' : ''}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;font-size:12px;color:var(--text3);margin-bottom:18px">
+        ${data.sub2?`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;flex:1">${data.sub2}</div>`:''}
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;
+                    color:${data.status==='overdue'?'#ef4444':data.status==='completed'?'#34d399':'#60a5fa'};font-weight:600">
+          ${data.status.charAt(0).toUpperCase()+data.status.slice(1)}
+        </div>
+      </div>
+
+      ${data.contactId ? `
+        <a href="https://app.gohighlevel.com/v2/location/${LOC_ID_FRONTEND}/contacts/detail/${data.contactId}" target="_blank"
+          style="display:block;text-align:center;background:var(--primary);color:#0a1a0f;border-radius:10px;
+                 padding:11px;font-size:13px;font-weight:700;text-decoration:none">
+          <i class="ti ti-external-link"></i> Open Contact in GHL
+        </a>` : ''}
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+// ── Mark task complete ─────────────────────────────────────────────────────
+async function tbCompleteTask(taskId, contactId, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i>';
+  try {
+    const res = await fetch(`/api/contacts/${contactId}/tasks/${taskId}/complete`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to complete task');
+    const task = tbState.tasks.find(t=>t.id===taskId);
+    if (task) task.completed = true;
+    tbRender();
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-check" style="font-size:10px"></i> Done';
+    alert('Failed to mark complete: ' + e.message);
+  }
+}
+
+// ── Mark opportunity as Won ────────────────────────────────────────────────
+async function tbCompleteOpp(oppId, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i>';
+  try {
+    const res = await fetch(`/api/opportunities/${oppId}/win`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to mark opportunity as won');
+    const opp = tbState.opps.find(o=>o.id===oppId);
+    if (opp) opp.status = 'won';
+    tbRender();
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-check" style="font-size:10px"></i> Won';
+    alert('Failed to mark won: ' + e.message);
+  }
+}
+
 function tbShowReassignMenu(itemId, itemType, contactId, currentUserId, anchorEl) {
   // Remove any existing menu
   document.querySelectorAll('.tb-reassign-menu').forEach(m=>m.remove());
