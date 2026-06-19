@@ -267,6 +267,18 @@
               </button>
             </div>
             <div id="dot-ghl-matches" style="margin-top:10px"></div>
+
+            <!-- Create new contact — shown when search finds no match -->
+            <div id="dot-create-section" style="display:none;margin-top:12px;padding:14px;background:rgba(0,196,106,.06);border:1px dashed rgba(0,196,106,.35);border-radius:10px">
+              <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+                <i class="ti ti-info-circle" style="color:var(--primary)"></i>
+                No existing GHL contact found. You can create a new one using the FMCSA data above — it will also set up their compliance opportunities automatically.
+              </div>
+              <button onclick="dotCreateContact()" style="width:100%;background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+                <i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities
+              </button>
+            </div>
+
             <div id="dot-push-status" style="font-size:12px;margin-top:8px"></div>
           </div>
         </div>
@@ -301,7 +313,6 @@
         <div style="position:relative;flex:1;min-width:220px">
           <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px"></i>
           <input id="tb-search" type="text" placeholder="Search tasks & opportunities..."
-            autocomplete="off"
             oninput="tbApplyFilters()"
             style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
                    border-radius:8px;padding:8px 12px 8px 34px;font-size:13px;box-sizing:border-box">
@@ -480,7 +491,7 @@
         </button>
       </div>
       <div id="sk-status" style="margin-bottom:12px;font-size:13px;text-align:center"></div>
-      <div id="sk-grid" style="display:grid;grid-template-columns:repeat(3,minmax(260px,1fr));gap:16px;align-items:start">
+      <div id="sk-grid" style="display:flex;flex-direction:column;gap:12px">
         <div style="color:var(--text3);padding:40px;text-align:center">Loading staff...</div>
       </div>
     </div><!-- /page-skills-setup -->
