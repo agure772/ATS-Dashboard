@@ -648,7 +648,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 // ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
 let tasksBoardCache = { data: null, ts: 0 };
 let tasksBoardRefreshing = false;
-const TASKS_BOARD_TTL  = 5 * 60 * 1000;  // serve cached data for 5 min without refetch
+const TASKS_BOARD_TTL  = 2 * 60 * 1000;  // serve cached data for 2 min (reduced so new items appear faster)
 const TASKS_BOARD_STALE = 20 * 60 * 1000; // after 20 min, cache is too old to serve at all
 
 async function buildTasksBoardData() {
