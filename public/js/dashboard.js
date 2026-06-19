@@ -1298,10 +1298,10 @@ function tbToggleSection(userId) {
   const sec  = document.getElementById(`tb-sec-${userId}`);
   const chev = document.getElementById(`tb-chev-${userId}`);
   if (!sec) return;
-  const collapsed = sec.style.maxHeight === '0px';
-  sec.style.maxHeight  = collapsed ? '400px' : '0px';
+  const collapsed = sec.style.maxHeight === '0px' || sec.style.maxHeight === '';
+  sec.style.maxHeight  = collapsed ? '500px' : '0px';
   sec.style.overflow   = collapsed ? 'auto'  : 'hidden';
-  if (chev) chev.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+  if (chev) chev.style.transform = collapsed ? 'rotate(180deg)' : 'rotate(0deg)';
 }
 
 function tbSelectSupervisor(supId) {
@@ -1532,10 +1532,10 @@ function tbRender() {
                 ${!items.length?`<span style="font-size:10px;color:var(--text3)">All clear ✓</span>`:''}
               </div>
               <span style="font-size:14px;font-weight:800;color:${items.length?supColor:'var(--text3)'};margin-right:4px">${items.length}</span>
-              <i class="ti ti-chevron-up" id="tb-chev-${user.id}" style="color:var(--text3);font-size:13px;transition:transform .25s"></i>
+              <i class="ti ti-chevron-down" id="tb-chev-${user.id}" style="color:var(--text3);font-size:13px;transition:transform .25s"></i>
             </div>
             <!-- Scrollable items — max 400px, shows all items -->
-            <div id="tb-sec-${user.id}" style="max-height:400px;overflow-y:auto">
+            <div id="tb-sec-${user.id}" style="max-height:0px;overflow:hidden;transition:max-height .3s ease">
               ${items.length===0 ? `<div style="padding:16px 20px;text-align:center;font-size:12px;color:var(--text3)">All clear ✓</div>` : items.map(renderItem).join('')}
               ${items.length>0?`<div style="padding:6px 20px;font-size:11px;color:var(--text3);text-align:center;
                 border-top:1px solid var(--border);background:var(--bg3)">
@@ -2086,46 +2086,87 @@ function skInit() {
       const initials = user.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
       return `
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
+          <!-- Staff header -->
           <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;background:var(--bg3);border-bottom:1px solid var(--border)">
             <div style="width:38px;height:38px;border-radius:50%;background:var(--primary)22;border:2px solid var(--primary);
                         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--primary)">${initials}</div>
-            <div>
+            <div style="flex:1">
               <div style="font-size:14px;font-weight:700;color:var(--text)">${user.name}</div>
-              <div style="font-size:11px;color:var(--text3)">${trainedCount} service${trainedCount!==1?'s':''} trained</div>
+              <div style="font-size:11px;color:var(--text3)" id="sk-count-${user.id}">${trainedCount} service${trainedCount!==1?'s':''} trained</div>
             </div>
           </div>
-          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-            ${SK_CATEGORIES.map(cat => `
-              <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
-                <div style="padding:8px 12px;background:${cat.color}10;border-bottom:1px solid var(--border);
-                            display:flex;align-items:center;gap:8px">
-                  <span style="font-size:12px;font-weight:700;color:${cat.color}">${cat.label}</span>
-                </div>
-                <div style="padding:8px 12px;display:flex;flex-direction:column;gap:4px">
-                  ${cat.children.map(child => {
-                    const trained = !!userSkillMap[child.id]?.trained;
-                    return `
-                      <label style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:6px;
-                                  cursor:pointer;background:${trained?cat.color+'12':'transparent'}">
-                        <input type="checkbox" ${trained?'checked':''}
-                          onchange="skToggleTrained('${user.id}','${child.id}',this.checked)"
-                          style="accent-color:${cat.color};width:16px;height:16px;flex-shrink:0">
-                        <span style="font-size:12px;color:${trained?'var(--text)':'var(--text3)'};font-weight:${trained?600:400}">${child.label}</span>
-                        ${trained?`<span style="margin-left:auto;font-size:9px;color:${cat.color};font-weight:700">TRAINED</span>`:''}
-                      </label>`;
-                  }).join('')}
-                </div>
-              </div>`).join('')}
+          <!-- Categories — collapsible, chips inside -->
+          <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+            ${SK_CATEGORIES.map(cat => {
+              const catTrained = cat.children.filter(c => userSkillMap[c.id]?.trained).length;
+              return `
+                <div style="border:1px solid ${catTrained?cat.color:'var(--border)'};border-radius:10px;overflow:hidden">
+                  <div onclick="skToggleCat('${user.id}','${cat.id}')"
+                    style="padding:8px 12px;background:${catTrained?cat.color+'12':'var(--bg3)'};cursor:pointer;
+                           display:flex;align-items:center;justify-content:space-between">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-size:12px;font-weight:700;color:${cat.color}">${cat.label}</span>
+                      ${catTrained?`<span style="font-size:10px;background:${cat.color}22;color:${cat.color};padding:1px 7px;border-radius:10px;font-weight:700">${catTrained}/${cat.children.length}</span>`:''}
+                    </div>
+                    <i class="ti ti-chevron-down" id="sk-cat-chev-${user.id}-${cat.id}" style="color:${cat.color};font-size:12px"></i>
+                  </div>
+                  <!-- Horizontal chip grid — hidden by default -->
+                  <div id="sk-cat-${user.id}-${cat.id}" style="display:none;padding:10px 12px">
+                    <div style="display:flex;flex-wrap:wrap;gap:6px">
+                      ${cat.children.map(child => {
+                        const trained = !!userSkillMap[child.id]?.trained;
+                        return `
+                          <label style="display:flex;align-items:center;gap:5px;padding:5px 10px;
+                                       background:${trained?cat.color+'18':'var(--bg3)'};
+                                       border:1px solid ${trained?cat.color:'var(--border)'};
+                                       border-radius:20px;cursor:pointer;transition:all .15s">
+                            <input type="checkbox" ${trained?'checked':''}
+                              onchange="skToggleTrained('${user.id}','${child.id}',this.checked,'${cat.id}')"
+                              style="accent-color:${cat.color};width:13px;height:13px;flex-shrink:0">
+                            <span style="font-size:11px;font-weight:${trained?600:400};
+                                         color:${trained?cat.color:'var(--text3)'}">
+                              ${child.label}
+                            </span>
+                          </label>`;
+                      }).join('')}
+                    </div>
+                  </div>
+                </div>`;
+            }).join('')}
           </div>
         </div>`;
     }).join('');
 }
 
-function skToggleTrained(userId, skillId, checked) {
+function skToggleCat(userId, catId) {
+  const el   = document.getElementById(`sk-cat-${userId}-${catId}`);
+  const chev = document.getElementById(`sk-cat-chev-${userId}-${catId}`);
+  const open = el.style.display === 'none';
+  el.style.display = open ? 'block' : 'none';
+  if (chev) chev.style.transform = open ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+function skToggleTrained(userId, skillId, checked, catId) {
   const skills = skGetSkills();
   if (!skills[userId]) skills[userId] = {};
   skills[userId][skillId] = { trained: checked };
   skSaveSkills(skills);
+  // Update chip style instantly
+  const label = event?.target?.closest('label');
+  const cat   = SK_CATEGORIES.find(c=>c.id===catId);
+  if (label && cat) {
+    label.style.background   = checked ? cat.color+'18' : 'var(--bg3)';
+    label.style.borderColor  = checked ? cat.color : 'var(--border)';
+    label.querySelector('span').style.color = checked ? cat.color : 'var(--text3)';
+    label.querySelector('span').style.fontWeight = checked ? '600' : '400';
+  }
+  // Update trained count badge
+  const countEl = document.getElementById(`sk-count-${userId}`);
+  if (countEl) {
+    const allSkills = skGetSkills()[userId] || {};
+    const count = Object.values(allSkills).filter(e=>e.trained).length;
+    countEl.textContent = `${count} service${count!==1?'s':''} trained`;
+  }
 }
 
 function skSave() {
@@ -2533,16 +2574,49 @@ function tbOpenAddItem() {
       <!-- Title -->
       <div style="margin-bottom:14px">
         <label style="font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em">TASK TITLE</label>
-        <select id="tb-add-title-select" onchange="tbOnTitleChange()"
-          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px">
+        <!-- Hidden select for value tracking — used by tbOnTitleChange/tbCheckAddSkillWarning -->
+        <select id="tb-add-title-select" onchange="tbOnTitleChange()" style="display:none">
           <option value="">-- Select task title --</option>
-          ${SK_CATEGORIES.map(cat => `
-            <optgroup label="${cat.label}">
-              ${cat.children.map(child => `<option value="${cat.label} — ${child.label}" data-skill="${child.id}">${child.label}</option>`).join('')}
-            </optgroup>`).join('')}
+          ${SK_CATEGORIES.map(cat => cat.children.map(child =>
+            `<option value="${cat.label} — ${child.label}" data-skill="${child.id}">${child.label}</option>`
+          ).join('')).join('')}
           <option value="Other (custom title)" data-skill="">Other (custom title)</option>
         </select>
+        <!-- Visible collapsible picker -->
+        <div id="tb-title-display" onclick="tbToggleTitlePicker()"
+          style="background:var(--bg3);border:1px solid var(--border);color:var(--text3);
+                 border-radius:8px;padding:9px 12px;font-size:13px;margin-top:4px;cursor:pointer;
+                 display:flex;align-items:center;justify-content:space-between">
+          <span id="tb-title-display-text">-- Select task title --</span>
+          <i class="ti ti-chevron-down" id="tb-title-chev" style="font-size:13px"></i>
+        </div>
+        <div id="tb-title-picker" style="display:none;background:var(--bg3);border:1px solid var(--border);
+             border-radius:8px;margin-top:4px;overflow:hidden;max-height:280px;overflow-y:auto">
+          ${SK_CATEGORIES.map(cat => `
+            <div>
+              <div onclick="tbToggleCatPicker('${cat.id}')"
+                style="padding:8px 12px;background:${cat.color}15;cursor:pointer;display:flex;
+                       align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+                <span style="font-size:12px;font-weight:700;color:${cat.color}">${cat.label}</span>
+                <i class="ti ti-chevron-down" id="tb-cat-chev-${cat.id}" style="color:${cat.color};font-size:11px"></i>
+              </div>
+              <div id="tb-cat-${cat.id}" style="display:none">
+                ${cat.children.map(child => `
+                  <div onclick="tbSelectTitle('${cat.label} — ${child.label}','${child.id}')"
+                    style="padding:8px 16px;font-size:12px;color:var(--text);cursor:pointer;
+                           border-bottom:1px solid var(--border)"
+                    onmouseover="this.style.background='var(--bg2)'"
+                    onmouseout="this.style.background='transparent'">
+                    ${child.label}
+                  </div>`).join('')}
+              </div>
+            </div>`).join('')}
+          <div onclick="tbSelectTitle('Other (custom title)','')"
+            style="padding:8px 12px;font-size:12px;color:var(--text3);cursor:pointer;font-style:italic"
+            onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='transparent'">
+            Other (custom title)
+          </div>
+        </div>
         <input id="tb-add-title" type="text" placeholder="Enter custom task title..."
           style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
                  border-radius:8px;padding:9px 12px;font-size:13px;margin-top:6px;box-sizing:border-box;display:none">
@@ -2635,6 +2709,42 @@ function tbAddSelectContact(id, name) {
 }
 
 // ── Add Task modal: live skill check ──────────────────────────────────────
+function tbToggleTitlePicker() {
+  const picker = document.getElementById('tb-title-picker');
+  const chev   = document.getElementById('tb-title-chev');
+  const open = picker.style.display === 'none';
+  picker.style.display = open ? 'block' : 'none';
+  if (chev) chev.style.transform = open ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+function tbToggleCatPicker(catId) {
+  const el   = document.getElementById(`tb-cat-${catId}`);
+  const chev = document.getElementById(`tb-cat-chev-${catId}`);
+  const open = el.style.display === 'none';
+  el.style.display = open ? 'block' : 'none';
+  if (chev) chev.style.transform = open ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+function tbSelectTitle(label, skillId) {
+  // Update hidden select
+  const sel = document.getElementById('tb-add-title-select');
+  for (const opt of sel.options) {
+    if (opt.value === label) { sel.value = label; break; }
+  }
+  // Update visible display
+  document.getElementById('tb-title-display-text').textContent = label || '-- Select task title --';
+  document.getElementById('tb-title-display').style.color = label ? 'var(--text)' : 'var(--text3)';
+  document.getElementById('tb-title-picker').style.display = 'none';
+  const chev = document.getElementById('tb-title-chev');
+  if (chev) chev.style.transform = 'rotate(0deg)';
+  // Show/hide custom input
+  const custom = document.getElementById('tb-add-title');
+  custom.style.display = label === 'Other (custom title)' ? 'block' : 'none';
+  if (label !== 'Other (custom title)') custom.value = label;
+  // Trigger skill warning check
+  tbCheckAddSkillWarning();
+}
+
 function tbOnTitleChange() {
   const sel = document.getElementById('tb-add-title-select');
   const custom = document.getElementById('tb-add-title');
