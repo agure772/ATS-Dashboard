@@ -574,6 +574,27 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
   const { info } = req.body;
   if (!info) return res.status(400).json({ error: 'info required' });
   try {
+    // 0. Duplicate check — search GHL by DOT number first
+    const dotStr = String(info.dot_number || '').trim();
+    const nameStr = (info.legal_name || '').trim();
+    if (dotStr || nameStr) {
+      const query = dotStr || nameStr;
+      const existing = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&query=${encodeURIComponent(query)}&limit=5`);
+      const contacts = existing?.contacts || [];
+      const dupe = contacts.find(c => {
+        const cDot = c.customFields?.find(f => f.id === 'E5MJr7vstJWSi59CxAbK')?.fieldValue;
+        return String(cDot || '') === dotStr ||
+          (c.companyName || c.firstName || '').toLowerCase() === nameStr.toLowerCase();
+      });
+      if (dupe) {
+        return res.status(409).json({
+          error: `Contact already exists in GHL: ${dupe.companyName || dupe.firstName}`,
+          existingId: dupe.id,
+          duplicate: true,
+        });
+      }
+    }
+
     // 1. Create the contact
     const mcNum = info.mc_number ? String(info.mc_number).replace(/^MC-/i,'') : '';
     const einStr = info.ein ? String(info.ein) : '';
