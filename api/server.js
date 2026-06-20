@@ -601,7 +601,9 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
     const contactPayload = {
       firstName: info.legal_name || info.dba_name || `DOT#${info.dot_number}`,
       lastName: '',
-      companyName: info.legal_name || '',
+      companyName: info.legal_name
+        ? `${info.legal_name} DOT# ${info.dot_number}`
+        : `DOT# ${info.dot_number}`,
       phone: info.phone || '',
       email: info.email || '',
       tags: ['ats-dashboard'],
