@@ -1030,13 +1030,15 @@ function dotSearchGHL(query) {
   }).slice(0, 6);
 
   if (!matches.length) {
-    document.getElementById('dot-ghl-matches').innerHTML = '';
+    document.getElementById('dot-ghl-matches').innerHTML =
+      '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT.</div>';
     const sec = document.getElementById('dot-create-section');
     if (sec) sec.style.display = 'block';
     return;
   }
+  // Matches found — still show create section below (user may want to add as new)
   const sec2 = document.getElementById('dot-create-section');
-  if (sec2) sec2.style.display = 'none';
+  if (sec2) sec2.style.display = 'block';
 
   document.getElementById('dot-ghl-matches').innerHTML = matches.map(c => `
     <div onclick="dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
