@@ -553,7 +553,7 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
     ].filter(Boolean);
 
     const payload = {
-      companyName: info.legal_name || undefined,
+      companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
       phone: info.phone || undefined,
       email: info.email || undefined,
       customFields,
