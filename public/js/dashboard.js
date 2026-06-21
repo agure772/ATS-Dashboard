@@ -2976,12 +2976,20 @@ function csLoadFromCache() {
     return;
   }
   // Build from tbState (instant, already in memory)
+  // tbState.users and tbState.tasks are flat arrays (from server { tasks, users } response)
   csState.allStaff = tbState.users.map(u => ({
     id: u.id, name: u.name,
     tasks: (tbState.tasks || []).filter(t =>
       (t.assigneeId || t.assignedTo) === u.id
     ),
   }));
+  // Merge fallback staff names if tbState.users is missing anyone
+  if (csState.allStaff.length < ATS_STAFF_FALLBACK.length) {
+    const knownIds = new Set(csState.allStaff.map(s => s.id));
+    ATS_STAFF_FALLBACK.forEach(s => {
+      if (!knownIds.has(s.id)) csState.allStaff.push({ id: s.id, name: s.name, tasks: [] });
+    });
+  }
   csState.rawTasks = [];
   csState.allStaff.forEach(s => {
     (s.tasks || []).forEach(t => {
@@ -3018,18 +3026,23 @@ async function csLoad(force = false) {
     if (!res.ok) throw new Error('Server error ' + res.status);
     const data = await res.json();
 
-    csState.allStaff = data.staff || [];
-    if (data.staff) {
-      tbState.users = data.staff.map(s => ({ id: s.id, name: s.name }));
-      tbState.tasks = [];
-      data.staff.forEach(s => {
-        (s.tasks || []).forEach(t => tbState.tasks.push({ ...t, assigneeId: s.id }));
-      });
-      tbState.loaded = true;
-    }
+    // Server returns { tasks, users, opportunities } — NOT data.staff
+    tbState.tasks = data.tasks || [];
+    tbState.users = (data.users || []).filter(u => !u.deleted);
+    tbState.loaded = true;
+
+    // Build allStaff from users + their tasks
+    csState.allStaff = tbState.users.map(u => ({
+      id: u.id, name: u.name,
+      tasks: tbState.tasks.filter(t =>
+        (t.assigneeId || t.assignedTo) === u.id
+      ),
+    }));
+
+    // Extract [CS] tasks
     csState.rawTasks = [];
     csState.allStaff.forEach(s => {
-      (s.tasks || []).forEach(t => {
+      s.tasks.forEach(t => {
         if (t.title && t.title.startsWith(CS_PREFIX))
           csState.rawTasks.push({ ...t, assigneeName: s.name, assigneeId: s.id });
       });
@@ -3547,10 +3560,13 @@ function csAuditRow(c) {
   const safeBiz    = (c.business_name||'').replace(/'/g, "\\'");
   const hasLicense = c.hasLicense || (c.tags||[]).includes('license-received');
   const csIds   = csGetStaffIds();
-  // Use fallback staff list if csState not yet loaded
+  // Always show ALL staff in dropdown — operator can assign to anyone
+  // CS staff shown first with a marker, then others
   const staffPool = csState.allStaff?.length ? csState.allStaff : ATS_STAFF_FALLBACK;
-  const csStaff = csIds.length ? staffPool.filter(s => csIds.includes(s.id)) : staffPool;
-  const staffOpts = csStaff.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  const staffOpts = staffPool.map(s => {
+    const isCS = csIds.includes(s.id);
+    return `<option value="${s.id}">${isCS ? '★ ' : ''}${s.name}</option>`;
+  }).join('');
   return `
   <div id="cs-audit-row-${c.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
     <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
