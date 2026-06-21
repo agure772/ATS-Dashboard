@@ -84,8 +84,17 @@ function navigateTo(page) {
   const [title, sub] = T[page] || ['ATS',''];
   document.getElementById('page-title').textContent = title;
   document.getElementById('page-sub').textContent   = sub;
-  // CS Board: only load from cache, never auto-fetch (prevents tab crash)
-  if (page === 'cs-board') { setTimeout(csLoadFromCache, 50); }
+  // CS Board: try cache first, auto-load if Tasks Board not yet loaded
+  if (page === 'cs-board') {
+    setTimeout(() => {
+      if (tbState.loaded && tbState.users.length) {
+        csLoadFromCache();
+      } else if (!csState.loading) {
+        // Tasks Board not loaded — start CS load automatically
+        csLoad(true);
+      }
+    }, 100);
+  }
 
   // Tasks board — init supervisor tabs and load data
   if (page === 'tasks-board')  { tbInit(); tbLoad(); }
@@ -2977,8 +2986,15 @@ function csLoadFromCache() {
   if (dbg) dbg.innerHTML = `tbState: loaded=${tbState.loaded} | users=${tbState.users?.length||0} | tasks=${tbState.tasks?.length||0} | [CS] tasks=${csTaskCount}`;
 
   if (!tbState.loaded || !tbState.users || !tbState.users.length) {
-    if (dbg) dbg.innerHTML += ' → showing not-loaded prompt';
-    csShowNotLoaded();
+    const promptEl = document.getElementById('cs-not-loaded');
+    if (promptEl) {
+      if (dbg) dbg.innerHTML += ' → showing not-loaded prompt';
+      csShowNotLoaded();
+    } else {
+      // HTML doesn't have the prompt div — auto-load instead
+      if (dbg) dbg.innerHTML += ' → auto-starting load (no prompt div found)';
+      if (!csState.loading) csLoad(true);
+    }
     return;
   }
   // Build from tbState (instant, already in memory)
