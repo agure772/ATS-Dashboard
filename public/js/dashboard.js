@@ -2978,8 +2978,35 @@ async function csLoad(force = false) {
   if (listEl) listEl.innerHTML = '';
 
   try {
-    const data = await apiFetch('GET', `/tasks-board${force ? '?refresh=1' : ''}`);
-    csState.allStaff = data.staff || [];
+    // ── Fast path: reuse Tasks Board data if already loaded ───────────────
+    if (!force && tbState.loaded && tbState.users.length && tbState.tasks.length) {
+      csState.allStaff = tbState.users.map(u => ({
+        id: u.id, name: u.name,
+        tasks: tbState.tasks.filter(t =>
+          (t.assigneeId || t.assignedTo) === u.id
+        ),
+      }));
+      console.log('⚡ CS Board using Tasks Board cache — instant load');
+    } else {
+      // ── Slow path: fetch fresh from API (busts tasks board cache too) ──
+      if (force) {
+        // Bust server cache first
+        await fetch('/api/refresh', { method: 'POST' }).catch(() => {});
+      }
+      const data = await apiFetch('GET', `/tasks-board${force ? '?refresh=1' : ''}`);
+      csState.allStaff = data.staff || [];
+      // Also sync into tbState so Tasks Board benefits too
+      if (data.staff) {
+        tbState.users = data.staff.map(s => ({ id: s.id, name: s.name }));
+        tbState.tasks = [];
+        data.staff.forEach(s => {
+          (s.tasks || []).forEach(t => tbState.tasks.push({ ...t, assigneeId: s.id }));
+        });
+        tbState.loaded = true;
+      }
+    }
+
+    // Build rawTasks — all [CS] prefixed tasks across all staff
     csState.rawTasks = [];
     csState.allStaff.forEach(s => {
       (s.tasks || []).forEach(t => {
@@ -3001,7 +3028,11 @@ async function csLoad(force = false) {
   csRenderSettings();
 }
 
-function csRefresh() { csState.loaded = false; csLoad(true); }
+function csRefresh() {
+  csState.loaded = false;
+  tbState.loaded = false; // force fresh fetch
+  csLoad(true);
+}
 
 // ── Staff tabs ────────────────────────────────────────────────────────────────
 function csRenderStaffTabs() {
@@ -3376,10 +3407,16 @@ function csRunAudit() {
   csRenderAudit(csAuditData);
 }
 
+// ── Audit pagination state ────────────────────────────────────────────────────
+let csAuditPage = 0;
+const CS_AUDIT_PAGE_SIZE = 25;
+let csAuditFilter = 'all'; // 'all' or a missing field label
+
 // ── Render audit results ──────────────────────────────────────────────────────
 function csRenderAudit(data) {
   const area = document.getElementById('cs-audit-results');
   if (!area) return;
+  csAuditPage = 0; // reset to first page on new scan
 
   if (!data.issues.length) {
     area.innerHTML = `<div style="text-align:center;padding:30px;color:var(--green)">
@@ -3388,32 +3425,84 @@ function csRenderAudit(data) {
     </div>`; return;
   }
 
-  // Summary chips
   const fieldCounts = {};
   data.issues.forEach(c => c.missing.forEach(m => { fieldCounts[m] = (fieldCounts[m]||0)+1; }));
 
   area.innerHTML = `
-    <!-- Summary -->
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
-      <div style="font-size:13px;font-weight:700;color:var(--text)">${data.issueCount} of ${data.total} contacts have missing info:</div>
+    <!-- Summary chips (clickable filters) -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-right:4px">${data.issueCount} of ${data.total} contacts missing info:</div>
+      <span onclick="csAuditSetFilter('all')" id="cs-af-all"
+        style="background:rgba(0,196,106,.15);border:1px solid rgba(0,196,106,.4);color:var(--primary);
+               border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">All</span>
       ${Object.entries(fieldCounts).sort((a,b)=>b[1]-a[1]).map(([f,n])=>`
-        <span style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#ef4444;
-                     border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700">${f} (${n})</span>`).join('')}
+        <span onclick="csAuditSetFilter('${f.replace(/'/g,"\'")}')" id="cs-af-${f.replace(/[^a-z0-9]/gi,'_')}"
+          style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#ef4444;
+                 border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">${f} (${n})</span>`).join('')}
     </div>
     <!-- Bulk action -->
-    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
       <button onclick="csGenerateAllTasks()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;
         border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
         <i class="ti ti-wand"></i> Generate CS Tasks for All Issues
       </button>
-      <div id="cs-audit-bulk-status" style="font-size:12px;color:var(--text3);display:flex;align-items:center"></div>
+      <div id="cs-audit-bulk-status" style="font-size:12px;color:var(--text3)"></div>
     </div>
-    <!-- Contact rows -->
-    <div style="display:flex;flex-direction:column;gap:8px" id="cs-audit-rows">
-      ${data.issues.slice(0,100).map(c => csAuditRow(c)).join('')}
-    </div>
-    ${data.issues.length > 100 ? `<div style="font-size:12px;color:var(--text3);text-align:center;margin-top:10px">Showing first 100 of ${data.issues.length}. Generate tasks to process all.</div>` : ''}
+    <!-- Rows container -->
+    <div id="cs-audit-rows"></div>
+    <!-- Pagination -->
+    <div id="cs-audit-pagination"></div>
   `;
+  csAuditRenderPage();
+}
+
+function csAuditSetFilter(field) {
+  csAuditFilter = field;
+  csAuditPage = 0;
+  csAuditRenderPage();
+}
+
+function csAuditRenderPage() {
+  if (!csAuditData) return;
+  const all = csAuditFilter === 'all'
+    ? csAuditData.issues
+    : csAuditData.issues.filter(c => c.missing.includes(csAuditFilter));
+
+  const total = all.length;
+  const pages = Math.ceil(total / CS_AUDIT_PAGE_SIZE);
+  const start = csAuditPage * CS_AUDIT_PAGE_SIZE;
+  const slice = all.slice(start, start + CS_AUDIT_PAGE_SIZE);
+
+  const rows = document.getElementById('cs-audit-rows');
+  const pag  = document.getElementById('cs-audit-pagination');
+  if (rows) rows.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${slice.map(c => csAuditRow(c)).join('')}</div>`;
+
+  if (pag) {
+    if (pages <= 1) { pag.innerHTML = ''; return; }
+    pag.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding:12px 0;border-top:1px solid var(--border)">
+        <button onclick="csAuditGoPage(${csAuditPage-1})" ${csAuditPage===0?'disabled':''} 
+          style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;opacity:${csAuditPage===0?.4:1}">
+          ← Prev
+        </button>
+        <div style="font-size:12px;color:var(--text3)">
+          Page <strong style="color:var(--text)">${csAuditPage+1}</strong> of ${pages}
+          &nbsp;·&nbsp; ${start+1}–${Math.min(start+CS_AUDIT_PAGE_SIZE,total)} of ${total} contacts
+        </div>
+        <button onclick="csAuditGoPage(${csAuditPage+1})" ${csAuditPage>=pages-1?'disabled':''}
+          style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;opacity:${csAuditPage>=pages-1?.4:1}">
+          Next →
+        </button>
+      </div>`;
+  }
+}
+
+function csAuditGoPage(n) {
+  const all = csAuditFilter === 'all' ? csAuditData.issues : csAuditData.issues.filter(c => c.missing.includes(csAuditFilter));
+  const pages = Math.ceil(all.length / CS_AUDIT_PAGE_SIZE);
+  csAuditPage = Math.max(0, Math.min(n, pages-1));
+  csAuditRenderPage();
+  document.getElementById('cs-audit-results')?.scrollIntoView({ behavior:'smooth', block:'nearest' });
 }
 
 function csAuditRow(c) {
