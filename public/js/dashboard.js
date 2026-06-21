@@ -3009,7 +3009,15 @@ async function csLoad(force = false) {
   if (promptEl) promptEl.style.display = 'none';
   if (listEl)   listEl.innerHTML = '';
   try {
-    const data = await apiFetch('GET', `/tasks-board${force ? '?refresh=1' : ''}`);
+    // 90-second timeout — prevents infinite loading
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+    const res = await fetch(`/api/tasks-board${force ? '?refresh=1' : ''}`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error('Server error ' + res.status);
+    const data = await res.json();
+
     csState.allStaff = data.staff || [];
     if (data.staff) {
       tbState.users = data.staff.map(s => ({ id: s.id, name: s.name }));
@@ -3029,7 +3037,10 @@ async function csLoad(force = false) {
     csState.loaded = true;
   } catch(e) {
     console.error('CS load error', e);
-    if (listEl) listEl.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Failed to load. Please try again.</div>';
+    const msg = e.name === 'AbortError'
+      ? 'Load timed out (>90s). Visit Tasks Board first, then return here for instant load.'
+      : 'Failed to load: ' + e.message;
+    if (listEl) listEl.innerHTML = `<div style="color:var(--yellow);padding:20px;text-align:center;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:10px;margin:10px 0">${msg}<br><br><button onclick="navigateTo('tasks-board')" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px">Go to Tasks Board →</button></div>`;
   }
   csState.loading = false;
   if (loadEl) loadEl.style.display = 'none';
@@ -3254,7 +3265,8 @@ let csAddSelectedContact = null;
 function csOpenAddTask() {
   document.getElementById('cs-add-modal')?.remove();
   const csIds = csGetStaffIds();
-  const csStaff = csState.allStaff.filter(s => csIds.includes(s.id));
+  const staffPool2 = csState.allStaff?.length ? csState.allStaff : ATS_STAFF_FALLBACK;
+  const csStaff = csIds.length ? staffPool2.filter(s => csIds.includes(s.id)) : staffPool2;
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
@@ -3535,7 +3547,9 @@ function csAuditRow(c) {
   const safeBiz    = (c.business_name||'').replace(/'/g, "\\'");
   const hasLicense = c.hasLicense || (c.tags||[]).includes('license-received');
   const csIds   = csGetStaffIds();
-  const csStaff = csState.allStaff.filter(s => csIds.includes(s.id));
+  // Use fallback staff list if csState not yet loaded
+  const staffPool = csState.allStaff?.length ? csState.allStaff : ATS_STAFF_FALLBACK;
+  const csStaff = csIds.length ? staffPool.filter(s => csIds.includes(s.id)) : staffPool;
   const staffOpts = csStaff.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
   return `
   <div id="cs-audit-row-${c.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
@@ -3676,19 +3690,29 @@ async function csGenerateAllTasks() {
 // CS STAFF MANAGEMENT MODAL
 // ═════════════════════════════════════════════════════════════════════════════
 
+// Known ATS staff — always available as fallback even before Tasks Board loads
+const ATS_STAFF_FALLBACK = [
+  { id: 'FmjXHSLQ6XWMGgj0Y0w3', name: 'Ahmed Gure' },
+  { id: '48vCVBOEaRTpUJ23XC4K', name: 'Ahmed Yusuf' },
+  { id: '40ynNiHEBfnZq6gsh7IS', name: 'Ali Ali' },
+  { id: 'fnFKHlkLVfjYBzFxC5aG', name: 'Kamal Ahmed' },
+  { id: 'yri669q8Ymx22zdFDPLK', name: 'Mahad Said Q' },
+  { id: 'zohmJyCbnyzoBtLiKNir', name: 'Mustaf Hassan' },
+  { id: 's57KFI2a9N3LmRprzdJW', name: 'Shucayb Jama' },
+  { id: 'mIbzEna47UOXtsV2zzxD', name: 'Yahya Yusuf' },
+  { id: 'DY4bAKCSR4dnw94zbj2a', name: 'Yusuf Yusuf' },
+];
+
 function csOpenStaffModal() {
   document.getElementById('cs-staff-modal')?.remove();
 
-  // Get staff list — prefer tbState.users (Tasks Board already loaded them),
-  // fall back to csState.allStaff
-  const allStaff = (tbState?.users?.length ? tbState.users : csState.allStaff);
+  // Use tbState if loaded, csState if available, otherwise fallback to hardcoded ATS staff
+  const allStaff = tbState?.users?.length ? tbState.users
+    : csState.allStaff?.length ? csState.allStaff
+    : ATS_STAFF_FALLBACK;
 
-  if (!allStaff.length) {
-    // Staff not loaded yet — trigger CS load then reopen
-    toast('Loading staff list...');
-    csLoad(false).then(() => csOpenStaffModal());
-    return;
-  }
+  // Also sync fallback into csState.allStaff so dropdowns work
+  if (!csState.allStaff?.length) csState.allStaff = ATS_STAFF_FALLBACK;
 
   const csIds = csGetStaffIds();
   const modal = document.createElement('div');
