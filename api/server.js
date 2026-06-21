@@ -1127,3 +1127,27 @@ function buildCustomFields(serviceKey, data) {
     console.log(`   (First load takes ~30s for 1000+ contacts, then instant from cache)\n`);
   });
 })();
+
+// ── Complete a CS task + add note to contact ──────────────────────────────────
+app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => {
+  const { contactId, taskId } = req.params;
+  const { completedBy, taskTitle } = req.body;
+  try {
+    // 1. Mark task complete in GHL
+    await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, {
+      title:     taskTitle || 'CS Task',
+      completed: true,
+      dueDate:   new Date().toISOString(),
+    });
+    // 2. Add note to contact so operators see it in GHL activity feed
+    const noteText = `✓ CS Task Completed: "${taskTitle}" — completed by ${completedBy || 'CS Staff'}`;
+    await ghl('POST', `${V2}/contacts/${contactId}/notes`, { body: noteText });
+    // 3. Bust tasks board cache
+    tasksBoardCache = { data: null, ts: 0 };
+    console.log(`✓ CS task ${taskId} completed by ${completedBy}`);
+    res.json({ success: true });
+  } catch(err) {
+    console.error('CS complete error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
