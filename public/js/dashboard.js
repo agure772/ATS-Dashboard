@@ -2955,7 +2955,11 @@ function csGetStaffIds() {
 function csSaveStaffIds(ids) { localStorage.setItem('ats_cs_staff', JSON.stringify(ids)); }
 function csNextAssignee() {
   const ids = csGetStaffIds();
-  if (!ids.length) return null;
+  if (!ids.length) {
+    // No CS staff set up — fall back to Mahad (permanent admin) so tasks always have an assignee
+    console.warn('No CS staff configured — assigning to Mahad as fallback');
+    return CS_MAHAD_ID;
+  }
   let idx = parseInt(localStorage.getItem('ats_cs_rr') || '0') % ids.length;
   localStorage.setItem('ats_cs_rr', String((idx + 1) % ids.length));
   return ids[idx];
@@ -3025,9 +3029,11 @@ function csApplyFilter() {
   const csIds = csGetStaffIds();
   const now = Date.now();
 
+  // When no CS staff set up, show ALL [CS] tasks (including fallback-assigned ones)
   let tasks = csState.rawTasks.filter(t => {
     if (csState.selectedStaff !== 'all' && t.assigneeId !== csState.selectedStaff) return false;
-    if (csIds.length && !csIds.includes(t.assigneeId)) return false;
+    // If CS staff configured: only show their tasks. If not configured: show all [CS] tasks
+    if (csIds.length && !csIds.includes(t.assigneeId) && t.assigneeId !== CS_MAHAD_ID) return false;
     if (q && !t.title.toLowerCase().includes(q) &&
         !(t.contactName||'').toLowerCase().includes(q) &&
         !(t.businessName||'').toLowerCase().includes(q)) return false;
@@ -3040,7 +3046,11 @@ function csApplyFilter() {
     return true;
   });
 
-  // Update stats
+  // Warn if no CS staff configured
+  const noStaffWarning = document.getElementById('cs-no-staff-warning');
+  if (noStaffWarning) noStaffWarning.style.display = csIds.length ? 'none' : 'block';
+
+  // Update stats — when no CS staff set, count ALL [CS] tasks
   const allFiltered = csIds.length
     ? csState.rawTasks.filter(t => csIds.includes(t.assigneeId))
     : csState.rawTasks;
@@ -3490,6 +3500,8 @@ async function csCreateAuditTask(contactId, name, bizName) {
     // Mark row as processed
     const row = document.getElementById(`cs-audit-row-${contactId}`);
     if (row) row.style.opacity = '0.4';
+    // Refresh CS Board so new task appears
+    csLoad(true);
   } catch(e) { toast('Error: ' + e.message); }
 }
 
