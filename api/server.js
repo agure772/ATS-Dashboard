@@ -1078,16 +1078,18 @@ function mapContact(contact, opps) {
   }
 
   return {
-    id:            contact.id,
+    id:              contact.id,
     name,
-    business_name: contact.companyName || '',
-    initials:      name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
-    mc_number:     '',
-    dot_number:    String(getContactCF(cf, CF_IDS.dot_number) || ''),
-    phone:         contact.phone  || '',
-    email:         contact.email  || '',
-    tags:          contact.tags   || [],
-    oppTags:       [...allOppTags],  // all tags from opportunities
+    business_name:   contact.companyName || '',
+    initials:        name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
+    dot_number:      String(getContactCF(cf, CF_IDS.dot_number) || ''),
+    mc_number:       String(getContactCF(cf, CF_IDS.mc_number) || ''),
+    ein:             String(getContactCF(cf, CF_IDS.ein) || ''),
+    mailing_address: String(getContactCF(cf, CF_IDS.mailing_address) || ''),
+    phone:           contact.phone || '',
+    email:           contact.email || '',
+    tags:            contact.tags  || [],
+    oppTags:         [...allOppTags],
     mcs150MileageYear: mcs150MileageYear ? String(mcs150MileageYear) : '',
     cells,
     oppIndex,
@@ -1106,6 +1108,67 @@ function buildCustomFields(serviceKey, data) {
   if (data.notes&&nk[serviceKey]) f.push({key:nk[serviceKey],field_value:data.notes});
   return f;
 }
+
+
+// ── Contact Audit — find contacts with missing fields ─────────────────────────
+app.get('/api/contacts/audit', async (req, res) => {
+  try {
+    const clients = await fetchAllClients();
+    const issues = [];
+    for (const c of clients) {
+      const missing = [];
+      const hasDotConcat = c.business_name && /DOT#/i.test(c.business_name);
+      if (!c.email)           missing.push('Email');
+      if (!c.phone)           missing.push('Phone');
+      if (!c.dot_number)      missing.push('DOT#');
+      if (!c.mc_number)       missing.push('MC#');
+      if (!c.ein)             missing.push('EIN');
+      if (!c.mailing_address) missing.push('Mailing Address');
+      if (!hasDotConcat)      missing.push('Business Name (missing DOT#)');
+      const hasLicense = (c.tags||[]).includes('license-received');
+      if (!hasLicense)        missing.push('License Info');
+
+      if (missing.length) {
+        issues.push({
+          id:            c.id,
+          name:          c.name,
+          business_name: c.business_name,
+          dot_number:    c.dot_number,
+          phone:         c.phone,
+          email:         c.email,
+          missing,
+          hasLicense,
+          tags:          c.tags || [],
+        });
+      }
+    }
+    // Sort: most missing fields first
+    issues.sort((a,b) => b.missing.length - a.missing.length);
+    res.json({ total: clients.length, issues, issueCount: issues.length });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Add / remove tag on a contact ─────────────────────────────────────────────
+app.post('/api/contacts/:id/tags', async (req, res) => {
+  const { id } = req.params;
+  const { addTags = [], removeTags = [] } = req.body;
+  try {
+    // Fetch current tags
+    const contact = await ghl('GET', `${V2}/contacts/${id}`);
+    const current = contact?.contact?.tags || contact?.tags || [];
+    const updated = [...new Set([
+      ...current.filter(t => !removeTags.includes(t)),
+      ...addTags,
+    ])];
+    const result = await ghl('PUT', `${V2}/contacts/${id}`, { tags: updated });
+    clientCache.data = null; // bust so next load reflects new tag
+    res.json({ success: true, tags: updated });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 (async () => {
