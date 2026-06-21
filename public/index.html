@@ -517,6 +517,18 @@
         </div>
       </div>
 
+      <!-- No CS staff warning -->
+      <div id="cs-no-staff-warning" style="display:none;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
+        <i class="ti ti-alert-triangle" style="color:#f59e0b;font-size:18px;flex-shrink:0"></i>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:700;color:#f59e0b">No CS Staff Configured</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Tasks are being assigned to Mahad as fallback. Click <strong style="color:var(--text)">Manage CS Staff</strong> to designate your CS team.</div>
+        </div>
+        <button onclick="csOpenStaffModal()" style="background:rgba(245,158,11,.2);color:#f59e0b;border:1px solid rgba(245,158,11,.4);border-radius:7px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
+          Set Up CS Staff →
+        </button>
+      </div>
+
       <!-- Stats -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center">
