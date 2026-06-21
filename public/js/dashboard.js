@@ -3528,9 +3528,22 @@ function csRenderAudit(data) {
     </div>
     <!-- Bulk action -->
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-      <button onclick="csGenerateAllTasks()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;
-        border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-        <i class="ti ti-wand"></i> Generate CS Tasks for All Issues
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text3)">
+        <input type="checkbox" id="cs-chk-all" onchange="csToggleSelectAll(this.checked)"
+          style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer">
+        Select All
+      </label>
+      <button id="cs-create-selected-btn" onclick="csCreateSelectedTasks()" disabled
+        style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;opacity:.5;
+               border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;
+               display:flex;align-items:center;gap:6px">
+        <i class="ti ti-wand"></i> Create CS Tasks for Selected (<span id="cs-selected-count">0</span>)
+      </button>
+      <button onclick="csGenerateAllTasks()"
+        style="background:var(--bg3);color:var(--text3);border:1px solid var(--border);
+               border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;
+               display:flex;align-items:center;gap:6px">
+        All Issues
       </button>
       <div id="cs-audit-bulk-status" style="font-size:12px;color:var(--text3)"></div>
     </div>
@@ -3594,24 +3607,32 @@ function csAuditGoPage(n) {
 function csAuditRow(c) {
   const displayName = (c.name && c.name !== 'Unknown')
     ? c.name : (c.business_name || (c.dot_number ? 'DOT# '+c.dot_number : 'Unknown'));
-  const safeName   = displayName.replace(/'/g, "\\'");
-  const safeBiz    = (c.business_name||'').replace(/'/g, "\\'");
+  const safeName   = displayName.replace(/'/g, "\'");
+  const safeBiz    = (c.business_name||'').replace(/'/g, "\'");
   const hasLicense = c.hasLicense || (c.tags||[]).includes('license-received');
-  const csIds   = csGetStaffIds();
-  // Always show ALL staff in dropdown — operator can assign to anyone
-  // CS staff shown first with a marker, then others
-  const staffPool = csState.allStaff?.length ? csState.allStaff : ATS_STAFF_FALLBACK;
-  const staffOpts = staffPool.map(s => {
+  const csIds      = csGetStaffIds();
+  const staffPool  = csState.allStaff?.length ? csState.allStaff : ATS_STAFF_FALLBACK;
+  // CS staff first, pre-selected; then others
+  const csStaffList  = staffPool.filter(s => csIds.includes(s.id));
+  const otherStaff   = staffPool.filter(s => !csIds.includes(s.id));
+  const orderedStaff = [...csStaffList, ...otherStaff];
+  const defaultId    = csStaffList[0]?.id || '';
+  const staffOpts    = orderedStaff.map(s => {
     const isCS = csIds.includes(s.id);
-    return `<option value="${s.id}">${isCS ? '★ ' : ''}${s.name}</option>`;
+    const sel  = s.id === defaultId ? ' selected' : '';
+    return `<option value="${s.id}"${sel}>${isCS ? '\u2605 ' : ''}${s.name}</option>`;
   }).join('');
   return `
-  <div id="cs-audit-row-${c.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
-    <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:180px">
+  <div id="cs-audit-row-${c.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <input type="checkbox" id="cs-chk-${c.id}" data-contact-id="${c.id}"
+        data-name="${safeName}" data-biz="${safeBiz}"
+        onchange="csUpdateSelectionCount()"
+        style="width:16px;height:16px;accent-color:var(--primary);flex-shrink:0;cursor:pointer">
+      <div style="flex:1;min-width:160px">
         <div style="font-size:13px;font-weight:700;color:var(--text)">${displayName}</div>
         ${c.business_name && c.business_name !== displayName ? `<div style="font-size:11px;color:var(--text3);margin-top:1px">${c.business_name}</div>` : ''}
-        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">
           ${c.missing.map(m=>`<span style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#ef4444;border-radius:5px;padding:2px 6px;font-size:10px;font-weight:700">${m}</span>`).join('')}
         </div>
       </div>
@@ -3620,21 +3641,19 @@ function csAuditRow(c) {
           style="background:${hasLicense ? 'rgba(0,196,106,.15)' : 'var(--bg2)'};color:${hasLicense ? 'var(--green)' : 'var(--text3)'};
                  border:1px solid ${hasLicense ? 'rgba(0,196,106,.4)' : 'var(--border)'};border-radius:7px;
                  padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
-          ${hasLicense ? '✓ License' : '📄 License?'}
+          ${hasLicense ? '\u2713 License' : '\uD83D\uDCC4 License?'}
         </button>
-        <div style="display:flex;gap:4px;align-items:center">
-          <select id="cs-assignee-${c.id}"
-            style="background:var(--bg2);border:1px solid rgba(124,58,237,.35);color:#a78bfa;border-radius:7px;
-                   padding:5px 8px;font-size:11px;cursor:pointer;max-width:130px">
-            <option value="">Auto-assign</option>
-            ${staffOpts}
-          </select>
-          <button id="cs-task-btn-${c.id}" onclick="csCreateAuditTask('${c.id}','${safeName}','${safeBiz}')"
-            style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);
-                   border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
-            + CS Task
-          </button>
-        </div>
+        <select id="cs-assignee-${c.id}"
+          style="background:var(--bg2);border:1px solid rgba(124,58,237,.35);color:#a78bfa;border-radius:7px;
+                 padding:5px 8px;font-size:11px;cursor:pointer;max-width:140px">
+          <option value="">Auto-assign</option>
+          ${staffOpts}
+        </select>
+        <button id="cs-task-btn-${c.id}" onclick="csCreateAuditTask('${c.id}','${safeName}','${safeBiz}')"
+          style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);
+                 border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
+          + CS Task
+        </button>
       </div>
     </div>
   </div>`;
@@ -3743,6 +3762,79 @@ async function csCreateAuditTask(contactId, name, bizName) {
     if (errRow) { const e2=document.createElement('div'); e2.style.cssText='font-size:11px;color:#ef4444;padding:4px 14px 8px;font-weight:600'; e2.textContent='Error: '+e.message; errRow.appendChild(e2); }
     console.error('CS task error:', e);
   }
+}
+
+// ── Selection helpers ─────────────────────────────────────────────────────────
+function csUpdateSelectionCount() {
+  const checked = document.querySelectorAll('[id^="cs-chk-"]:not(#cs-chk-all):checked');
+  const count   = checked.length;
+  const countEl = document.getElementById('cs-selected-count');
+  const btn     = document.getElementById('cs-create-selected-btn');
+  const allChk  = document.getElementById('cs-chk-all');
+  if (countEl) countEl.textContent = count;
+  if (btn) { btn.disabled = count === 0; btn.style.opacity = count === 0 ? '.5' : '1'; }
+  // Update select-all checkbox state
+  const total = document.querySelectorAll('[id^="cs-chk-"]:not(#cs-chk-all)').length;
+  if (allChk) { allChk.indeterminate = count > 0 && count < total; allChk.checked = count === total && total > 0; }
+}
+
+function csToggleSelectAll(checked) {
+  document.querySelectorAll('[id^="cs-chk-"]:not(#cs-chk-all)').forEach(chk => { chk.checked = checked; });
+  csUpdateSelectionCount();
+}
+
+async function csCreateSelectedTasks() {
+  const checked = [...document.querySelectorAll('[id^="cs-chk-"]:not(#cs-chk-all):checked')];
+  if (!checked.length) return;
+  const btn = document.getElementById('cs-create-selected-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Creating...'; }
+  const statusEl = document.getElementById('cs-audit-bulk-status');
+  let done = 0;
+  for (const chk of checked) {
+    const contactId = chk.dataset.contactId;
+    const name      = chk.dataset.name;
+    const biz       = chk.dataset.biz;
+    // Read assignee from that row's dropdown
+    const sel       = document.getElementById(`cs-assignee-${contactId}`);
+    const assigneeId = sel?.value || csNextAssignee() || '';
+    const assigneeName = (csState.allStaff.find(s=>s.id===assigneeId)||ATS_STAFF_FALLBACK.find(s=>s.id===assigneeId)||{}).name||'Staff';
+    const missingList  = csAuditData?.issues?.find(c=>c.id===contactId)?.missing || [];
+    const displayName  = (name && name !== 'Unknown') ? name : (biz || name);
+    const title = `${CS_PREFIX} Update Missing Info — ${displayName}`;
+    const body  = missingList.length ? `Please update:\n${missingList.map(m=>`• ${m}`).join('\n')}` : 'Please update contact info in GHL.';
+    try {
+      const res = await fetch(`/api/contacts/${contactId}/tasks`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ title, body, assignedTo: assigneeId||undefined,
+          dueDate: new Date(Date.now()+86400000).toISOString(), completed: false }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      done++;
+      // Inject into memory
+      const newTask = { id: data.task?.id||`local-${Date.now()}`, title, body, assigneeId,
+        assignedTo: assigneeId, assigneeName, contactId, contactName: displayName,
+        businessName: biz||'', dueDate: new Date(Date.now()+86400000).toISOString(),
+        completed: false, status:'open' };
+      if (!tbState.tasks) tbState.tasks=[];
+      tbState.tasks.push(newTask);
+      if (!csState.rawTasks) csState.rawTasks=[];
+      csState.rawTasks.push({...newTask});
+      const staffE = csState.allStaff.find(s=>s.id===assigneeId);
+      if (staffE) { if (!staffE.tasks) staffE.tasks=[]; staffE.tasks.push(newTask); }
+      // Mark row as done
+      const row = document.getElementById(`cs-audit-row-${contactId}`);
+      if (row) row.style.opacity = '0.4';
+      chk.checked = false;
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">${done} created so far...</span>`;
+      await new Promise(r => setTimeout(r, 80));
+    } catch(e) { console.error('CS task error for', displayName, e.message); }
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = `<i class="ti ti-wand"></i> Create CS Tasks for Selected (<span id="cs-selected-count">0</span>)`; }
+  if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ ${done} CS tasks created</span>`;
+  csUpdateSelectionCount();
+  csApplyFilter(); // refresh board
+  toast(`✓ ${done} CS tasks created`);
 }
 
 // ── Generate CS tasks for ALL audit issues ────────────────────────────────────
