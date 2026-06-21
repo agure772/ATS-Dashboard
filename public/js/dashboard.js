@@ -79,10 +79,13 @@ function navigateTo(page) {
     'tasks-board': ['Tasks Board', 'Supervisor view — staff tasks & opportunities'],
     'fmcsa-form':   ['FMCSA Support Form', 'Complete on the call — auto-creates GHL task'],
     'skills-setup': ['Skills Setup', 'Assign service skills to each staff member'],
+    'cs-board':    ['CS Task Board', 'Customer service tasks — info gathering & GHL updates'],
   };
   const [title, sub] = T[page] || ['ATS',''];
   document.getElementById('page-title').textContent = title;
   document.getElementById('page-sub').textContent   = sub;
+  // Auto-load CS board on first visit
+  if (page === 'cs-board' && !csState.loaded) { setTimeout(csLoad, 100); }
 
   // Tasks board — init supervisor tabs and load data
   if (page === 'tasks-board')  { tbInit(); tbLoad(); }
@@ -1106,6 +1109,11 @@ async function dotCreateContact() {
 
     toast(`${dotCurrentInfo.legal_name} created in GHL ✓`);
     logActivity('blue', `New contact <strong>${dotCurrentInfo.legal_name}</strong> created from DOT# ${dotCurrentInfo.dot_number}`);
+
+    // Auto-create CS intake task for the new contact
+    if (data.contactId) {
+      await csCreateIntakeTask(data.contactId, dotCurrentInfo.legal_name);
+    }
 
     // Refresh client list
     await GHL.refresh();
@@ -2930,3 +2938,378 @@ async function tbReassignItem(itemId, itemType, contactId, newUserId, trained, s
   } catch(e) { alert('Failed to reassign: ' + e.message); }
 }
 
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CS BOARD — Customer Service Task Board
+// ═════════════════════════════════════════════════════════════════════════════
+
+const CS_PREFIX = '[CS]';
+const CS_MAHAD_ID = 'yri669q8Ymx22zdFDPLK';
+
+// ── CS Staff management (localStorage) ───────────────────────────────────────
+function csGetStaffIds() {
+  try { return JSON.parse(localStorage.getItem('ats_cs_staff') || '[]'); }
+  catch { return []; }
+}
+function csSaveStaffIds(ids) { localStorage.setItem('ats_cs_staff', JSON.stringify(ids)); }
+function csNextAssignee() {
+  const ids = csGetStaffIds();
+  if (!ids.length) return null;
+  let idx = parseInt(localStorage.getItem('ats_cs_rr') || '0') % ids.length;
+  localStorage.setItem('ats_cs_rr', String((idx + 1) % ids.length));
+  return ids[idx];
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let csState = { rawTasks: [], allStaff: [], loaded: false, loading: false, selectedStaff: 'all' };
+
+// ── Load / Refresh ────────────────────────────────────────────────────────────
+async function csLoad(force = false) {
+  if (csState.loading) return;
+  csState.loading = true;
+  const loadEl = document.getElementById('cs-loading');
+  const listEl = document.getElementById('cs-task-list');
+  if (loadEl) loadEl.style.display = 'block';
+  if (listEl) listEl.innerHTML = '';
+
+  try {
+    const data = await apiFetch('GET', `/tasks-board${force ? '?refresh=1' : ''}`);
+    csState.allStaff = data.staff || [];
+    csState.rawTasks = [];
+    csState.allStaff.forEach(s => {
+      (s.tasks || []).forEach(t => {
+        if (t.title && t.title.startsWith(CS_PREFIX)) {
+          csState.rawTasks.push({ ...t, assigneeName: s.name, assigneeId: s.id });
+        }
+      });
+    });
+    csState.loaded = true;
+  } catch(e) {
+    console.error('CS load error', e);
+    if (listEl) listEl.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Failed to load CS tasks. Try refreshing.</div>';
+  }
+
+  csState.loading = false;
+  if (loadEl) loadEl.style.display = 'none';
+  csRenderStaffTabs();
+  csApplyFilter();
+  csRenderSettings();
+}
+
+function csRefresh() { csState.loaded = false; csLoad(true); }
+
+// ── Staff tabs ────────────────────────────────────────────────────────────────
+function csRenderStaffTabs() {
+  const tabs = document.getElementById('cs-staff-tabs');
+  if (!tabs) return;
+  const csIds = csGetStaffIds();
+  const csStaff = csState.allStaff.filter(s => csIds.includes(s.id));
+  const all = [{ id: 'all', name: 'All CS Staff' }, ...csStaff];
+  tabs.innerHTML = all.map(s => `
+    <button onclick="csSelectStaff('${s.id}')"
+      style="background:${csState.selectedStaff===s.id?'var(--primary)':'var(--bg3)'};
+             color:${csState.selectedStaff===s.id?'#0a1a0f':'var(--text)'};
+             border:1px solid ${csState.selectedStaff===s.id?'var(--primary)':'var(--border)'};
+             border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+      ${s.name}
+    </button>`).join('');
+}
+
+function csSelectStaff(id) { csState.selectedStaff = id; csRenderStaffTabs(); csApplyFilter(); }
+
+// ── Filter + Render ───────────────────────────────────────────────────────────
+function csApplyFilter() {
+  const q = (document.getElementById('cs-search')?.value || '').toLowerCase();
+  const statusF = document.getElementById('cs-filter-status')?.value || 'all';
+  const csIds = csGetStaffIds();
+  const now = Date.now();
+
+  let tasks = csState.rawTasks.filter(t => {
+    if (csState.selectedStaff !== 'all' && t.assigneeId !== csState.selectedStaff) return false;
+    if (csIds.length && !csIds.includes(t.assigneeId)) return false;
+    if (q && !t.title.toLowerCase().includes(q) &&
+        !(t.contactName||'').toLowerCase().includes(q) &&
+        !(t.businessName||'').toLowerCase().includes(q)) return false;
+    const due = t.dueDate ? new Date(t.dueDate).getTime() : null;
+    const isDone = t.completed || t.status === 'completed';
+    const isOverdue = !isDone && due && due < now;
+    if (statusF === 'completed' && !isDone) return false;
+    if (statusF === 'overdue' && !isOverdue) return false;
+    if (statusF === 'open' && (isDone || isOverdue)) return false;
+    return true;
+  });
+
+  // Update stats
+  const allFiltered = csIds.length
+    ? csState.rawTasks.filter(t => csIds.includes(t.assigneeId))
+    : csState.rawTasks;
+  const statTotal   = allFiltered.length;
+  const statOverdue = allFiltered.filter(t => { const d = t.dueDate ? new Date(t.dueDate).getTime() : null; return !t.completed && d && d < now; }).length;
+  const statDone    = allFiltered.filter(t => t.completed || t.status === 'completed').length;
+  const statOpen    = statTotal - statDone;
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('cs-stat-total', statTotal); set('cs-stat-overdue', statOverdue);
+  set('cs-stat-open', statOpen);   set('cs-stat-done', statDone);
+
+  csRenderTasks(tasks);
+}
+
+function csRenderTasks(tasks) {
+  const list = document.getElementById('cs-task-list');
+  if (!list) return;
+  if (!tasks.length) {
+    list.innerHTML = `<div style="text-align:center;padding:60px;color:var(--text3)">
+      <i class="ti ti-circle-check" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>
+      No CS tasks found. All caught up!
+    </div>`; return;
+  }
+
+  // Group by assignee
+  const groups = {};
+  tasks.forEach(t => {
+    if (!groups[t.assigneeId]) groups[t.assigneeId] = { name: t.assigneeName, tasks: [] };
+    groups[t.assigneeId].tasks.push(t);
+  });
+  const now = Date.now();
+
+  list.innerHTML = Object.entries(groups).map(([, g]) => `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;margin-bottom:16px;overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:#0a1a0f;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0">
+          ${g.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+        </div>
+        <div style="font-weight:700;color:var(--text);font-size:14px">${g.name}</div>
+        <div style="margin-left:auto;font-size:11px;color:var(--text3)">${g.tasks.length} task${g.tasks.length!==1?'s':''}</div>
+      </div>
+      ${g.tasks.map(t => {
+        const due = t.dueDate ? new Date(t.dueDate) : null;
+        const isOverdue = due && due.getTime() < now && !t.completed;
+        const isDone = t.completed || t.status === 'completed';
+        const displayTitle = t.title.replace(/^\[CS\]\s*/,'');
+        const safeTitle = displayTitle.replace(/'/g,"\\'");
+        const safeAssignee = g.name.replace(/'/g,"\\'");
+        return `<div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:12px;
+                            background:${isDone?'rgba(0,196,106,.04)':isOverdue?'rgba(239,68,68,.04)':'transparent'}">
+          <div style="flex-shrink:0;width:7px;height:7px;border-radius:50%;margin-top:2px;
+                      background:${isDone?'var(--green)':isOverdue?'var(--red)':'var(--yellow)'}"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:${isDone?'var(--text3)':'var(--text)'};${isDone?'text-decoration:line-through':''}">
+              ${displayTitle}
+            </div>
+            <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+              ${t.contactName ? `<span style="font-size:11px;color:var(--text3)"><i class="ti ti-user"></i> ${t.contactName}</span>` : ''}
+              ${t.businessName ? `<span style="font-size:11px;color:var(--text3)"><i class="ti ti-building"></i> ${t.businessName}</span>` : ''}
+              ${due ? `<span style="font-size:11px;color:${isOverdue?'var(--red)':'var(--text3)'}"><i class="ti ti-calendar"></i> ${due.toLocaleDateString()}</span>` : ''}
+            </div>
+          </div>
+          ${!isDone ? `<button onclick="csComplete('${t.id}','${t.contactId||''}','${safeTitle}','${safeAssignee}')"
+            style="background:rgba(0,196,106,.15);color:var(--primary);border:1px solid rgba(0,196,106,.4);
+                   border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">
+            ✓ Complete</button>`
+          : `<span style="font-size:11px;color:var(--green);flex-shrink:0;font-weight:700">✓ Done</span>`}
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+// ── Complete task + send note ─────────────────────────────────────────────────
+async function csComplete(taskId, contactId, taskTitle, staffName) {
+  if (!contactId) { toast('No contact linked to this task'); return; }
+  const btn = event?.currentTarget;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(`/api/contacts/${contactId}/tasks/${taskId}/complete`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completedBy: staffName, taskTitle }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast('✓ Task completed — note sent to operator');
+    setTimeout(() => csLoad(true), 500);
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Complete'; }
+    toast('Error: ' + e.message);
+  }
+}
+
+// ── Settings panel (CS Staff toggle) ─────────────────────────────────────────
+function csToggleSettings() {
+  const panel = document.getElementById('cs-settings-panel');
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  if (panel.style.display === 'block') csRenderSettings();
+}
+
+function csRenderSettings() {
+  const grid = document.getElementById('cs-staff-settings-grid');
+  if (!grid || !csState.allStaff.length) return;
+  const csIds = csGetStaffIds();
+  grid.innerHTML = csState.allStaff.map(s => {
+    const isCS = csIds.includes(s.id);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg3);
+                border:1px solid ${isCS?'var(--primary)':'var(--border)'};border-radius:10px">
+      <div style="width:30px;height:30px;border-radius:50%;background:var(--primary);color:#0a1a0f;
+                  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">
+        ${s.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+      </div>
+      <span style="font-size:13px;font-weight:600;color:var(--text);flex:1">${s.name}</span>
+      <div onclick="csToggleStaff('${s.id}')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
+        <div style="width:38px;height:20px;border-radius:10px;background:${isCS?'var(--primary)':'var(--bg2)'};
+                    border:1px solid ${isCS?'var(--primary)':'var(--border)'};position:relative;flex-shrink:0">
+          <div style="position:absolute;top:2px;${isCS?'right:2px':'left:2px'};width:14px;height:14px;
+                      border-radius:50%;background:${isCS?'#0a1a0f':'var(--text3)'}"></div>
+        </div>
+        <span style="font-size:11px;color:${isCS?'var(--primary)':'var(--text3)'};font-weight:600">${isCS?'CS':'OFF'}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function csToggleStaff(userId) {
+  const ids = csGetStaffIds();
+  const idx = ids.indexOf(userId);
+  if (idx === -1) ids.push(userId); else ids.splice(idx, 1);
+  csSaveStaffIds(ids);
+  csRenderSettings();
+  csRenderStaffTabs();
+  csApplyFilter();
+  toast(idx === -1 ? '✓ Added to CS staff' : 'Removed from CS staff');
+}
+
+// ── Add CS Task modal ─────────────────────────────────────────────────────────
+let csAddSelectedContact = null;
+
+function csOpenAddTask() {
+  document.getElementById('cs-add-modal')?.remove();
+  const csIds = csGetStaffIds();
+  const csStaff = csState.allStaff.filter(s => csIds.includes(s.id));
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  const modal = document.createElement('div');
+  modal.id = 'cs-add-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1">
+        <div style="font-size:15px;font-weight:800;color:var(--text)"><i class="ti ti-clipboard-list" style="color:var(--primary);margin-right:6px"></i>Add CS Task</div>
+        <button onclick="document.getElementById('cs-add-modal').remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:22px;line-height:1">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">CLIENT</div>
+          <input id="cs-add-contact-search" type="text" autocomplete="off" placeholder="Search by name or DOT..."
+            oninput="csAddSearchContact(this.value)"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
+          <div id="cs-add-contact-results" style="margin-top:6px"></div>
+          <div id="cs-add-selected" style="display:none;padding:8px 12px;background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:8px;margin-top:6px;font-size:12px;color:var(--green);font-weight:700"></div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">WHAT NEEDS TO BE DONE?</div>
+          <input id="cs-add-title" type="text" placeholder="e.g. Collect missing email and backup codes"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">DUE DATE</div>
+          <input id="cs-add-due" type="date" value="${todayStr}"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">ASSIGN TO CS STAFF</div>
+          <select id="cs-add-assignee" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px">
+            <option value="">-- Auto-assign (round-robin) --</option>
+            ${csStaff.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+          </select>
+          ${!csStaff.length ? '<div style="font-size:11px;color:var(--yellow);margin-top:6px">⚠ No CS staff set up yet — go to CS Staff settings to designate staff.</div>' : ''}
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">NOTES (OPTIONAL)</div>
+          <textarea id="cs-add-notes" placeholder="Any additional context..."
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;min-height:70px;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
+        <div id="cs-add-status" style="font-size:12px;text-align:center;min-height:18px"></div>
+        <button onclick="csSubmitTask()"
+          style="width:100%;background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:800;cursor:pointer">
+          <i class="ti ti-send"></i> Create CS Task
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  csAddSelectedContact = null;
+}
+
+function csAddSearchContact(query) {
+  if (!query || query.length < 2) { document.getElementById('cs-add-contact-results').innerHTML = ''; return; }
+  const q = query.toLowerCase();
+  const matches = (state.clients||[]).filter(c =>
+    c.name.toLowerCase().includes(q) ||
+    (c.dot_number||'').includes(q) ||
+    (c.business_name||'').toLowerCase().includes(q)
+  ).slice(0, 6);
+  document.getElementById('cs-add-contact-results').innerHTML = matches.map(c=>`
+    <div onclick="csAddSelectContact('${c.id}','${(c.name||'').replace(/'/g,"\\'")}')"
+      style="padding:8px 12px;border-radius:8px;cursor:pointer;border:1px solid var(--border);background:var(--bg3);margin-bottom:4px;font-size:12px;color:var(--text)">
+      ${c.name}${c.dot_number?` · DOT# ${c.dot_number}`:''}
+    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px">No results</div>';
+}
+
+function csAddSelectContact(id, name) {
+  csAddSelectedContact = { id, name };
+  document.getElementById('cs-add-contact-results').innerHTML = '';
+  document.getElementById('cs-add-contact-search').value = name;
+  const sel = document.getElementById('cs-add-selected');
+  sel.style.display = 'block'; sel.textContent = `✓ ${name}`;
+}
+
+async function csSubmitTask() {
+  const status = document.getElementById('cs-add-status');
+  const title = document.getElementById('cs-add-title').value.trim();
+  const due = document.getElementById('cs-add-due').value;
+  const notes = document.getElementById('cs-add-notes').value.trim();
+  let assignee = document.getElementById('cs-add-assignee').value;
+
+  if (!csAddSelectedContact) { status.innerHTML = '<span style="color:var(--red)">⚠ Please select a client</span>'; return; }
+  if (!title) { status.innerHTML = '<span style="color:var(--red)">⚠ Please describe what needs to be done</span>'; return; }
+  if (!assignee) assignee = csNextAssignee() || '';
+
+  status.innerHTML = '<span style="color:var(--text3)">Creating CS task...</span>';
+  try {
+    const res = await fetch(`/api/contacts/${csAddSelectedContact.id}/tasks`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        title: `${CS_PREFIX} ${title}`,
+        body: notes,
+        assignedTo: assignee || undefined,
+        dueDate: due ? new Date(due+'T12:00:00').toISOString() : new Date(Date.now()+86400000).toISOString(),
+        completed: false,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error||'Failed');
+    status.innerHTML = '<span style="color:var(--green)">✓ CS Task created!</span>';
+    toast('CS task created ✓');
+    setTimeout(() => { document.getElementById('cs-add-modal')?.remove(); csLoad(true); }, 700);
+  } catch(e) { status.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`; }
+}
+
+// ── Auto-create CS intake task when new contact is created via DOT Lookup ─────
+async function csCreateIntakeTask(contactId, companyName) {
+  const assignee = csNextAssignee();
+  if (!assignee) { console.log('CS intake skipped — no CS staff configured'); return; }
+  try {
+    await fetch(`/api/contacts/${contactId}/tasks`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        title: `${CS_PREFIX} Collect Client Info — ${companyName}`,
+        body: 'Please update the following in GHL:\n• Email address\n• Phone number\n• DOT number confirmed\n• License / CDL information\n• Portal backup codes',
+        assignedTo: assignee,
+        dueDate: new Date(Date.now()+86400000).toISOString(),
+        completed: false,
+      }),
+    });
+    console.log(`✓ CS intake task created for ${companyName}`);
+  } catch(e) { console.warn('CS intake task failed:', e.message); }
+}
+
+// ── CS Board loaded via navigateTo hook above ────────────────────────────────
