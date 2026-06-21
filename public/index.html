@@ -511,8 +511,8 @@
           <button onclick="csRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
             <i class="ti ti-refresh"></i> Refresh
           </button>
-          <button onclick="csToggleSettings()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
-            <i class="ti ti-settings"></i> CS Staff
+          <button onclick="csOpenStaffModal()" style="background:rgba(124,58,237,.12);color:#a78bfa;border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-users-group"></i> Manage CS Staff
           </button>
         </div>
       </div>
@@ -578,7 +578,7 @@
           <button id="cs-audit-btn" onclick="csRunAudit()"
             style="background:rgba(0,196,106,.12);color:var(--primary);border:1px solid rgba(0,196,106,.4);
                    border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-            <i class="ti ti-zoom-scan"></i> Scan All Contacts
+            <i class="ti ti-zoom-scan"></i> Run Audit (Instant)
           </button>
         </div>
         <div id="cs-audit-results" style="margin-top:14px"></div>
