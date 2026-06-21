@@ -84,8 +84,8 @@ function navigateTo(page) {
   const [title, sub] = T[page] || ['ATS',''];
   document.getElementById('page-title').textContent = title;
   document.getElementById('page-sub').textContent   = sub;
-  // Auto-load CS board on first visit
-  if (page === 'cs-board' && !csState.loaded) { setTimeout(csLoad, 100); }
+  // CS Board: only load from cache, never auto-fetch (prevents tab crash)
+  if (page === 'cs-board') { setTimeout(csLoadFromCache, 50); }
 
   // Tasks board — init supervisor tabs and load data
   if (page === 'tasks-board')  { tbInit(); tbLoad(); }
@@ -2968,59 +2968,69 @@ function csNextAssignee() {
 // ── State ─────────────────────────────────────────────────────────────────────
 let csState = { rawTasks: [], allStaff: [], loaded: false, loading: false, selectedStaff: 'all' };
 
-// ── Load / Refresh ────────────────────────────────────────────────────────────
+// ── Load from cache only (safe, never crashes) ───────────────────────────────
+function csLoadFromCache() {
+  if (!tbState.loaded || !tbState.users.length) {
+    // Tasks Board not loaded yet — show prompt, don't fetch
+    csShowNotLoaded();
+    return;
+  }
+  // Build from tbState (instant, already in memory)
+  csState.allStaff = tbState.users.map(u => ({
+    id: u.id, name: u.name,
+    tasks: (tbState.tasks || []).filter(t =>
+      (t.assigneeId || t.assignedTo) === u.id
+    ),
+  }));
+  csState.rawTasks = [];
+  csState.allStaff.forEach(s => {
+    (s.tasks || []).forEach(t => {
+      if (t.title && t.title.startsWith(CS_PREFIX)) {
+        csState.rawTasks.push({ ...t, assigneeName: s.name, assigneeId: s.id });
+      }
+    });
+  });
+  csState.loaded = true;
+  csRenderStaffTabs();
+  csApplyFilter();
+  csRenderSettings();
+}
+
+// Full refresh — fetches from API (user-triggered only, never auto)
 async function csLoad(force = false) {
   if (csState.loading) return;
+  // If cache available and not forcing, use it
+  if (!force && tbState.loaded && tbState.users.length) { csLoadFromCache(); return; }
   csState.loading = true;
   const loadEl = document.getElementById('cs-loading');
   const listEl = document.getElementById('cs-task-list');
-  if (loadEl) loadEl.style.display = 'block';
-  if (listEl) listEl.innerHTML = '';
-
+  const promptEl = document.getElementById('cs-not-loaded');
+  if (loadEl)   loadEl.style.display = 'block';
+  if (promptEl) promptEl.style.display = 'none';
+  if (listEl)   listEl.innerHTML = '';
   try {
-    // ── Fast path: reuse Tasks Board data if already loaded ───────────────
-    if (!force && tbState.loaded && tbState.users.length && tbState.tasks.length) {
-      csState.allStaff = tbState.users.map(u => ({
-        id: u.id, name: u.name,
-        tasks: tbState.tasks.filter(t =>
-          (t.assigneeId || t.assignedTo) === u.id
-        ),
-      }));
-      console.log('⚡ CS Board using Tasks Board cache — instant load');
-    } else {
-      // ── Slow path: fetch fresh from API (busts tasks board cache too) ──
-      if (force) {
-        // Bust server cache first
-        await fetch('/api/refresh', { method: 'POST' }).catch(() => {});
-      }
-      const data = await apiFetch('GET', `/tasks-board${force ? '?refresh=1' : ''}`);
-      csState.allStaff = data.staff || [];
-      // Also sync into tbState so Tasks Board benefits too
-      if (data.staff) {
-        tbState.users = data.staff.map(s => ({ id: s.id, name: s.name }));
-        tbState.tasks = [];
-        data.staff.forEach(s => {
-          (s.tasks || []).forEach(t => tbState.tasks.push({ ...t, assigneeId: s.id }));
-        });
-        tbState.loaded = true;
-      }
+    const data = await apiFetch('GET', `/tasks-board${force ? '?refresh=1' : ''}`);
+    csState.allStaff = data.staff || [];
+    if (data.staff) {
+      tbState.users = data.staff.map(s => ({ id: s.id, name: s.name }));
+      tbState.tasks = [];
+      data.staff.forEach(s => {
+        (s.tasks || []).forEach(t => tbState.tasks.push({ ...t, assigneeId: s.id }));
+      });
+      tbState.loaded = true;
     }
-
-    // Build rawTasks — all [CS] prefixed tasks across all staff
     csState.rawTasks = [];
     csState.allStaff.forEach(s => {
       (s.tasks || []).forEach(t => {
-        if (t.title && t.title.startsWith(CS_PREFIX)) {
+        if (t.title && t.title.startsWith(CS_PREFIX))
           csState.rawTasks.push({ ...t, assigneeName: s.name, assigneeId: s.id });
-        }
       });
     });
     csState.loaded = true;
   } catch(e) {
     console.error('CS load error', e);
-    if (listEl) listEl.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Failed to load CS tasks. Try refreshing.</div>';
+    if (listEl) listEl.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Failed to load. Please try again.</div>';
   }
-
   csState.loading = false;
   if (loadEl) loadEl.style.display = 'none';
   csRenderStaffTabs();
@@ -3028,9 +3038,22 @@ async function csLoad(force = false) {
   csRenderSettings();
 }
 
+function csShowNotLoaded() {
+  const promptEl = document.getElementById('cs-not-loaded');
+  const listEl   = document.getElementById('cs-task-list');
+  if (promptEl) promptEl.style.display = 'flex';
+  if (listEl)   listEl.innerHTML = '';
+  // Reset stats
+  ['cs-stat-total','cs-stat-overdue','cs-stat-open','cs-stat-done'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = '—';
+  });
+}
+
 function csRefresh() {
+  const promptEl = document.getElementById('cs-not-loaded');
+  if (promptEl) promptEl.style.display = 'none';
   csState.loaded = false;
-  tbState.loaded = false; // force fresh fetch
+  tbState.loaded = false;
   csLoad(true);
 }
 
