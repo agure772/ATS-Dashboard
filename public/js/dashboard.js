@@ -3549,10 +3549,10 @@ function csAuditRow(c) {
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap">
         <button onclick="csToggleLicense('${c.id}','${safeName}',${hasLicense})" id="cs-lic-${c.id}"
-          style="background:${hasLicense?'rgba(0,196,106,.15)':\'var(--bg2)\'};color:${hasLicense?'var(--green)':\'var(--text3)\'};
-                 border:1px solid ${hasLicense?'rgba(0,196,106,.4)':\'var(--border)\'};border-radius:7px;
+          style="background:${hasLicense ? 'rgba(0,196,106,.15)' : 'var(--bg2)'};color:${hasLicense ? 'var(--green)' : 'var(--text3)'};
+                 border:1px solid ${hasLicense ? 'rgba(0,196,106,.4)' : 'var(--border)'};border-radius:7px;
                  padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
-          ${hasLicense?'✓ License':'📄 License?'}
+          ${hasLicense ? '✓ License' : '📄 License?'}
         </button>
         <div style="display:flex;gap:4px;align-items:center">
           <select id="cs-assignee-${c.id}"
@@ -3569,7 +3569,7 @@ function csAuditRow(c) {
         </div>
       </div>
     </div>
-  </div>\`;
+  </div>`;
 }
 
 // ── Toggle license-received tag ───────────────────────────────────────────────
