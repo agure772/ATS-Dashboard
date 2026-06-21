@@ -3138,7 +3138,14 @@ function csToggleSettings() {
   const panel = document.getElementById('cs-settings-panel');
   if (!panel) return;
   panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-  if (panel.style.display === 'block') csRenderSettings();
+  if (panel.style.display === 'block') {
+    // Auto-load staff if board hasn't been loaded yet
+    if (!csState.allStaff.length) {
+      csLoad(false).then(() => csRenderSettings());
+    } else {
+      csRenderSettings();
+    }
+  }
 }
 
 function csRenderSettings() {
@@ -3313,3 +3320,198 @@ async function csCreateIntakeTask(contactId, companyName) {
 }
 
 // ── CS Board loaded via navigateTo hook above ────────────────────────────────
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CS BOARD — CONTACT AUDIT + LICENSE TRACKING
+// ═════════════════════════════════════════════════════════════════════════════
+
+let csAuditData = null;
+let csAuditLoading = false;
+
+// ── Run audit ─────────────────────────────────────────────────────────────────
+async function csRunAudit() {
+  if (csAuditLoading) return;
+  csAuditLoading = true;
+  const btn  = document.getElementById('cs-audit-btn');
+  const area = document.getElementById('cs-audit-results');
+  if (btn)  { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Scanning...'; }
+  if (area) area.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)">Scanning all contacts...</div>';
+
+  try {
+    const res = await fetch('/api/contacts/audit');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    csAuditData = data;
+    csRenderAudit(data);
+  } catch(e) {
+    if (area) area.innerHTML = `<div style="color:var(--red);padding:12px">Error: ${e.message}</div>`;
+  }
+  csAuditLoading = false;
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Re-scan'; }
+}
+
+// ── Render audit results ──────────────────────────────────────────────────────
+function csRenderAudit(data) {
+  const area = document.getElementById('cs-audit-results');
+  if (!area) return;
+
+  if (!data.issues.length) {
+    area.innerHTML = `<div style="text-align:center;padding:30px;color:var(--green)">
+      <i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:8px"></i>
+      All ${data.total} contacts have complete information!
+    </div>`; return;
+  }
+
+  // Summary chips
+  const fieldCounts = {};
+  data.issues.forEach(c => c.missing.forEach(m => { fieldCounts[m] = (fieldCounts[m]||0)+1; }));
+
+  area.innerHTML = `
+    <!-- Summary -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+      <div style="font-size:13px;font-weight:700;color:var(--text)">${data.issueCount} of ${data.total} contacts have missing info:</div>
+      ${Object.entries(fieldCounts).sort((a,b)=>b[1]-a[1]).map(([f,n])=>`
+        <span style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#ef4444;
+                     border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700">${f} (${n})</span>`).join('')}
+    </div>
+    <!-- Bulk action -->
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <button onclick="csGenerateAllTasks()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;
+        border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+        <i class="ti ti-wand"></i> Generate CS Tasks for All Issues
+      </button>
+      <div id="cs-audit-bulk-status" style="font-size:12px;color:var(--text3);display:flex;align-items:center"></div>
+    </div>
+    <!-- Contact rows -->
+    <div style="display:flex;flex-direction:column;gap:8px" id="cs-audit-rows">
+      ${data.issues.slice(0,100).map(c => csAuditRow(c)).join('')}
+    </div>
+    ${data.issues.length > 100 ? `<div style="font-size:12px;color:var(--text3);text-align:center;margin-top:10px">Showing first 100 of ${data.issues.length}. Generate tasks to process all.</div>` : ''}
+  `;
+}
+
+function csAuditRow(c) {
+  const safeName = (c.name||'').replace(/'/g,"\\'");
+  const safeBiz  = (c.business_name||'').replace(/'/g,"\\'");
+  const hasLicense = c.hasLicense || (c.tags||[]).includes('license-received');
+  return `
+  <div id="cs-audit-row-${c.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <div style="font-size:13px;font-weight:700;color:var(--text)">${c.name}</div>
+      ${c.business_name ? `<div style="font-size:11px;color:var(--text3);margin-top:1px">${c.business_name}</div>` : ''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        ${c.missing.map(m=>`<span style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#ef4444;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700">${m}</span>`).join('')}
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex-shrink:0">
+      <!-- License toggle -->
+      <button onclick="csToggleLicense('${c.id}','${safeName}',${hasLicense})" id="cs-lic-${c.id}"
+        style="background:${hasLicense?'rgba(0,196,106,.15)':'var(--bg2)'};color:${hasLicense?'var(--green)':'var(--text3)'};
+               border:1px solid ${hasLicense?'rgba(0,196,106,.4)':'var(--border)'};border-radius:7px;
+               padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
+        ${hasLicense?'✓ License':'📄 License?'}
+      </button>
+      <!-- Create CS task -->
+      <button onclick="csCreateAuditTask('${c.id}','${safeName}','${safeBiz}')"
+        style="background:rgba(124,58,237,.1);color:#a78bfa;border:1px solid rgba(124,58,237,.4);
+               border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
+        + CS Task
+      </button>
+    </div>
+  </div>`;
+}
+
+// ── Toggle license-received tag ───────────────────────────────────────────────
+async function csToggleLicense(contactId, name, currentlyHas) {
+  const btn = document.getElementById(`cs-lic-${contactId}`);
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const addTags    = currentlyHas ? [] : ['license-received'];
+    const removeTags = currentlyHas ? ['license-received'] : [];
+    const res = await fetch(`/api/contacts/${contactId}/tags`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ addTags, removeTags }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    const nowHas = !currentlyHas;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = nowHas ? '✓ License' : '📄 License?';
+      btn.style.background = nowHas ? 'rgba(0,196,106,.15)' : 'var(--bg2)';
+      btn.style.color = nowHas ? 'var(--green)' : 'var(--text3)';
+      btn.style.border = nowHas ? '1px solid rgba(0,196,106,.4)' : '1px solid var(--border)';
+      btn.onclick = () => csToggleLicense(contactId, name, nowHas);
+    }
+    toast(nowHas ? `✓ License received marked for ${name}` : `License mark removed for ${name}`);
+  } catch(e) {
+    if (btn) { btn.disabled = false; }
+    toast('Error: ' + e.message);
+  }
+}
+
+// ── Create CS task from audit row ─────────────────────────────────────────────
+async function csCreateAuditTask(contactId, name, bizName) {
+  const assignee = csNextAssignee();
+  const missingList = csAuditData?.issues?.find(c=>c.id===contactId)?.missing || [];
+  const title = `[CS] Update Missing Info — ${name}`;
+  const body = missingList.length
+    ? `Please update the following missing fields in GHL:\n${missingList.map(m=>`• ${m}`).join('\n')}`
+    : 'Please review and update contact information in GHL.';
+  try {
+    const res = await fetch(`/api/contacts/${contactId}/tasks`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        title, body,
+        assignedTo: assignee || undefined,
+        dueDate: new Date(Date.now()+86400000).toISOString(),
+        completed: false,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast(`✓ CS task created for ${name}`);
+    // Mark row as processed
+    const row = document.getElementById(`cs-audit-row-${contactId}`);
+    if (row) row.style.opacity = '0.4';
+  } catch(e) { toast('Error: ' + e.message); }
+}
+
+// ── Generate CS tasks for ALL audit issues ────────────────────────────────────
+async function csGenerateAllTasks() {
+  if (!csAuditData?.issues?.length) return;
+  const btn = document.querySelector('[onclick="csGenerateAllTasks()"]');
+  const statusEl = document.getElementById('cs-audit-bulk-status');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Generating...'; }
+
+  let done = 0, failed = 0;
+  const issues = csAuditData.issues.slice(0, 200); // cap at 200
+
+  for (const c of issues) {
+    try {
+      const assignee = csNextAssignee();
+      const body = `Please update the following missing fields in GHL:\n${c.missing.map(m=>`• ${m}`).join('\n')}`;
+      await fetch(`/api/contacts/${c.id}/tasks`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          title: `[CS] Update Missing Info — ${c.name}`,
+          body, assignedTo: assignee || undefined,
+          dueDate: new Date(Date.now()+86400000).toISOString(),
+          completed: false,
+        }),
+      });
+      done++;
+      const row = document.getElementById(`cs-audit-row-${c.id}`);
+      if (row) row.style.opacity = '0.4';
+      if (statusEl) statusEl.textContent = `${done}/${issues.length} tasks created...`;
+      await new Promise(r => setTimeout(r, 120)); // rate limit
+    } catch(e) { failed++; }
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-wand"></i> Generate CS Tasks for All Issues'; }
+  if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ ${done} tasks created${failed?`, ${failed} failed`:''}</span>`;
+  toast(`✓ ${done} CS tasks generated`);
+  setTimeout(() => csLoad(true), 1000);
+}
+
