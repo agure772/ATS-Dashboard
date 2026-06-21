@@ -3001,9 +3001,10 @@ function csLoadFromCache() {
   // tbState.users and tbState.tasks are flat arrays (from server { tasks, users } response)
   csState.allStaff = tbState.users.map(u => ({
     id: u.id, name: u.name,
-    tasks: (tbState.tasks || []).filter(t =>
-      (t.assigneeId || t.assignedTo) === u.id
-    ),
+    tasks: (tbState.tasks || []).filter(t => {
+      const aid = t.assigneeId || t.assignedTo || t.assignedUserId || t.userId || (t.user?.id) || '';
+      return aid === u.id;
+    }),
   }));
   // Merge fallback staff names if tbState.users is missing anyone
   if (csState.allStaff.length < ATS_STAFF_FALLBACK.length) {
@@ -3054,11 +3055,13 @@ async function csLoad(force = false) {
     tbState.loaded = true;
 
     // Build allStaff from users + their tasks
+    // Check all possible GHL field names for assignee
     csState.allStaff = tbState.users.map(u => ({
       id: u.id, name: u.name,
-      tasks: tbState.tasks.filter(t =>
-        (t.assigneeId || t.assignedTo) === u.id
-      ),
+      tasks: tbState.tasks.filter(t => {
+        const aid = t.assigneeId || t.assignedTo || t.assignedUserId || t.userId || (t.user?.id) || '';
+        return aid === u.id;
+      }),
     }));
 
     // Extract [CS] tasks
@@ -3070,6 +3073,16 @@ async function csLoad(force = false) {
       });
     });
     csState.loaded = true;
+
+    // Update debug info with actual results
+    const dbgFinal = document.getElementById('cs-debug-info');
+    if (dbgFinal) {
+      const csTasks = csState.rawTasks.length;
+      const allTasks = tbState.tasks.length;
+      const csIds2 = csGetStaffIds();
+      dbgFinal.innerHTML = `Loaded: ${tbState.users.length} users | ${allTasks} total tasks | ${csTasks} [CS] tasks | CS staff IDs: ${csIds2.join(', ') || 'none'}`;
+      dbgFinal.style.color = csTasks > 0 ? 'var(--green)' : 'var(--yellow)';
+    }
   } catch(e) {
     console.error('CS load error', e);
     const msg = e.name === 'AbortError'
@@ -3131,9 +3144,10 @@ function csApplyFilter() {
 
   // When no CS staff set up, show ALL [CS] tasks (including fallback-assigned ones)
   let tasks = csState.rawTasks.filter(t => {
-    if (csState.selectedStaff !== 'all' && t.assigneeId !== csState.selectedStaff) return false;
+    const taskAssignee = t.assigneeId || t.assignedTo || t.assignedUserId || t.userId || '';
+    if (csState.selectedStaff !== 'all' && taskAssignee !== csState.selectedStaff) return false;
     // If CS staff configured: only show their tasks. If not configured: show all [CS] tasks
-    if (csIds.length && !csIds.includes(t.assigneeId) && t.assigneeId !== CS_MAHAD_ID) return false;
+    if (csIds.length && !csIds.includes(taskAssignee) && taskAssignee !== CS_MAHAD_ID) return false;
     if (q && !t.title.toLowerCase().includes(q) &&
         !(t.contactName||'').toLowerCase().includes(q) &&
         !(t.businessName||'').toLowerCase().includes(q)) return false;
@@ -3178,8 +3192,9 @@ function csRenderTasks(tasks) {
   // Group by assignee
   const groups = {};
   tasks.forEach(t => {
-    if (!groups[t.assigneeId]) groups[t.assigneeId] = { name: t.assigneeName, tasks: [] };
-    groups[t.assigneeId].tasks.push(t);
+    const aid = t.assigneeId || t.assignedTo || t.assignedUserId || t.userId || 'unassigned';
+    if (!groups[aid]) groups[aid] = { name: t.assigneeName || t.ownerName || aid, tasks: [] };
+    groups[aid].tasks.push(t);
   });
   const now = Date.now();
 
