@@ -1110,46 +1110,6 @@ function buildCustomFields(serviceKey, data) {
 }
 
 
-// ── Contact Audit — find contacts with missing fields ─────────────────────────
-app.get('/api/contacts/audit', async (req, res) => {
-  try {
-    const clients = await fetchAllClients();
-    const issues = [];
-    for (const c of clients) {
-      const missing = [];
-      const hasDotConcat = c.business_name && /DOT#/i.test(c.business_name);
-      if (!c.email)           missing.push('Email');
-      if (!c.phone)           missing.push('Phone');
-      if (!c.dot_number)      missing.push('DOT#');
-      if (!c.mc_number)       missing.push('MC#');
-      if (!c.ein)             missing.push('EIN');
-      if (!c.mailing_address) missing.push('Mailing Address');
-      if (!hasDotConcat)      missing.push('Business Name (missing DOT#)');
-      const hasLicense = (c.tags||[]).includes('license-received');
-      if (!hasLicense)        missing.push('License Info');
-
-      if (missing.length) {
-        issues.push({
-          id:            c.id,
-          name:          c.name,
-          business_name: c.business_name,
-          dot_number:    c.dot_number,
-          phone:         c.phone,
-          email:         c.email,
-          missing,
-          hasLicense,
-          tags:          c.tags || [],
-        });
-      }
-    }
-    // Sort: most missing fields first
-    issues.sort((a,b) => b.missing.length - a.missing.length);
-    res.json({ total: clients.length, issues, issueCount: issues.length });
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ── Add / remove tag on a contact ─────────────────────────────────────────────
 app.post('/api/contacts/:id/tags', async (req, res) => {
   const { id } = req.params;
