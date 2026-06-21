@@ -2970,8 +2970,14 @@ let csState = { rawTasks: [], allStaff: [], loaded: false, loading: false, selec
 
 // ── Load from cache only (safe, never crashes) ───────────────────────────────
 function csLoadFromCache() {
-  if (!tbState.loaded || !tbState.users.length) {
-    // Tasks Board not loaded yet — show prompt, don't fetch
+  const dbg = document.getElementById('cs-debug-info');
+  const hasData = tbState.loaded && tbState.users && tbState.users.length > 0;
+  const csTaskCount = (tbState.tasks || []).filter(t => t.title && t.title.startsWith(CS_PREFIX)).length;
+
+  if (dbg) dbg.innerHTML = `tbState: loaded=${tbState.loaded} | users=${tbState.users?.length||0} | tasks=${tbState.tasks?.length||0} | [CS] tasks=${csTaskCount}`;
+
+  if (!tbState.loaded || !tbState.users || !tbState.users.length) {
+    if (dbg) dbg.innerHTML += ' → showing not-loaded prompt';
     csShowNotLoaded();
     return;
   }
@@ -3607,7 +3613,7 @@ function csAuditRow(c) {
             <option value="">Auto-assign</option>
             ${staffOpts}
           </select>
-          <button onclick="csCreateAuditTask('${c.id}','${safeName}','${safeBiz}')"
+          <button id="cs-task-btn-${c.id}" onclick="csCreateAuditTask('${c.id}','${safeName}','${safeBiz}')"
             style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);
                    border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
             + CS Task
@@ -3663,9 +3669,9 @@ async function csCreateAuditTask(contactId, name, bizName) {
   const dueDate = new Date(Date.now()+86400000).toISOString();
 
   // Show loading state on button
-  const row    = document.getElementById(`cs-audit-row-${contactId}`);
-  const taskBtn = row?.querySelector('button:last-child');
-  if (taskBtn) { taskBtn.disabled = true; taskBtn.textContent = 'Creating...'; taskBtn.style.opacity = '0.7'; }
+  const row     = document.getElementById(`cs-audit-row-${contactId}`);
+  const taskBtn = document.getElementById(`cs-task-btn-${contactId}`);
+  if (taskBtn) { taskBtn.disabled = true; taskBtn.textContent = 'Creating...'; taskBtn.style.background = 'rgba(245,158,11,.2)'; taskBtn.style.color = '#f59e0b'; }
 
   try {
     const res = await fetch(`/api/contacts/${contactId}/tasks`, {
@@ -3716,8 +3722,10 @@ async function csCreateAuditTask(contactId, name, bizName) {
     toast(`✓ CS task assigned to ${assigneeName}`);
 
   } catch(e) {
-    if (taskBtn) { taskBtn.disabled = false; taskBtn.textContent = '+ CS Task'; taskBtn.style.opacity = '1'; }
-    toast('Error: ' + e.message);
+    if (taskBtn) { taskBtn.disabled = false; taskBtn.textContent = '+ CS Task'; taskBtn.style.background = 'rgba(124,58,237,.15)'; taskBtn.style.color = '#a78bfa'; }
+    const errRow = document.getElementById(`cs-audit-row-${contactId}`);
+    if (errRow) { const e2=document.createElement('div'); e2.style.cssText='font-size:11px;color:#ef4444;padding:4px 14px 8px;font-weight:600'; e2.textContent='Error: '+e.message; errRow.appendChild(e2); }
+    console.error('CS task error:', e);
   }
 }
 
