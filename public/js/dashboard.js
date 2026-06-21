@@ -3383,9 +3383,25 @@ async function csSubmitTask() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error||'Failed');
+    // Inject into memory immediately so task shows without waiting for API refresh
+    const newT = {
+      id: data.task?.id || `local-${Date.now()}`,
+      title: fullTitle, body: notes, assigneeId: assignee, assignedTo: assignee,
+      assigneeName: (csState.allStaff.find(s=>s.id===assignee)||ATS_STAFF_FALLBACK.find(s=>s.id===assignee)||{}).name||'Staff',
+      contactId: csAddSelectedContact.id, contactName: csAddSelectedContact.name,
+      dueDate: due ? new Date(due+'T12:00:00').toISOString() : new Date(Date.now()+86400000).toISOString(),
+      completed: false, status: 'open',
+    };
+    if (!tbState.tasks) tbState.tasks = [];
+    tbState.tasks.push(newT);
+    if (!csState.rawTasks) csState.rawTasks = [];
+    csState.rawTasks.push({ ...newT });
+    const staffE = csState.allStaff.find(s=>s.id===assignee);
+    if (staffE) { if (!staffE.tasks) staffE.tasks=[]; staffE.tasks.push(newT); }
+
     status.innerHTML = '<span style="color:var(--green)">✓ CS Task created!</span>';
-    toast('CS task created ✓');
-    setTimeout(() => { document.getElementById('cs-add-modal')?.remove(); csLoad(true); }, 700);
+    toast(`✓ Task assigned to ${newT.assigneeName}`);
+    setTimeout(() => { document.getElementById('cs-add-modal')?.remove(); csApplyFilter(); }, 700);
   } catch(e) { status.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`; }
 }
 
@@ -3633,34 +3649,76 @@ async function csToggleLicense(contactId, name, currentlyHas) {
 
 // ── Create CS task from audit row ─────────────────────────────────────────────
 async function csCreateAuditTask(contactId, name, bizName) {
-  // Read manually-chosen assignee from the row's select, fallback to round-robin
-  const selectEl = document.getElementById(`cs-assignee-${contactId}`);
-  const assignee = (selectEl && selectEl.value) ? selectEl.value : csNextAssignee();
+  const selectEl  = document.getElementById(`cs-assignee-${contactId}`);
+  const assigneeId = (selectEl && selectEl.value) ? selectEl.value : csNextAssignee();
+  const assigneeName = (csState.allStaff.find(s => s.id === assigneeId) ||
+                        ATS_STAFF_FALLBACK.find(s => s.id === assigneeId) || {}).name || 'Staff';
 
-  const missingList = csAuditData?.issues?.find(c=>c.id===contactId)?.missing || [];
-  // Use display name (already resolved in csAuditRow) — avoid "Unknown"
-  const displayName = (name && name !== 'Unknown') ? name : (bizName || name);
-  const title = `[CS] Update Missing Info — ${displayName}`;
-  const body = missingList.length
+  const missingList  = csAuditData?.issues?.find(c=>c.id===contactId)?.missing || [];
+  const displayName  = (name && name !== 'Unknown') ? name : (bizName || name);
+  const title = `${CS_PREFIX} Update Missing Info — ${displayName}`;
+  const body  = missingList.length
     ? `Please update the following missing fields in GHL:\n${missingList.map(m=>`• ${m}`).join('\n')}`
     : 'Please review and update contact information in GHL.';
+  const dueDate = new Date(Date.now()+86400000).toISOString();
+
+  // Show loading state on button
+  const row    = document.getElementById(`cs-audit-row-${contactId}`);
+  const taskBtn = row?.querySelector('button:last-child');
+  if (taskBtn) { taskBtn.disabled = true; taskBtn.textContent = 'Creating...'; taskBtn.style.opacity = '0.7'; }
+
   try {
     const res = await fetch(`/api/contacts/${contactId}/tasks`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        title, body,
-        assignedTo: assignee || undefined,
-        dueDate: new Date(Date.now()+86400000).toISOString(),
-        completed: false,
-      }),
+      body: JSON.stringify({ title, body, assignedTo: assigneeId || undefined, dueDate, completed: false }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    toast(`✓ CS task created for ${displayName}`);
-    const row = document.getElementById(`cs-audit-row-${contactId}`);
-    if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
-    csLoadFromCache();
-  } catch(e) { toast('Error: ' + e.message); }
+
+    // ── Inject task directly into memory so it shows immediately ──────────
+    const newTask = {
+      id:           data.task?.id || `local-${Date.now()}`,
+      title,
+      body,
+      assigneeId,
+      assignedTo:   assigneeId,
+      assigneeName,
+      contactId,
+      contactName:  displayName,
+      businessName: bizName || '',
+      dueDate,
+      completed:    false,
+      status:       'open',
+    };
+    // Add to tbState.tasks
+    if (!tbState.tasks) tbState.tasks = [];
+    tbState.tasks.push(newTask);
+    // Add to csState.rawTasks
+    if (!csState.rawTasks) csState.rawTasks = [];
+    csState.rawTasks.push({ ...newTask });
+    // Update the staff entry in csState.allStaff
+    const staffEntry = csState.allStaff.find(s => s.id === assigneeId);
+    if (staffEntry) { if (!staffEntry.tasks) staffEntry.tasks = []; staffEntry.tasks.push(newTask); }
+
+    // Mark row as done
+    if (row) {
+      row.innerHTML = `<div style="padding:10px 14px;display:flex;align-items:center;gap:10px">
+        <i class="ti ti-circle-check" style="color:var(--green);font-size:18px;flex-shrink:0"></i>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--green)">✓ Task created — assigned to ${assigneeName}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${displayName} · Due tomorrow</div>
+        </div>
+      </div>`;
+    }
+
+    // Update CS Board task list immediately
+    csApplyFilter();
+    toast(`✓ CS task assigned to ${assigneeName}`);
+
+  } catch(e) {
+    if (taskBtn) { taskBtn.disabled = false; taskBtn.textContent = '+ CS Task'; taskBtn.style.opacity = '1'; }
+    toast('Error: ' + e.message);
+  }
 }
 
 // ── Generate CS tasks for ALL audit issues ────────────────────────────────────
