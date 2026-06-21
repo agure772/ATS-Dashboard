@@ -3323,32 +3323,47 @@ async function csCreateIntakeTask(contactId, companyName) {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CS BOARD — CONTACT AUDIT + LICENSE TRACKING
+// CS BOARD — CONTACT AUDIT + LICENSE TRACKING (client-side, uses state.clients)
 // ═════════════════════════════════════════════════════════════════════════════
 
 let csAuditData = null;
-let csAuditLoading = false;
 
-// ── Run audit ─────────────────────────────────────────────────────────────────
-async function csRunAudit() {
-  if (csAuditLoading) return;
-  csAuditLoading = true;
+// ── Run audit client-side from already-loaded state.clients ──────────────────
+function csRunAudit() {
   const btn  = document.getElementById('cs-audit-btn');
   const area = document.getElementById('cs-audit-results');
-  if (btn)  { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Scanning...'; }
-  if (area) area.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)">Scanning all contacts...</div>';
 
-  try {
-    const res = await fetch('/api/contacts/audit');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    csAuditData = data;
-    csRenderAudit(data);
-  } catch(e) {
-    if (area) area.innerHTML = `<div style="color:var(--red);padding:12px">Error: ${e.message}</div>`;
+  const clients = state.clients || [];
+  if (!clients.length) {
+    if (area) area.innerHTML = '<div style="color:var(--yellow);padding:12px">⚠ Client list not loaded yet — go to Dashboard first to sync GHL, then return here.</div>';
+    return;
   }
-  csAuditLoading = false;
-  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Re-scan'; }
+
+  if (btn) { btn.innerHTML = '<i class="ti ti-refresh"></i> Re-scan'; }
+
+  const issues = [];
+  clients.forEach(c => {
+    const missing = [];
+    const hasDotConcat = c.business_name && /DOT#/i.test(c.business_name);
+    if (!c.email)           missing.push('Email');
+    if (!c.phone)           missing.push('Phone');
+    if (!c.dot_number)      missing.push('DOT#');
+    if (!c.mc_number)       missing.push('MC#');
+    if (!c.ein)             missing.push('EIN');
+    if (!c.mailing_address) missing.push('Mailing Address');
+    if (!hasDotConcat)      missing.push('Business Name (no DOT#)');
+    const hasLicense = (c.tags||[]).includes('license-received');
+    if (!hasLicense)        missing.push('License Info');
+    if (missing.length) {
+      issues.push({ id: c.id, name: c.name, business_name: c.business_name,
+        dot_number: c.dot_number, phone: c.phone, email: c.email,
+        missing, hasLicense, tags: c.tags || [] });
+    }
+  });
+
+  issues.sort((a,b) => b.missing.length - a.missing.length);
+  csAuditData = { total: clients.length, issues, issueCount: issues.length };
+  csRenderAudit(csAuditData);
 }
 
 // ── Render audit results ──────────────────────────────────────────────────────
@@ -3513,5 +3528,125 @@ async function csGenerateAllTasks() {
   if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ ${done} tasks created${failed?`, ${failed} failed`:''}</span>`;
   toast(`✓ ${done} CS tasks generated`);
   setTimeout(() => csLoad(true), 1000);
+}
+
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CS STAFF MANAGEMENT MODAL
+// ═════════════════════════════════════════════════════════════════════════════
+
+function csOpenStaffModal() {
+  document.getElementById('cs-staff-modal')?.remove();
+
+  // Get staff list — prefer tbState.users (Tasks Board already loaded them),
+  // fall back to csState.allStaff
+  const allStaff = (tbState?.users?.length ? tbState.users : csState.allStaff);
+
+  if (!allStaff.length) {
+    // Staff not loaded yet — trigger CS load then reopen
+    toast('Loading staff list...');
+    csLoad(false).then(() => csOpenStaffModal());
+    return;
+  }
+
+  const csIds = csGetStaffIds();
+  const modal = document.createElement('div');
+  modal.id = 'cs-staff-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;width:520px;max-width:95vw;
+                max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <!-- Header -->
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-size:15px;font-weight:800;color:var(--text)">
+            <i class="ti ti-users-group" style="color:var(--primary);margin-right:6px"></i>CS Staff Management
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">
+            Toggle who is designated as Customer Service staff.
+            CS staff appear on the CS Board and get auto-assigned intake tasks.
+          </div>
+        </div>
+        <button onclick="document.getElementById('cs-staff-modal').remove()"
+          style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:22px;line-height:1;padding:4px">×</button>
+      </div>
+
+      <!-- Staff list -->
+      <div style="padding:16px 24px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:10px" id="cs-staff-modal-list">
+        ${allStaff.map(s => {
+          const isCS = csIds.includes(s.id);
+          const initials = s.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+          return `
+          <div id="cs-modal-row-${s.id}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;
+               background:${isCS?'rgba(0,196,106,.06)':'var(--bg3)'};
+               border:1px solid ${isCS?'rgba(0,196,106,.35)':'var(--border)'};border-radius:10px;transition:all .15s">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:#0a1a0f;
+                        display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0">
+              ${initials}
+            </div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700;color:var(--text)">${s.name}</div>
+              <div style="font-size:11px;color:${isCS?'var(--green)':'var(--text3)'};margin-top:1px">
+                ${isCS ? '✓ CS Staff' : 'Operator only'}
+              </div>
+            </div>
+            <button onclick="csModalToggleStaff('${s.id}','${s.name.replace(/'/g,"\\'")}',this)"
+              style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;
+                     background:${isCS?'rgba(239,68,68,.12)':'rgba(0,196,106,.12)'};
+                     color:${isCS?'#ef4444':'var(--green)'};
+                     border:1px solid ${isCS?'rgba(239,68,68,.35)':'rgba(0,196,106,.35)'}">
+              ${isCS ? 'Remove' : '+ Add CS'}
+            </button>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div style="font-size:12px;color:var(--text3)">
+          <span id="cs-modal-count" style="color:var(--primary);font-weight:700">${csIds.length}</span> CS staff designated
+        </div>
+        <button onclick="document.getElementById('cs-staff-modal').remove()"
+          style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer">
+          Done
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  // Close on backdrop click
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+function csModalToggleStaff(userId, userName, btn) {
+  const ids  = csGetStaffIds();
+  const isCS = ids.includes(userId);
+  if (isCS) ids.splice(ids.indexOf(userId), 1);
+  else ids.push(userId);
+  csSaveStaffIds(ids);
+
+  // Update button
+  const nowCS = !isCS;
+  btn.textContent = nowCS ? 'Remove' : '+ Add CS';
+  btn.style.background = nowCS ? 'rgba(239,68,68,.12)' : 'rgba(0,196,106,.12)';
+  btn.style.color = nowCS ? '#ef4444' : 'var(--green)';
+  btn.style.border = `1px solid ${nowCS ? 'rgba(239,68,68,.35)' : 'rgba(0,196,106,.35)'}`;
+
+  // Update row
+  const row = document.getElementById(`cs-modal-row-${userId}`);
+  if (row) {
+    row.style.background = nowCS ? 'rgba(0,196,106,.06)' : 'var(--bg3)';
+    row.style.border = `1px solid ${nowCS ? 'rgba(0,196,106,.35)' : 'var(--border)'}`;
+    const label = row.querySelector('div > div:last-child');
+    if (label) { label.textContent = nowCS ? '✓ CS Staff' : 'Operator only'; label.style.color = nowCS ? 'var(--green)' : 'var(--text3)'; }
+  }
+
+  // Update count
+  const countEl = document.getElementById('cs-modal-count');
+  if (countEl) countEl.textContent = ids.length;
+
+  toast(nowCS ? `✓ ${userName} added to CS staff` : `${userName} removed from CS staff`);
+  csRenderStaffTabs();
+  csApplyFilter();
 }
 
