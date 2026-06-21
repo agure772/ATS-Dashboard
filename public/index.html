@@ -568,6 +568,22 @@
       <!-- Task list -->
       <div id="cs-task-list"></div>
 
+      <!-- Contact Audit Section -->
+      <div style="margin-top:28px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+          <div>
+            <div style="font-size:14px;font-weight:800;color:var(--text)"><i class="ti ti-zoom-scan" style="color:var(--primary)"></i> Contact Audit</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Scan all GHL contacts for missing fields — email, phone, DOT#, MC#, EIN, address, license info</div>
+          </div>
+          <button id="cs-audit-btn" onclick="csRunAudit()"
+            style="background:rgba(0,196,106,.12);color:var(--primary);border:1px solid rgba(0,196,106,.4);
+                   border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-zoom-scan"></i> Scan All Contacts
+          </button>
+        </div>
+        <div id="cs-audit-results" style="margin-top:14px"></div>
+      </div>
+
       <!-- Settings panel — CS Staff Management (Mahad) -->
       <div id="cs-settings-panel" style="display:none;margin-top:24px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px">
         <div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:4px"><i class="ti ti-settings" style="color:var(--primary)"></i> CS Staff Management</div>
