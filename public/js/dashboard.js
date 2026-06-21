@@ -3529,34 +3529,47 @@ function csAuditGoPage(n) {
 }
 
 function csAuditRow(c) {
-  const safeName = (c.name||'').replace(/'/g,"\\'");
-  const safeBiz  = (c.business_name||'').replace(/'/g,"\\'");
+  const displayName = (c.name && c.name !== 'Unknown')
+    ? c.name : (c.business_name || (c.dot_number ? 'DOT# '+c.dot_number : 'Unknown'));
+  const safeName   = displayName.replace(/'/g, "\\'");
+  const safeBiz    = (c.business_name||'').replace(/'/g, "\\'");
   const hasLicense = c.hasLicense || (c.tags||[]).includes('license-received');
+  const csIds   = csGetStaffIds();
+  const csStaff = csState.allStaff.filter(s => csIds.includes(s.id));
+  const staffOpts = csStaff.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
   return `
-  <div id="cs-audit-row-${c.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-    <div style="flex:1;min-width:200px">
-      <div style="font-size:13px;font-weight:700;color:var(--text)">${c.name}</div>
-      ${c.business_name ? `<div style="font-size:11px;color:var(--text3);margin-top:1px">${c.business_name}</div>` : ''}
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-        ${c.missing.map(m=>`<span style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#ef4444;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700">${m}</span>`).join('')}
+  <div id="cs-audit-row-${c.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+    <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <div style="font-size:13px;font-weight:700;color:var(--text)">${displayName}</div>
+        ${c.business_name && c.business_name !== displayName ? `<div style="font-size:11px;color:var(--text3);margin-top:1px">${c.business_name}</div>` : ''}
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">
+          ${c.missing.map(m=>`<span style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#ef4444;border-radius:5px;padding:2px 6px;font-size:10px;font-weight:700">${m}</span>`).join('')}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap">
+        <button onclick="csToggleLicense('${c.id}','${safeName}',${hasLicense})" id="cs-lic-${c.id}"
+          style="background:${hasLicense?'rgba(0,196,106,.15)':\'var(--bg2)\'};color:${hasLicense?'var(--green)':\'var(--text3)\'};
+                 border:1px solid ${hasLicense?'rgba(0,196,106,.4)':\'var(--border)\'};border-radius:7px;
+                 padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
+          ${hasLicense?'✓ License':'📄 License?'}
+        </button>
+        <div style="display:flex;gap:4px;align-items:center">
+          <select id="cs-assignee-${c.id}"
+            style="background:var(--bg2);border:1px solid rgba(124,58,237,.35);color:#a78bfa;border-radius:7px;
+                   padding:5px 8px;font-size:11px;cursor:pointer;max-width:130px">
+            <option value="">Auto-assign</option>
+            ${staffOpts}
+          </select>
+          <button onclick="csCreateAuditTask('${c.id}','${safeName}','${safeBiz}')"
+            style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);
+                   border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
+            + CS Task
+          </button>
+        </div>
       </div>
     </div>
-    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex-shrink:0">
-      <!-- License toggle -->
-      <button onclick="csToggleLicense('${c.id}','${safeName}',${hasLicense})" id="cs-lic-${c.id}"
-        style="background:${hasLicense?'rgba(0,196,106,.15)':'var(--bg2)'};color:${hasLicense?'var(--green)':'var(--text3)'};
-               border:1px solid ${hasLicense?'rgba(0,196,106,.4)':'var(--border)'};border-radius:7px;
-               padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
-        ${hasLicense?'✓ License':'📄 License?'}
-      </button>
-      <!-- Create CS task -->
-      <button onclick="csCreateAuditTask('${c.id}','${safeName}','${safeBiz}')"
-        style="background:rgba(124,58,237,.1);color:#a78bfa;border:1px solid rgba(124,58,237,.4);
-               border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
-        + CS Task
-      </button>
-    </div>
-  </div>`;
+  </div>\`;
 }
 
 // ── Toggle license-received tag ───────────────────────────────────────────────
@@ -3590,9 +3603,14 @@ async function csToggleLicense(contactId, name, currentlyHas) {
 
 // ── Create CS task from audit row ─────────────────────────────────────────────
 async function csCreateAuditTask(contactId, name, bizName) {
-  const assignee = csNextAssignee();
+  // Read manually-chosen assignee from the row's select, fallback to round-robin
+  const selectEl = document.getElementById(`cs-assignee-${contactId}`);
+  const assignee = (selectEl && selectEl.value) ? selectEl.value : csNextAssignee();
+
   const missingList = csAuditData?.issues?.find(c=>c.id===contactId)?.missing || [];
-  const title = `[CS] Update Missing Info — ${name}`;
+  // Use display name (already resolved in csAuditRow) — avoid "Unknown"
+  const displayName = (name && name !== 'Unknown') ? name : (bizName || name);
+  const title = `[CS] Update Missing Info — ${displayName}`;
   const body = missingList.length
     ? `Please update the following missing fields in GHL:\n${missingList.map(m=>`• ${m}`).join('\n')}`
     : 'Please review and update contact information in GHL.';
@@ -3608,12 +3626,10 @@ async function csCreateAuditTask(contactId, name, bizName) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    toast(`✓ CS task created for ${name}`);
-    // Mark row as processed
+    toast(`✓ CS task created for ${displayName}`);
     const row = document.getElementById(`cs-audit-row-${contactId}`);
-    if (row) row.style.opacity = '0.4';
-    // Refresh CS Board so new task appears
-    csLoad(true);
+    if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
+    csLoadFromCache();
   } catch(e) { toast('Error: ' + e.message); }
 }
 
