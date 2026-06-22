@@ -765,7 +765,7 @@ async function buildTasksBoardData() {
   const contactIds = [...new Set([...oppContactIds, ...allContactIds])];
   console.log(`Fetching tasks for ${contactIds.length} unique contacts...`);
 
-  const CONCURRENCY = 40;
+  const CONCURRENCY = 10;
   let firstTaskLogged = false;
   for (let i = 0; i < contactIds.length; i += CONCURRENCY) {
     const batch = contactIds.slice(i, i + CONCURRENCY);
@@ -793,8 +793,15 @@ async function buildTasksBoardData() {
             dotNumber:    info?.dotNumber || extractDot(t.title),
           });
         });
-      } catch(e) {}
+      } catch(e) {
+        if (e.message && (e.message.includes('429') || e.message.includes('rate')))
+          console.log(`Rate limit hit fetching tasks for ${cid}`);
+      }
     }));
+    // 200ms delay every 5 batches to respect GHL rate limits (100 req/10s)
+    if (Math.floor(i / CONCURRENCY) % 5 === 0 && i > 0) {
+      await new Promise(r => setTimeout(r, 200));
+    }
   }
 
   // Log how many tasks each user has for debugging
@@ -1148,6 +1155,17 @@ app.post('/api/contacts/:id/tags', async (req, res) => {
     console.log(`\n✅ Server ready — open your browser:`);
     console.log(`   http://localhost:${PORT}\n`);
     console.log(`   (First load takes ~30s for 1000+ contacts, then instant from cache)\n`);
+
+    // ── Keep-alive ping — prevents Render free tier from spinning down ──────
+    // Pings the server every 14 minutes so it stays warm
+    if (process.env.RENDER_EXTERNAL_URL) {
+      const pingUrl = process.env.RENDER_EXTERNAL_URL + '/api/health';
+      setInterval(() => {
+        fetch(pingUrl).then(() => console.log('⚡ Keep-alive ping sent'))
+                      .catch(e => console.log('Keep-alive ping failed:', e.message));
+      }, 14 * 60 * 1000); // every 14 minutes
+      console.log(`🔔 Keep-alive active → pinging ${pingUrl} every 14 min`);
+    }
   });
 })();
 
