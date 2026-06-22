@@ -3331,11 +3331,18 @@ function csOpenAddTask() {
       </div>
       <div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
         <div>
-          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">CLIENT</div>
-          <input id="cs-add-contact-search" type="text" autocomplete="off" placeholder="Search by name or DOT..."
-            oninput="csAddSearchContact(this.value)"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
-          <div id="cs-add-contact-results" style="margin-top:6px"></div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">CLIENT — GHL CONTACT</div>
+          <div style="position:relative">
+            <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px;pointer-events:none"></i>
+            <input id="cs-add-contact-search" type="text" autocomplete="off"
+              placeholder="Type to search or scroll below..."
+              oninput="csAddSearchContact(this.value)"
+              onfocus="csAddSearchContact(this.value || '')"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px 9px 32px;font-size:13px;box-sizing:border-box">
+          </div>
+          <!-- Scrollable contact list — always visible, filtered by search -->
+          <div id="cs-add-contact-results"
+            style="margin-top:6px;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg3);display:none"></div>
           <div id="cs-add-selected" style="display:none;padding:8px 12px;background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:8px;margin-top:6px;font-size:12px;color:var(--green);font-weight:700"></div>
         </div>
         <div>
@@ -3373,26 +3380,63 @@ function csOpenAddTask() {
 }
 
 function csAddSearchContact(query) {
-  if (!query || query.length < 2) { document.getElementById('cs-add-contact-results').innerHTML = ''; return; }
-  const q = query.toLowerCase();
-  const matches = (state.clients||[]).filter(c =>
-    c.name.toLowerCase().includes(q) ||
-    (c.dot_number||'').includes(q) ||
-    (c.business_name||'').toLowerCase().includes(q)
-  ).slice(0, 6);
-  document.getElementById('cs-add-contact-results').innerHTML = matches.map(c=>`
-    <div onclick="csAddSelectContact('${c.id}','${(c.name||'').replace(/'/g,"\\'")}')"
-      style="padding:8px 12px;border-radius:8px;cursor:pointer;border:1px solid var(--border);background:var(--bg3);margin-bottom:4px;font-size:12px;color:var(--text)">
-      ${c.name}${c.dot_number?` · DOT# ${c.dot_number}`:''}
-    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px">No results</div>';
+  const resultsEl = document.getElementById('cs-add-contact-results');
+  if (!resultsEl) return;
+  const q = (query || '').toLowerCase().trim();
+  const clients = state.clients || [];
+
+  // Empty query — show first 50 contacts alphabetically; otherwise filter
+  const matches = q.length < 1
+    ? clients.slice().sort((a,b) => (a.name||'').localeCompare(b.name||'')).slice(0,50)
+    : clients.filter(c =>
+        (c.name||'').toLowerCase().includes(q) ||
+        (c.dot_number||'').includes(q) ||
+        (c.business_name||'').toLowerCase().includes(q)
+      ).slice(0, 30);
+
+  resultsEl.style.display = 'block';
+
+  if (!clients.length) {
+    resultsEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:10px 12px">No contacts loaded — visit Dashboard first to sync GHL</div>';
+    return;
+  }
+  if (!matches.length) {
+    resultsEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:10px 12px">No contacts match your search</div>';
+    return;
+  }
+
+  resultsEl.innerHTML = matches.map(c => {
+    const safeName = (c.name||'Unknown').replace(/'/g, "\'");
+    const biz = c.business_name && c.business_name !== c.name
+      ? `<span style="color:var(--text3);font-size:11px"> · ${c.business_name}</span>` : '';
+    const dot = c.dot_number
+      ? `<span style="color:var(--text3);font-size:10px;margin-left:4px">DOT# ${c.dot_number}</span>` : '';
+    return `<div onclick="csAddSelectContact('${c.id}','${safeName}')"
+      style="padding:9px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04);
+             font-size:12px;color:var(--text);display:flex;align-items:center;justify-content:space-between"
+      onmouseover="this.style.background='rgba(0,196,106,.08)'"
+      onmouseout="this.style.background='transparent'"
+    ><span>${c.name||'Unknown'}${biz}</span>${dot}</div>`;
+  }).join('');
+
+  if (q.length > 0) {
+    const totalMatches = clients.filter(c =>
+      (c.name||'').toLowerCase().includes(q) ||
+      (c.dot_number||'').includes(q) ||
+      (c.business_name||'').toLowerCase().includes(q)).length;
+    if (totalMatches > 30)
+      resultsEl.innerHTML += `<div style="font-size:11px;color:var(--text3);padding:8px 12px;text-align:center;border-top:1px solid var(--border)">Showing 30 of ${totalMatches} — keep typing to narrow down</div>`;
+  }
 }
 
 function csAddSelectContact(id, name) {
   csAddSelectedContact = { id, name };
-  document.getElementById('cs-add-contact-results').innerHTML = '';
-  document.getElementById('cs-add-contact-search').value = name;
+  const resultsEl = document.getElementById('cs-add-contact-results');
+  if (resultsEl) { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; }
+  const searchEl = document.getElementById('cs-add-contact-search');
+  if (searchEl) searchEl.value = name;
   const sel = document.getElementById('cs-add-selected');
-  sel.style.display = 'block'; sel.textContent = `✓ ${name}`;
+  if (sel) { sel.style.display = 'block'; sel.textContent = `✓ Selected: ${name}`; }
 }
 
 async function csSubmitTask() {
