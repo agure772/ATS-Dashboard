@@ -4207,3 +4207,139 @@ function csModalToggleStaff(userId, userName, btn) {
   csApplyFilter();
 }
 
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TASKS BOARD VIEW TOGGLE (Operator / CS Board)
+// ═════════════════════════════════════════════════════════════════════════════
+
+let tbCurrentView = 'operator';
+
+function tbSwitchView(view) {
+  tbCurrentView = view;
+  const opView  = document.getElementById('tb-operator-view');
+  const csView  = document.getElementById('tb-cs-view');
+  const opBtn   = document.getElementById('tb-view-btn-operator');
+  const csBtn   = document.getElementById('tb-view-btn-cs');
+  if (!opView || !csView) return;
+
+  if (view === 'operator') {
+    opView.style.display = 'block';
+    csView.style.display = 'none';
+    if (opBtn) { opBtn.style.background = 'var(--primary)'; opBtn.style.color = '#0a1a0f'; }
+    if (csBtn) { csBtn.style.background = 'transparent'; csBtn.style.color = 'var(--text3)'; }
+  } else {
+    opView.style.display = 'none';
+    csView.style.display = 'block';
+    if (csBtn) { csBtn.style.background = 'var(--primary)'; csBtn.style.color = '#0a1a0f'; }
+    if (opBtn) { opBtn.style.background = 'transparent'; opBtn.style.color = 'var(--text3)'; }
+    // Auto-load CS tasks from cache if Tasks Board already loaded
+    setTimeout(() => {
+      if (tbState.loaded && tbState.users.length) csLoadFromCache();
+      else if (!csState.loading) csLoad(true);
+    }, 100);
+  }
+}
+
+// ── DOT Quick Update in CS Board ─────────────────────────────────────────────
+async function csDotLookup() {
+  const input  = document.getElementById('cs-dot-input');
+  const result = document.getElementById('cs-dot-result');
+  const dot    = (input?.value || '').trim();
+  if (!dot) return;
+  if (result) result.innerHTML = '<div style="color:var(--text3);font-size:12px"><i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Searching FMCSA...</div>';
+
+  try {
+    const res  = await fetch(`/api/dot/${dot}`);
+    const data = await res.json();
+    if (!res.ok || !data.info) throw new Error(data.error || 'Not found');
+    const info = data.info;
+
+    // Find matching GHL contact
+    const q = dot.toLowerCase();
+    const match = (state.clients || []).find(c =>
+      (c.dot_number || '') === dot ||
+      (c.business_name || '').toLowerCase().includes(info.legal_name?.toLowerCase() || '')
+    );
+
+    result.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;font-weight:700;color:var(--text3);margin-bottom:10px">CARRIER INFO</div>
+          <div style="font-size:13px;font-weight:700;color:var(--text)">${info.legal_name || '—'}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">DOT# ${info.dot_number} · MC-${info.mc_number||'—'}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${info.phone || ''}</div>
+          <div style="font-size:11px;color:var(--text3)">${info.email || ''}</div>
+        </div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;font-weight:700;color:var(--text3);margin-bottom:10px">STATUS</div>
+          <div style="font-size:12px;font-weight:700;color:${info.operating_status==='AUTHORIZED'?'var(--green)':'#ef4444'}">${info.operating_status || '—'}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">MCS-150: ${info.mcs150_date || '—'}</div>
+          <div style="font-size:11px;color:var(--text3)">${info.mailing_address || ''}</div>
+        </div>
+      </div>
+      ${match ? `
+        <div style="background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--green)">✓ GHL Contact Found</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">${match.name} · ${match.business_name || ''}</div>
+          </div>
+          <button onclick="csDotPushUpdate('${match.id}','${dot}')"
+            style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-cloud-upload"></i> Update GHL Contact
+          </button>
+        </div>` : `
+        <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div style="font-size:12px;color:var(--text3)">No existing GHL contact found for DOT# ${dot}</div>
+          <button onclick="csDotCreateNew('${dot}')"
+            style="background:rgba(0,196,106,.15);color:var(--primary);border:1px solid rgba(0,196,106,.4);border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer">
+            + Create New Contact
+          </button>
+        </div>`}
+      <div id="cs-dot-push-status" style="font-size:12px;margin-top:8px"></div>`;
+
+    // Store info for push
+    window._csDotInfo = info;
+
+  } catch(e) {
+    if (result) result.innerHTML = `<div style="color:var(--red);font-size:12px">✗ ${e.message}</div>`;
+  }
+}
+
+async function csDotPushUpdate(contactId, dotNumber) {
+  const statusEl = document.getElementById('cs-dot-push-status');
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3)">Updating GHL contact...</span>';
+  try {
+    const res = await fetch(`/api/dot/${dotNumber}/push-to-ghl`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ contactId, info: window._csDotInfo }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✓ GHL contact updated successfully</span>';
+    toast('✓ GHL contact updated');
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
+
+async function csDotCreateNew(dotNumber) {
+  if (!window._csDotInfo) return;
+  const statusEl = document.getElementById('cs-dot-push-status');
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3)">Creating contact...</span>';
+  try {
+    const res = await fetch(`/api/dot/${dotNumber}/create-contact`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ info: window._csDotInfo }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✓ Contact created in GHL</span>';
+    toast('✓ New GHL contact created');
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
+
