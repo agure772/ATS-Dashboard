@@ -1403,6 +1403,24 @@ function tbGetItemStatus(item, isTask) {
 }
 
 // ── Render staff cards ────────────────────────────────────────────────────
+
+// ── NEW task badge tracking (localStorage) ──────────────────────────────────
+function tbGetViewedTasks() {
+  try { return new Set(JSON.parse(localStorage.getItem('ats_viewed_tasks') || '[]')); }
+  catch { return new Set(); }
+}
+function tbMarkTaskViewed(taskId) {
+  const viewed = tbGetViewedTasks();
+  if (viewed.has(taskId)) return;
+  viewed.add(taskId);
+  // Keep max 2000 IDs to avoid localStorage bloat
+  const arr = [...viewed].slice(-2000);
+  localStorage.setItem('ats_viewed_tasks', JSON.stringify(arr));
+  // Remove NEW badge from DOM immediately
+  const badge = document.getElementById('tb-new-badge-' + taskId);
+  if (badge) badge.remove();
+}
+
 function tbRender() {
   const grid  = document.getElementById('tb-staff-grid');
   const label = document.getElementById('tb-team-label');
@@ -1434,7 +1452,15 @@ function tbRender() {
     if (tbState.filterType !== 'opps')  userTasks.forEach(t => { if(tbItemMatchesSearch(t,true))  items.push({...t, _type:'task', _status:tbGetItemStatus(t,true), _staffName:user.name, _isSuper:isSuper}); });
     if (tbState.filterType !== 'tasks') userOpps.forEach(o  => { if(tbItemMatchesSearch(o,false)) items.push({...o, _type:'opp',  _status:tbGetItemStatus(o,false), _staffName:user.name, _isSuper:isSuper}); });
     if (tbState.filterStatus !== 'all') items = items.filter(i => i._status === tbState.filterStatus);
-    items.sort((a,b) => ({overdue:0,open:1,completed:2,lost:3}[a._status]||1) - ({overdue:0,open:1,completed:2,lost:3}[b._status]||1));
+    items.sort((a,b) => {
+      const statusOrder = {overdue:0,open:1,completed:2,lost:3};
+      const statusDiff  = (statusOrder[a._status]||1) - (statusOrder[b._status]||1);
+      if (statusDiff !== 0) return statusDiff;
+      // Newest first within each status group
+      const aDate = new Date(a.dueDate || a.createdAt || a.dateAdded || 0).getTime();
+      const bDate = new Date(b.dueDate || b.createdAt || b.dateAdded || 0).getTime();
+      return bDate - aDate;
+    });
     allItems.push({ user, isSuper, items });
     totalItems += items.length;
     overdueCount += items.filter(i=>i._status==='overdue').length;
@@ -1484,6 +1510,13 @@ function tbRender() {
     const detailJson = JSON.stringify(detailData).replace(/'/g,"&#39;").replace(/"/g,'&quot;');
 
     const isDone = item._status === 'completed';
+    // NEW badge — show for tasks not yet viewed, mark viewed on click
+    const isNewTask = isTask && item.id && !tbGetViewedTasks().has(item.id);
+    const newBadge  = isNewTask
+      ? `<span id="tb-new-badge-${item.id}" style="font-size:9px;background:rgba(0,196,106,.2);color:var(--primary);
+           border:1px solid rgba(0,196,106,.5);padding:1px 6px;border-radius:4px;font-weight:800;
+           animation:pulse 2s infinite;white-space:nowrap">NEW</span>`
+      : '';
     const completeBtn = isDone ? '' : `
             <button onclick="event.stopPropagation();${isTask
               ?`tbCompleteTask('${item.id||''}','${itemContactId}',this)`
@@ -1494,8 +1527,9 @@ function tbRender() {
               <i class="ti ti-check" style="font-size:10px"></i> ${isTask?'Done':'Won'}
             </button>`;
 
+    const onClickViewMark = isTask && item.id ? `tbMarkTaskViewed('${item.id}');` : '';
     return `
-      <div onclick='tbShowItemDetail(${detailJson})'
+      <div onclick='${onClickViewMark}tbShowItemDetail(${detailJson})'
         style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;
                background:${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}"
         onmouseover="this.style.background='var(--bg3)'"
@@ -1515,6 +1549,7 @@ function tbRender() {
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
             <span style="font-size:9px;background:${typeBg};color:${typeClr};padding:2px 7px;border-radius:4px;font-weight:700;white-space:nowrap">${typeLabel}</span>
+            ${newBadge}
             ${ageTag?`<span style="font-size:10px;color:${item._status==='overdue'?'#ef4444':'var(--text3)'}">${ageTag}</span>`:''}
             <button onclick="event.stopPropagation();tbShowReassignMenu('${item.id||''}','${isTask?'task':'opp'}','${itemContactId}','${currentUser}',this)"
               style="font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text3);
