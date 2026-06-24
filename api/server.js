@@ -1192,3 +1192,11 @@ app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => 
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── Get notes for a contact (used by NY Permit task detail) ──────────────────
+app.get('/api/contacts/:id/notes', async (req, res) => {
+  try {
+    const data = await ghl('GET', `${V2}/contacts/${req.params.id}/notes`);
+    res.json({ notes: data.notes || [] });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
