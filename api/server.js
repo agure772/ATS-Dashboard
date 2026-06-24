@@ -980,6 +980,22 @@ app.get('/api/debug/tasks', async (req, res) => {
   res.json(results);
 });
 
+
+// ── Get notes for a contact (used by NY Permit task detail) ──────────────────
+app.get('/api/contacts/:id/notes', async (req, res) => {
+  try {
+    const data = await ghl('GET', `${V2}/contacts/${req.params.id}/notes/`);
+    // GHL may return notes under different keys
+    const notes = data.notes || data.data || data.list || data.results || [];
+    console.log(`Notes for contact ${req.params.id}: ${notes.length} notes`);
+    if (notes.length > 0) console.log('Note fields:', Object.keys(notes[0]));
+    res.json({ notes });
+  } catch(err) {
+    console.error('Notes fetch error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1189,21 +1205,6 @@ app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => 
     res.json({ success: true });
   } catch(err) {
     console.error('CS complete error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Get notes for a contact (used by NY Permit task detail) ──────────────────
-app.get('/api/contacts/:id/notes', async (req, res) => {
-  try {
-    const data = await ghl('GET', `${V2}/contacts/${req.params.id}/notes/`);
-    // GHL may return notes under different keys
-    const notes = data.notes || data.data || data.list || data.results || [];
-    console.log(`Notes for contact ${req.params.id}: ${notes.length} notes`);
-    if (notes.length > 0) console.log('Note fields:', Object.keys(notes[0]));
-    res.json({ notes });
-  } catch(err) {
-    console.error('Notes fetch error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
