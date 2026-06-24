@@ -42,7 +42,7 @@
         <button class="nav-item" data-page="tasks-board"><i class="ti ti-users-group"></i>Tasks Board</button>
         <button class="nav-item" data-page="fmcsa-form"><i class="ti ti-shield-check"></i>FMCSA Support</button>
         <button class="nav-item" data-page="skills-setup"><i class="ti ti-certificate"></i>Skills Setup</button>
-        <button class="nav-item" data-page="cs-board"><i class="ti ti-headset"></i>CS Board</button>
+
       </div>
       <div class="nav-section">
         <div class="nav-label">Quick Submit</div>
@@ -297,61 +297,210 @@
     <!-- ── Tasks Board Page ─────────────────────────────────────────────── -->
     <div id="page-tasks-board" class="page" style="padding:24px;max-width:1400px;margin:0 auto">
 
-      <!-- Supervisor dropdown -->
-      <div style="margin-bottom:24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">SELECT SUPERVISOR</div>
-        <div id="tb-supervisor-tabs" style="position:relative;min-width:220px"></div>
-        <div style="font-size:11px;color:var(--text3)" id="tb-sup-info"></div>
-      </div>
-
-      <!-- Stats bar -->
-      <div id="tb-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
-
-      <!-- Search + Add Task -->
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-        <div style="position:relative;flex:1;min-width:220px">
-          <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px"></i>
-          <input id="tb-search" type="text" placeholder="Search tasks & opportunities..."
-            oninput="tbApplyFilters()"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                   border-radius:8px;padding:8px 12px 8px 34px;font-size:13px;box-sizing:border-box">
-        </div>
-        <button onclick="tbOpenAddItem()" style="background:rgba(0,196,106,.15);color:var(--primary);
-          border:1px solid var(--primary);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;
-          cursor:pointer;display:flex;align-items:center;gap:6px">
-          <i class="ti ti-plus"></i> Add Task
+      <!-- ── View Toggle ───────────────────────────────────────────────────── -->
+      <div style="display:flex;gap:6px;margin-bottom:24px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:4px;width:fit-content">
+        <button id="tb-view-btn-operator" onclick="tbSwitchView('operator')"
+          style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .15s">
+          <i class="ti ti-users-group"></i> Operator Tasks
+        </button>
+        <button id="tb-view-btn-cs" onclick="tbSwitchView('cs')"
+          style="background:transparent;color:var(--text3);border:none;border-radius:9px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .15s">
+          <i class="ti ti-headset"></i> CS Board
         </button>
       </div>
 
-      <!-- Staff cards grid -->
-      <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em" id="tb-team-label">TEAM</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button id="tb-auto-assign-btn" onclick="tbAutoAssign()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px"><i class="ti ti-wand"></i> Auto-Assign All</button>
-          <select id="tb-filter-type" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
-            <option value="all">All Items</option>
-            <option value="tasks">Tasks Only</option>
-            <option value="opps">Opportunities Only</option>
-          </select>
-          <select id="tb-filter-status" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
-            <option value="all">All Statuses</option>
-            <option value="open">Open</option>
-            <option value="overdue">Overdue</option>
-            <option value="completed">Completed</option>
-          </select>
-          <button onclick="tbRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
-            <i class="ti ti-refresh"></i> Refresh
+      <!-- ══ OPERATOR VIEW ══════════════════════════════════════════════════ -->
+      <div id="tb-operator-view">
+
+        <!-- Supervisor dropdown -->
+        <div style="margin-bottom:24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">SELECT SUPERVISOR</div>
+          <div id="tb-supervisor-tabs" style="position:relative;min-width:220px"></div>
+          <div style="font-size:11px;color:var(--text3)" id="tb-sup-info"></div>
+        </div>
+
+        <!-- Stats bar -->
+        <div id="tb-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+
+        <!-- Search + Add Task -->
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <div style="position:relative;flex:1;min-width:220px">
+            <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px"></i>
+            <input id="tb-search" type="text" placeholder="Search tasks & opportunities..."
+              autocomplete="off" oninput="tbApplyFilters()"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px 8px 34px;font-size:13px;box-sizing:border-box">
+          </div>
+          <button onclick="tbOpenAddItem()" style="background:rgba(0,196,106,.15);color:var(--primary);
+            border:1px solid var(--primary);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;
+            cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-plus"></i> Add Task
           </button>
         </div>
-      </div>
 
-      <div id="tb-loading" style="display:none;text-align:center;padding:60px;color:var(--text3)">
-        <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
-        <div>Loading tasks from GHL...</div>
-        <div id="tb-loading-sub" style="font-size:12px;margin-top:6px;color:var(--text3)">This can take up to a minute on first load</div>
-      </div>
+        <!-- Staff cards controls -->
+        <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em" id="tb-team-label">TEAM</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button id="tb-auto-assign-btn" onclick="tbAutoAssign()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px"><i class="ti ti-wand"></i> Auto-Assign All</button>
+            <select id="tb-filter-type" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
+              <option value="all">All Items</option>
+              <option value="tasks">Tasks Only</option>
+              <option value="opps">Opportunities Only</option>
+            </select>
+            <select id="tb-filter-status" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
+              <option value="all">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="overdue">Overdue</option>
+              <option value="completed">Completed</option>
+            </select>
+            <button onclick="tbRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-refresh"></i> Refresh
+            </button>
+          </div>
+        </div>
 
-      <div id="tb-staff-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px"></div>
+        <div id="tb-loading" style="display:none;text-align:center;padding:60px;color:var(--text3)">
+          <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
+          <div>Loading tasks from GHL...</div>
+          <div id="tb-loading-sub" style="font-size:12px;margin-top:6px;color:var(--text3)">This can take up to a minute on first load</div>
+        </div>
+        <div id="tb-staff-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px"></div>
+
+      </div><!-- /tb-operator-view -->
+
+      <!-- ══ CS BOARD VIEW ══════════════════════════════════════════════════ -->
+      <div id="tb-cs-view" style="display:none">
+
+        <!-- CS header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+          <div>
+            <div style="font-size:16px;font-weight:800;color:var(--text)">CS Task Board</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Customer service · info gathering & GHL updates</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="csOpenAddTask()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-plus"></i> Add CS Task
+            </button>
+            <button onclick="csRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-refresh"></i> Refresh
+            </button>
+            <button onclick="csOpenStaffModal()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-users-group"></i> CS Staff
+            </button>
+          </div>
+        </div>
+
+        <!-- CS Stats -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(99,102,241,.15);display:flex;align-items:center;justify-content:center"><i class="ti ti-list-check" style="color:#818cf8;font-size:16px"></i></div>
+            <div><div style="font-size:20px;font-weight:800;color:var(--text);line-height:1" id="cs-stat-total">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Total Tasks</div></div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-alert-circle" style="color:#ef4444;font-size:16px"></i></div>
+            <div><div style="font-size:20px;font-weight:800;color:#ef4444;line-height:1" id="cs-stat-overdue">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Overdue</div></div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-clock" style="color:#f59e0b;font-size:16px"></i></div>
+            <div><div style="font-size:20px;font-weight:800;color:#f59e0b;line-height:1" id="cs-stat-open">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Open</div></div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(0,196,106,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-circle-check" style="color:var(--green);font-size:16px"></i></div>
+            <div><div style="font-size:20px;font-weight:800;color:var(--green);line-height:1" id="cs-stat-done">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Completed</div></div>
+          </div>
+        </div>
+
+        <!-- No staff warning -->
+        <div id="cs-no-staff-warning" style="display:none;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
+          <i class="ti ti-alert-triangle" style="color:#f59e0b;font-size:16px;flex-shrink:0"></i>
+          <div style="flex:1;font-size:12px;color:var(--text2)">No CS staff configured. Tasks fall back to Mahad.</div>
+          <button onclick="csOpenStaffModal()" style="background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.35);border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Set Up →</button>
+        </div>
+
+        <!-- Filter + Search -->
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">FILTER BY STAFF</div>
+          <div id="cs-staff-tabs" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <div style="position:relative">
+              <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px"></i>
+              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..."
+                oninput="csApplyFilter()"
+                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px 8px 32px;font-size:13px;width:200px">
+            </div>
+            <select id="cs-filter-status" onchange="csApplyFilter()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-size:12px">
+              <option value="all">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="overdue">Overdue</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- CS Debug -->
+        <div id="cs-debug-info" style="font-size:10px;color:var(--text3);padding:2px 0;font-family:monospace;opacity:.5;margin-bottom:8px"></div>
+
+        <!-- CS Loading -->
+        <div id="cs-loading" style="display:none;text-align:center;padding:40px;color:var(--text3)">
+          <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
+          <div>Loading CS tasks from GHL...</div>
+          <div style="font-size:12px;margin-top:6px;opacity:.6">This may take 1–2 minutes on first load</div>
+        </div>
+
+        <!-- CS not loaded -->
+        <div id="cs-not-loaded" style="display:none;flex-direction:column;align-items:center;justify-content:center;
+             padding:40px 20px;text-align:center;background:var(--bg2);border:1px solid var(--border);border-radius:16px;margin-bottom:20px">
+          <i class="ti ti-clipboard-list" style="font-size:40px;color:var(--text3);opacity:.3;display:block;margin-bottom:14px"></i>
+          <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px">CS tasks not loaded yet</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:18px;max-width:360px">CS tasks load automatically from the same data as Operator Tasks. Click below if needed.</div>
+          <button onclick="csLoad(true)" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px">
+            <i class="ti ti-download"></i> Load CS Tasks Now
+          </button>
+        </div>
+
+        <!-- CS Task list -->
+        <div id="cs-task-list"></div>
+
+        <!-- DOT Quick Update -->
+        <div style="margin-top:28px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:13px;font-weight:800;color:var(--text)"><i class="ti ti-search" style="color:var(--primary);margin-right:6px"></i>DOT Quick Update</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Look up a DOT number and push FMCSA data to the GHL contact</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="cs-dot-input" type="text" placeholder="Enter DOT number..." onkeydown="if(event.key==='Enter')csDotLookup()"
+                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 12px;font-size:13px;width:200px">
+              <button onclick="csDotLookup()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+                <i class="ti ti-search"></i> Search
+              </button>
+            </div>
+          </div>
+          <div id="cs-dot-result" style="padding:16px 20px"></div>
+        </div>
+
+        <!-- Contact Audit -->
+        <div style="margin-top:16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:13px;font-weight:800;color:var(--text)"><i class="ti ti-zoom-scan" style="color:var(--primary);margin-right:6px"></i>Contact Audit</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Advanced & Recurring contacts with missing fields</div>
+            </div>
+            <button id="cs-audit-btn" onclick="csRunAudit()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-zoom-scan"></i> Run Audit
+            </button>
+          </div>
+          <div id="cs-audit-results" style="padding:14px 20px"></div>
+        </div>
+
+        <!-- CS Staff Settings panel (hidden) -->
+        <div id="cs-settings-panel" style="display:none;margin-top:16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px">
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">CS Staff (legacy panel)</div>
+          <div id="cs-staff-settings-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
+        </div>
+
+      </div><!-- /tb-cs-view -->
 
     </div><!-- /page-tasks-board -->
 
