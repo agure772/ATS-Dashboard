@@ -1196,7 +1196,14 @@ app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => 
 // ── Get notes for a contact (used by NY Permit task detail) ──────────────────
 app.get('/api/contacts/:id/notes', async (req, res) => {
   try {
-    const data = await ghl('GET', `${V2}/contacts/${req.params.id}/notes`);
-    res.json({ notes: data.notes || [] });
-  } catch(err) { res.status(500).json({ error: err.message }); }
+    const data = await ghl('GET', `${V2}/contacts/${req.params.id}/notes/`);
+    // GHL may return notes under different keys
+    const notes = data.notes || data.data || data.list || data.results || [];
+    console.log(`Notes for contact ${req.params.id}: ${notes.length} notes`);
+    if (notes.length > 0) console.log('Note fields:', Object.keys(notes[0]));
+    res.json({ notes });
+  } catch(err) {
+    console.error('Notes fetch error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
