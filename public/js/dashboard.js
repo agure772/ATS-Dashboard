@@ -2591,10 +2591,10 @@ function tbShowItemDetail(data) {
         html += '</div>';
         el.innerHTML = html;
       })
-      .catch(function() {
+      .catch(function(err) {
         const el = document.getElementById('tb-ny-notes-content');
-        if (el) el.style.color = 'var(--red)';
-        if (el) el.textContent = 'Could not load notes.';
+        if (el) { el.style.color = 'var(--red)'; el.textContent = 'Error: ' + (err.message||'Could not load notes'); }
+        console.error('Notes fetch error:', err);
       });
   }
 }
