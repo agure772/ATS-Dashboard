@@ -1527,9 +1527,8 @@ function tbRender() {
               <i class="ti ti-check" style="font-size:10px"></i> ${isTask?'Done':'Won'}
             </button>`;
 
-    const onClickViewMark = isTask && item.id ? `tbMarkTaskViewed('${item.id}');` : '';
     return `
-      <div onclick='${onClickViewMark}tbShowItemDetail(${detailJson})'
+      <div data-task-id="${isTask ? (item.id||'') : ''}" onclick='tbHandleItemClick(this,${detailJson})'
         style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;
                background:${item._status==='overdue'?'rgba(239,68,68,.05)':'transparent'}"
         onmouseover="this.style.background='var(--bg3)'"
@@ -2467,6 +2466,12 @@ async function tbApplyAutoAssign(assignments) {
 
 // ── Per-item reassign dropdown ────────────────────────────────────────────
 // ── Item Detail Modal — contact & company info on click ───────────────────
+function tbHandleItemClick(el, data) {
+  const taskId = el.dataset.taskId;
+  if (taskId) tbMarkTaskViewed(taskId);
+  tbShowItemDetail(data);
+}
+
 function tbShowItemDetail(data) {
   const existing = document.getElementById('tb-detail-modal');
   if (existing) existing.remove();
@@ -2528,6 +2533,70 @@ function tbShowItemDetail(data) {
         </a>` : ''}
     </div>`;
   document.body.appendChild(modal);
+
+  // ── NY Permit: fetch notes, extract DOT/EIN/PIN, show Oscar link ─────────────
+  const titleLower = (data.title || '').toLowerCase();
+  const isNYPermit = titleLower.includes('ny permit') || titleLower.includes('new york permit') ||
+                     titleLower.includes('oscar') || titleLower.includes('ny permits');
+  if (isNYPermit && data.contactId) {
+    const nySection = document.createElement('div');
+    nySection.style.cssText = 'margin-top:14px';
+    nySection.innerHTML = `
+      <div style="background:rgba(0,118,204,.08);border:1px solid rgba(0,118,204,.3);border-radius:12px;padding:16px">
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.08em;margin-bottom:10px">
+          <i class="ti ti-map-pin" style="margin-right:4px"></i>NY OSCAR ACCOUNT
+        </div>
+        <div id="tb-ny-notes-content" style="font-size:12px;color:var(--text3)">
+          <i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> Loading account info...
+        </div>
+        <a href="https://www.oscar.ny.gov/OSCR/OSCRCarrierHome" target="_blank"
+          style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;
+                 background:#0076cc;color:#fff;border-radius:8px;padding:9px 14px;
+                 font-size:12px;font-weight:700;text-decoration:none">
+          <i class="ti ti-external-link"></i> Open NY Oscar Portal
+        </a>
+      </div>`;
+    const modalBox = modal.querySelector('div');
+    if (modalBox) modalBox.appendChild(nySection);
+
+    fetch('/api/contacts/' + data.contactId + '/notes')
+      .then(function(r){ return r.json(); })
+      .then(function(res) {
+        const notes = res.notes || [];
+        let dot = '', ein = '', pin = '';
+        let found = false;
+        notes.forEach(function(n) {
+          const body = (n.body || n.text || '').replace(/<[^>]+>/g, ' ');
+          if (/NY\s*Oscar|Oscar\s*NY|NY\s*Permit/i.test(body)) {
+            found = true;
+            const dotM = body.match(/DOT#?\s*[:\-]?\s*(\d+)/i);
+            const einM = body.match(/EIN#?\s*[:\-]?\s*(\d+)/i);
+            const pinM = body.match(/Password\s*(?:PIN)?\s*[:\-]?\s*(\w+)/i);
+            if (dotM && !dot) dot = dotM[1];
+            if (einM && !ein) ein = einM[1];
+            if (pinM && !pin) pin = pinM[1];
+          }
+        });
+        const el = document.getElementById('tb-ny-notes-content');
+        if (!el) return;
+        if (!found) {
+          el.innerHTML = '<span>No NY Oscar note found in GHL notes.</span>';
+          return;
+        }
+        let html = '<div style="display:flex;flex-direction:column;gap:8px">';
+        if (dot) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:8px;padding:8px 12px"><span style="color:var(--text3);font-size:11px">DOT#</span><span style="font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:8px">' + dot + '<button onclick="navigator.clipboard.writeText(\'' + dot + '\');this.textContent=\'✓\';setTimeout(()=>this.textContent=\'📋\',1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 6px;cursor:pointer;font-size:10px;color:var(--text3)">📋</button></span></div>';
+        if (ein) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:8px;padding:8px 12px"><span style="color:var(--text3);font-size:11px">EIN#</span><span style="font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:8px">' + ein + '<button onclick="navigator.clipboard.writeText(\'' + ein + '\');this.textContent=\'✓\';setTimeout(()=>this.textContent=\'📋\',1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 6px;cursor:pointer;font-size:10px;color:var(--text3)">📋</button></span></div>';
+        if (pin) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:8px 12px"><span style="color:#f59e0b;font-size:11px;font-weight:700">Password PIN</span><span style="font-weight:800;color:#f59e0b;font-size:14px;display:flex;align-items:center;gap:8px;letter-spacing:.05em">' + pin + '<button onclick="navigator.clipboard.writeText(\'' + pin + '\');this.textContent=\'✓\';setTimeout(()=>this.textContent=\'📋\',1200)" style="background:none;border:1px solid rgba(245,158,11,.4);border-radius:4px;padding:1px 6px;cursor:pointer;font-size:10px;color:#f59e0b">📋</button></span></div>';
+        if (!dot && !ein && !pin) html += '<span>Found NY Oscar note but could not parse details.</span>';
+        html += '</div>';
+        el.innerHTML = html;
+      })
+      .catch(function() {
+        const el = document.getElementById('tb-ny-notes-content');
+        if (el) el.style.color = 'var(--red)';
+        if (el) el.textContent = 'Could not load notes.';
+      });
+  }
 }
 
 // ── Mark task complete ─────────────────────────────────────────────────────
