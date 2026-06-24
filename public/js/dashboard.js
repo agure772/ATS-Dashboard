@@ -1404,6 +1404,34 @@ function tbGetItemStatus(item, isTask) {
 
 // ── Render staff cards ────────────────────────────────────────────────────
 
+
+// ── Portal links — matched against task title keywords ────────────────────────
+const PORTAL_LINKS = [
+  { keys:['ny permit','ny permits','2026 ny','oscar','new york permit'], label:'NY Oscar Portal',         url:'https://www.oscar.ny.gov/OSCR/OSCRCarrierHome',                                                                                                                                                                                                                   color:'#0076cc', fetchNotes:true },
+  { keys:['kyu'],                                                         label:'KY Motor Carrier Portal', url:'https://apps.transportation.ky.gov/motorcarrierportal/Home.aspx?clear',                                                                                                                                                                                          color:'#3b82f6' },
+  { keys:['nm permit','nm permits','new mexico permit'],                  label:'NM TAP Portal',           url:'https://tap.state.nm.us/Tap/_/',                                                                                                                                                                                                                                 color:'#8b5cf6' },
+  { keys:['ct permit','ct permits','connecticut'],                        label:'CT DRS eServices',        url:'https://drs.ct.gov/eservices/_/#0',                                                                                                                                                                                                                              color:'#06b6d4' },
+  { keys:['mn filing','minnesota filing','biz name'],                    label:'MN SOS Business Search',  url:'https://mblsportal.sos.mn.gov/Business/Search',                                                                                                                                                                                                                  color:'#10b981' },
+  { keys:['nebraska','ne filing'],                                        label:'Nebraska SOS eDocs',      url:'https://www.nebraska.gov/apps-sos-edocs/',                                                                                                                                                                                                                       color:'#f59e0b' },
+  { keys:['ucr'],                                                         label:'UCR Portal Login',        url:'https://permitting.ucr.gov/login',                                                                                                                                                                                                               color:'#ef4444', creds:{ password:'Safety3165#' } },
+  { keys:['motus'],                                                       label:'Motus DOT Portal',        url:'https://motus.dot.gov/',                                                                                                                                                                                                                                         color:'#6366f1' },
+  { keys:['clearinghouse','clearing house'],                              label:'FMCSA Clearinghouse',     url:'https://clearinghouse.fmcsa.dot.gov/',                                                                                                                                                                                                                           color:'#0ea5e9' },
+  { keys:['ohio irp','oh irp'],                                           label:'Ohio IRP Portal',         url:'https://irp.bmv.dps.ohio.gov/OHEnterprise/',                                                                                                                                                                                                                    color:'#f97316' },
+  { keys:['ohio ifta','oh ifta'],                                         label:'Ohio IFTA TAP',           url:'https://myportal.tax.ohio.gov/TAP/_/',                                                                                                                                                                                                                          color:'#f97316' },
+  { keys:['irp','ifta'], exclude:['ohio','oh ifta','oh irp'],            label:'MN IRP/IFTA eServices',   url:'https://onlineservices.dps.mn.gov/EServices/Business/_/',                                                                                                                                                                                                        color:'#22c55e' },
+  { keys:['dot pin','pin reset','autopin'],                               label:'FMCSA DOT PIN Reset',     url:'https://safer.fmcsa.dot.gov/AutoPin/index.xhtml',                                                                                                                                                                                                               color:'#64748b' },
+  { keys:['mc certificate','mc cert'],                                    label:'FMCSA MC Certificate',    url:'https://www.fmcsa.dot.gov/registration/daily-decisionsdaily-fmcsa-registration-decisions-letters-certificates-permits-and?field_document_media_type_target_id%5B22926%5D=22926&field_issue_date_value%5Bmin%5D=07%2F10%2F2024&field_issue_date_value%5Bmax%5D=07%2F11%2F2024', color:'#7c3aed' },
+];
+
+function tbGetPortalLinks(title) {
+  const t = (title || '').toLowerCase();
+  return PORTAL_LINKS.filter(p => {
+    const hasKey = p.keys.some(k => t.includes(k));
+    const excluded = p.exclude && p.exclude.some(x => t.includes(x));
+    return hasKey && !excluded;
+  });
+}
+
 // ── NEW task badge tracking (localStorage) ──────────────────────────────────
 function tbGetViewedTasks() {
   try { return new Set(JSON.parse(localStorage.getItem('ats_viewed_tasks') || '[]')); }
@@ -2534,68 +2562,74 @@ function tbShowItemDetail(data) {
     </div>`;
   document.body.appendChild(modal);
 
-  // ── NY Permit: fetch notes, extract DOT/EIN/PIN, show Oscar link ─────────────
-  const titleLower = (data.title || '').toLowerCase();
-  const isNYPermit = titleLower.includes('ny permit') || titleLower.includes('new york permit') ||
-                     titleLower.includes('oscar') || titleLower.includes('ny permits');
-  if (isNYPermit && data.contactId) {
-    const nySection = document.createElement('div');
-    nySection.style.cssText = 'margin-top:14px';
-    nySection.innerHTML = `
-      <div style="background:rgba(0,118,204,.08);border:1px solid rgba(0,118,204,.3);border-radius:12px;padding:16px">
-        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.08em;margin-bottom:10px">
-          <i class="ti ti-map-pin" style="margin-right:4px"></i>NY OSCAR ACCOUNT
-        </div>
-        <div id="tb-ny-notes-content" style="font-size:12px;color:var(--text3)">
-          <i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> Loading account info...
-        </div>
-        <a href="https://www.oscar.ny.gov/OSCR/OSCRCarrierHome" target="_blank"
-          style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;
-                 background:#0076cc;color:#fff;border-radius:8px;padding:9px 14px;
-                 font-size:12px;font-weight:700;text-decoration:none">
-          <i class="ti ti-external-link"></i> Open NY Oscar Portal
-        </a>
-      </div>`;
-    const modalBox = modal.querySelector('div');
-    if (modalBox) modalBox.appendChild(nySection);
+  // ── Portal links — match task title to relevant compliance portals ─────────
+  const matchedPortals = tbGetPortalLinks(data.title);
+  if (matchedPortals.length > 0) {
+    const portalSection = document.createElement('div');
+    portalSection.style.cssText = 'margin-top:14px;display:flex;flex-direction:column;gap:8px';
 
-    fetch('/api/contacts/' + data.contactId + '/notes')
-      .then(function(r){ return r.json(); })
-      .then(function(res) {
-        const notes = res.notes || [];
-        let dot = '', ein = '', pin = '';
-        let found = false;
-        notes.forEach(function(n) {
-          const body = (n.body || n.text || '').replace(/<[^>]+>/g, ' ');
-          if (/NY\s*Oscar|Oscar\s*NY|NY\s*Permit/i.test(body)) {
-            found = true;
-            const dotM = body.match(/DOT#?\s*[:\-]?\s*(\d+)/i);
-            const einM = body.match(/EIN#?\s*[:\-]?\s*(\d+)/i);
-            const pinM = body.match(/Password\s*(?:PIN)?\s*[:\-]?\s*(\w+)/i);
-            if (dotM && !dot) dot = dotM[1];
-            if (einM && !ein) ein = einM[1];
-            if (pinM && !pin) pin = pinM[1];
-          }
-        });
-        const el = document.getElementById('tb-ny-notes-content');
-        if (!el) return;
-        if (!found) {
-          el.innerHTML = '<span>No NY Oscar note found in GHL notes.</span>';
-          return;
+    matchedPortals.forEach(function(portal) {
+      const div = document.createElement('div');
+      div.style.cssText = 'border-radius:10px;overflow:hidden;border:1px solid ' + portal.color + '33';
+
+      // NY-specific: show notes section with DOT/EIN/PIN
+      if (portal.fetchNotes && data.contactId) {
+        div.innerHTML = '<div style="background:' + portal.color + '11;padding:14px">' +
+          '<div style="font-size:10px;font-weight:700;color:' + portal.color + ';letter-spacing:.08em;margin-bottom:10px"><i class="ti ti-map-pin" style="margin-right:4px"></i>NY OSCAR ACCOUNT</div>' +
+          '<div id="tb-ny-notes-content" style="font-size:12px;color:var(--text3);margin-bottom:10px"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> Loading account info...</div>' +
+          '<a href="' + portal.url + '" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:' + portal.color + ';color:#fff;border-radius:8px;padding:9px 14px;font-size:12px;font-weight:700;text-decoration:none"><i class="ti ti-external-link"></i> ' + portal.label + '</a>' +
+          '</div>';
+        portalSection.appendChild(div);
+
+        fetch('/api/contacts/' + data.contactId + '/notes')
+          .then(function(r){ return r.json(); })
+          .then(function(res) {
+            const notes = res.notes || [];
+            let dot = '', ein = '', pin = '', found = false;
+            notes.forEach(function(n) {
+              const body = (n.body || n.text || '').replace(/<[^>]+>/g, ' ');
+              if (/NY.Oscar|Oscar.NY|NY.Permit/i.test(body)) {
+                found = true;
+                const dotM = body.match(/DOT#?\s*[:\-]?\s*(\d+)/i);
+                const einM = body.match(/EIN#?\s*[:\-]?\s*(\d+)/i);
+                const pinM = body.match(/Password\s*(?:PIN)?\s*[:\-]?\s*(\w+)/i);
+                if (dotM && !dot) dot = dotM[1];
+                if (einM && !ein) ein = einM[1];
+                if (pinM && !pin) pin = pinM[1];
+              }
+            });
+            const el = document.getElementById('tb-ny-notes-content');
+            if (!el) return;
+            if (!found) { el.textContent = 'No NY Oscar note found in GHL notes.'; return; }
+            let html = '<div style="display:flex;flex-direction:column;gap:6px">';
+            if (dot) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:7px;padding:7px 10px"><span style="color:var(--text3);font-size:11px">DOT#</span><span style="font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:6px">' + dot + '<button onclick="navigator.clipboard.writeText(\x27' + dot + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px">📋</button></span></div>';
+            if (ein) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:7px;padding:7px 10px"><span style="color:var(--text3);font-size:11px">EIN#</span><span style="font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:6px">' + ein + '<button onclick="navigator.clipboard.writeText(\x27' + ein + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px">📋</button></span></div>';
+            if (pin) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:7px;padding:7px 10px"><span style="color:#f59e0b;font-size:11px;font-weight:700">Password PIN</span><span style="font-weight:800;color:#f59e0b;font-size:14px;display:flex;align-items:center;gap:6px">' + pin + '<button onclick="navigator.clipboard.writeText(\x27' + pin + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="background:none;border:1px solid rgba(245,158,11,.3);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px;color:#f59e0b">📋</button></span></div>';
+            if (!dot && !ein && !pin) html += '<span>Found NY note but could not parse details.</span>';
+            html += '</div>';
+            el.innerHTML = html;
+          })
+          .catch(function(err) {
+            const el = document.getElementById('tb-ny-notes-content');
+            if (el) { el.style.color = 'var(--red)'; el.textContent = 'Error loading notes: ' + (err.message||'failed'); }
+          });
+      } else {
+        // Regular portal — show link button + credentials if any
+        let credHtml = '';
+        if (portal.creds) {
+          credHtml = '<div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px 4px">';
+          if (portal.creds.username) credHtml += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg2);border-radius:7px;padding:7px 10px"><span style="color:var(--text3);font-size:11px">Username</span><span style="font-weight:700;color:var(--text);font-size:12px;display:flex;align-items:center;gap:6px">' + portal.creds.username + '<button onclick="navigator.clipboard.writeText(\x27' + portal.creds.username + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px">📋</button></span></div>';
+          if (portal.creds.password) credHtml += '<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:7px;padding:7px 10px"><span style="color:#f59e0b;font-size:11px;font-weight:700">Password</span><span style="font-weight:800;color:#f59e0b;font-size:13px;display:flex;align-items:center;gap:6px">' + portal.creds.password + '<button onclick="navigator.clipboard.writeText(\x27' + portal.creds.password + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="background:none;border:1px solid rgba(245,158,11,.3);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px;color:#f59e0b">📋</button></span></div>';
+          credHtml += '</div>';
         }
-        let html = '<div style="display:flex;flex-direction:column;gap:8px">';
-        if (dot) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:8px;padding:8px 12px"><span style="color:var(--text3);font-size:11px">DOT#</span><span style="font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:8px">' + dot + '<button onclick="navigator.clipboard.writeText(\'' + dot + '\');this.textContent=\'✓\';setTimeout(()=>this.textContent=\'📋\',1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 6px;cursor:pointer;font-size:10px;color:var(--text3)">📋</button></span></div>';
-        if (ein) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:8px;padding:8px 12px"><span style="color:var(--text3);font-size:11px">EIN#</span><span style="font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:8px">' + ein + '<button onclick="navigator.clipboard.writeText(\'' + ein + '\');this.textContent=\'✓\';setTimeout(()=>this.textContent=\'📋\',1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 6px;cursor:pointer;font-size:10px;color:var(--text3)">📋</button></span></div>';
-        if (pin) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:8px 12px"><span style="color:#f59e0b;font-size:11px;font-weight:700">Password PIN</span><span style="font-weight:800;color:#f59e0b;font-size:14px;display:flex;align-items:center;gap:8px;letter-spacing:.05em">' + pin + '<button onclick="navigator.clipboard.writeText(\'' + pin + '\');this.textContent=\'✓\';setTimeout(()=>this.textContent=\'📋\',1200)" style="background:none;border:1px solid rgba(245,158,11,.4);border-radius:4px;padding:1px 6px;cursor:pointer;font-size:10px;color:#f59e0b">📋</button></span></div>';
-        if (!dot && !ein && !pin) html += '<span>Found NY Oscar note but could not parse details.</span>';
-        html += '</div>';
-        el.innerHTML = html;
-      })
-      .catch(function(err) {
-        const el = document.getElementById('tb-ny-notes-content');
-        if (el) { el.style.color = 'var(--red)'; el.textContent = 'Error: ' + (err.message||'Could not load notes'); }
-        console.error('Notes fetch error:', err);
-      });
+        div.style.cssText = 'border-radius:10px;overflow:hidden;border:1px solid ' + portal.color + '33;background:' + portal.color + '08';
+        div.innerHTML = credHtml + '<a href="' + portal.url + '" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:' + portal.color + ';color:#fff;border-radius:' + (credHtml ? '0 0 9px 9px' : '10px') + ';padding:10px 14px;font-size:12px;font-weight:700;text-decoration:none"><i class="ti ti-external-link"></i> Open ' + portal.label + '</a>';
+        portalSection.appendChild(div);
+      }
+    });
+
+    const modalBox = modal.querySelector('div');
+    if (modalBox) modalBox.appendChild(portalSection);
   }
 }
 
