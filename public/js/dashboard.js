@@ -3657,11 +3657,17 @@ function csRunAudit() {
   const btn  = document.getElementById('cs-audit-btn');
   const area = document.getElementById('cs-audit-results');
 
-  const clients = state.clients || [];
-  if (!clients.length) {
+  const allClients = state.clients || [];
+  if (!allClients.length) {
     if (area) area.innerHTML = '<div style="color:var(--yellow);padding:12px">⚠ Client list not loaded yet — go to Dashboard first to sync GHL, then return here.</div>';
     return;
   }
+
+  // Only audit Advanced and Recurring contacts — these are the ones we care about
+  const clients = allClients.filter(c => {
+    const tags = (c.tags || []).map(t => String(t).toLowerCase());
+    return tags.some(t => t.includes('advance') || t.includes('recurring'));
+  });
 
   if (btn) { btn.innerHTML = '<i class="ti ti-refresh"></i> Re-scan'; }
 
@@ -3686,7 +3692,7 @@ function csRunAudit() {
   });
 
   issues.sort((a,b) => b.missing.length - a.missing.length);
-  csAuditData = { total: clients.length, issues, issueCount: issues.length };
+  csAuditData = { total: clients.length, totalAll: allClients.length, issues, issueCount: issues.length };
   csRenderAudit(csAuditData);
 }
 
@@ -3714,7 +3720,7 @@ function csRenderAudit(data) {
   area.innerHTML = `
     <!-- Summary chips (clickable filters) -->
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
-      <div style="font-size:13px;font-weight:700;color:var(--text);margin-right:4px">${data.issueCount} of ${data.total} contacts missing info:</div>
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-right:4px">${data.issueCount} of ${data.total} <span style="background:rgba(0,196,106,.12);color:var(--primary);border-radius:4px;padding:1px 7px;font-size:11px">Advanced/Recurring only</span> contacts missing info:</div>
       <span onclick="csAuditSetFilter('all')" id="cs-af-all"
         style="background:rgba(0,196,106,.15);border:1px solid rgba(0,196,106,.4);color:var(--primary);
                border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">All</span>
