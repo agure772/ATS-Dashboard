@@ -3352,8 +3352,12 @@ function csRenderTasks(tasks) {
         const displayTitle = t.title.replace(/^\[CS\]\s*/,'');
         const safeTitle = displayTitle.replace(/'/g,"\\'");
         const safeAssignee = g.name.replace(/'/g,"\\'");
-        return `<div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:12px;
-                            background:${isDone?'rgba(0,196,106,.04)':isOverdue?'rgba(239,68,68,.04)':'transparent'}">
+        const taskDataStr = JSON.stringify({id:t.id,title:t.title,body:t.body||'',dueDate:t.dueDate,completed:t.completed,contactId:t.contactId||'',contactName:t.contactName||'',businessName:t.businessName||t.companyName||'',assigneeId:t.assigneeId||'',assignedTo:t.assignedTo||'',assigneeName:s.assigneeName||''}).replace(/'/g,"&#39;").replace(/"/g,'&quot;');
+        return `<div onclick='csOpenTaskCard(JSON.parse(this.dataset.task))' data-task="${taskDataStr}"
+          style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:12px;cursor:pointer;
+                 background:${isDone?'rgba(0,196,106,.04)':isOverdue?'rgba(239,68,68,.04)':'transparent'}"
+          onmouseover="this.style.background='var(--bg3)'"
+          onmouseout="this.style.background='${isDone?'rgba(0,196,106,.04)':isOverdue?'rgba(239,68,68,.04)':'transparent'}'">
           <div style="flex-shrink:0;width:7px;height:7px;border-radius:50%;margin-top:2px;
                       background:${isDone?'var(--green)':isOverdue?'var(--red)':'var(--yellow)'}"></div>
           <div style="flex:1;min-width:0">
@@ -4340,6 +4344,188 @@ async function csDotCreateNew(dotNumber) {
     toast('✓ New GHL contact created');
   } catch(e) {
     if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
+
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CS TASK CARD — click to view, edit, and reassign
+// ═════════════════════════════════════════════════════════════════════════════
+
+function csOpenTaskCard(task) {
+  document.getElementById('cs-task-card-modal')?.remove();
+
+  const staffPool = csState.allStaff?.length ? csState.allStaff : ATS_STAFF_FALLBACK;
+  const csIds = csGetStaffIds();
+  const displayTitle = (task.title || '').replace(/^\[CS\]\s*/, '');
+  const dueVal = task.dueDate
+    ? new Date(task.dueDate).toISOString().split('T')[0]
+    : new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+  const modal = document.createElement('div');
+  modal.id = 'cs-task-card-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9900;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:18px;
+                width:520px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.6)">
+
+      <!-- Header -->
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1">
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--primary);letter-spacing:.1em;margin-bottom:4px">CS TASK</div>
+          <div style="font-size:15px;font-weight:800;color:var(--text)">${displayTitle}</div>
+        </div>
+        <button onclick="document.getElementById('cs-task-card-modal').remove()"
+          style="background:var(--bg3);border:1px solid var(--border);color:var(--text3);cursor:pointer;
+                 border-radius:8px;width:32px;height:32px;font-size:18px;display:flex;align-items:center;justify-content:center">✕</button>
+      </div>
+
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+
+        <!-- Contact info -->
+        ${task.contactName ? `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px">
+          <i class="ti ti-user" style="color:var(--primary);font-size:16px;flex-shrink:0"></i>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--text)">${task.contactName}</div>
+            ${task.businessName ? `<div style="font-size:11px;color:var(--text3)">${task.businessName}</div>` : ''}
+          </div>
+          ${task.contactId ? `
+          <a href="https://app.gohighlevel.com/v2/location/SS9SXQU94ZExykvAta0y/contacts/detail/${task.contactId}" target="_blank"
+            style="margin-left:auto;font-size:11px;color:var(--primary);text-decoration:none;display:flex;align-items:center;gap:4px;flex-shrink:0">
+            <i class="ti ti-external-link"></i> GHL
+          </a>` : ''}
+        </div>` : ''}
+
+        <!-- Task title -->
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:6px">TASK TITLE</div>
+          <input id="cs-card-title" type="text" value="${displayTitle.replace(/"/g,'&quot;')}"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                   border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
+        </div>
+
+        <!-- Notes -->
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:6px">NOTES</div>
+          <textarea id="cs-card-body" rows="3"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                   border-radius:8px;padding:9px 12px;font-size:13px;resize:vertical;box-sizing:border-box"
+          >${(task.body || task.description || '').replace(/<[^>]+>/g,' ')}</textarea>
+        </div>
+
+        <!-- Due date -->
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:6px">DUE DATE</div>
+          <input id="cs-card-due" type="date" value="${dueVal}"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                   border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
+        </div>
+
+        <!-- Assign to staff -->
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:6px">ASSIGN TO STAFF</div>
+          <select id="cs-card-assignee"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                   border-radius:8px;padding:9px 12px;font-size:13px">
+            <option value="">-- Keep current assignment --</option>
+            ${[...staffPool.filter(s => csIds.includes(s.id)), ...staffPool.filter(s => !csIds.includes(s.id))]
+              .map(s => {
+                const isCS = csIds.includes(s.id);
+                const isCurrent = s.id === (task.assigneeId || task.assignedTo);
+                return `<option value="${s.id}" ${isCurrent ? 'selected' : ''}>${isCS ? '★ ' : ''}${s.name}</option>`;
+              }).join('')}
+          </select>
+        </div>
+
+        <div id="cs-card-status" style="font-size:12px;text-align:center;min-height:16px"></div>
+
+        <!-- Action buttons -->
+        <div style="display:flex;gap:8px">
+          <button onclick="csUpdateTaskCard('${task.id}','${task.contactId||''}')"
+            style="flex:1;background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
+                   padding:11px;font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
+            <i class="ti ti-device-floppy"></i> Save Changes
+          </button>
+          ${!task.completed ? `
+          <button onclick="csCompleteFromCard('${task.id}','${task.contactId||''}','${displayTitle.replace(/'/g,"\\'")}','${(task.assigneeName||'').replace(/'/g,"\\'")}',this)"
+            style="background:rgba(0,196,106,.15);color:var(--green);border:1px solid rgba(0,196,106,.4);
+                   border-radius:10px;padding:11px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+            ✓ Complete
+          </button>` : '<span style="color:var(--green);font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px"><i class="ti ti-circle-check"></i> Completed</span>'}
+        </div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+}
+
+async function csUpdateTaskCard(taskId, contactId) {
+  const title    = document.getElementById('cs-card-title')?.value.trim();
+  const body     = document.getElementById('cs-card-body')?.value.trim();
+  const due      = document.getElementById('cs-card-due')?.value;
+  const assignee = document.getElementById('cs-card-assignee')?.value;
+  const status   = document.getElementById('cs-card-status');
+
+  if (!title) { if (status) status.innerHTML = '<span style="color:var(--red)">Title is required</span>'; return; }
+  if (status) status.innerHTML = '<span style="color:var(--text3)">Saving...</span>';
+
+  const fullTitle = title.startsWith('[CS]') ? title : `[CS] ${title}`;
+  const payload = {
+    title:      fullTitle,
+    body:       body || '',
+    dueDate:    due ? new Date(due + 'T12:00:00').toISOString() : undefined,
+    assignedTo: assignee || undefined,
+  };
+
+  try {
+    const res = await fetch(`/api/contacts/${contactId}/tasks/${taskId}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    // Update in-memory task
+    const tIdx = csState.rawTasks.findIndex(t => t.id === taskId);
+    if (tIdx !== -1) {
+      const assigneeName = assignee
+        ? (csState.allStaff.find(s=>s.id===assignee)||ATS_STAFF_FALLBACK.find(s=>s.id===assignee)||{}).name || ''
+        : csState.rawTasks[tIdx].assigneeName;
+      csState.rawTasks[tIdx] = { ...csState.rawTasks[tIdx], title: fullTitle, body, dueDate: payload.dueDate || csState.rawTasks[tIdx].dueDate, assigneeId: assignee || csState.rawTasks[tIdx].assigneeId, assigneeName };
+    }
+    if (tbState.tasks) {
+      const tIdx2 = tbState.tasks.findIndex(t => t.id === taskId);
+      if (tIdx2 !== -1) Object.assign(tbState.tasks[tIdx2], payload);
+    }
+
+    if (status) status.innerHTML = '<span style="color:var(--green)">✓ Saved successfully</span>';
+    toast('✓ CS task updated');
+    setTimeout(() => { document.getElementById('cs-task-card-modal')?.remove(); csApplyFilter(); }, 700);
+  } catch(e) {
+    if (status) status.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
+
+async function csCompleteFromCard(taskId, contactId, taskTitle, staffName, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(`/api/contacts/${contactId}/tasks/${taskId}/complete`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ completedBy: staffName, taskTitle }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    toast('✓ Task completed — note sent');
+    // Update in memory
+    const t = csState.rawTasks.find(t => t.id === taskId);
+    if (t) t.completed = true;
+    setTimeout(() => { document.getElementById('cs-task-card-modal')?.remove(); csApplyFilter(); }, 500);
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Complete'; }
+    toast('Error: ' + e.message);
   }
 }
 
