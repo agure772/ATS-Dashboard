@@ -996,6 +996,24 @@ app.get('/api/contacts/:id/notes', async (req, res) => {
   }
 });
 
+
+// ── Update a task (title, dueDate, body, assignedTo) ─────────────────────────
+app.put('/api/contacts/:contactId/tasks/:taskId', async (req, res) => {
+  const { contactId, taskId } = req.params;
+  const { title, body, dueDate, assignedTo, completed } = req.body;
+  try {
+    const payload = {};
+    if (title      !== undefined) payload.title      = title;
+    if (body       !== undefined) payload.body        = body;
+    if (dueDate    !== undefined) payload.dueDate     = dueDate;
+    if (assignedTo !== undefined) payload.assignedTo  = assignedTo;
+    if (completed  !== undefined) payload.completed   = completed;
+    const data = await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, payload);
+    tasksBoardCache = { data: null, ts: 0 }; // bust cache
+    res.json({ success: true, task: data });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
