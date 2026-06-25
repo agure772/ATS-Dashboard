@@ -4441,6 +4441,26 @@ function csOpenTaskCard(task) {
           </select>
         </div>
 
+        <!-- FMCSA DOT Lookup + Contact Update -->
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">
+            <i class="ti ti-search" style="color:var(--primary);margin-right:4px"></i>FMCSA LOOKUP & UPDATE CONTACT
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <input id="cs-card-dot" type="text" placeholder="Enter DOT number..."
+              onkeydown="if(event.key==='Enter')csCardDotSearch('${task.contactId||''}')"
+              value="${task.dotNumber||''}"
+              style="flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px;font-size:13px">
+            <button onclick="csCardDotSearch('${task.contactId||''}')"
+              style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;
+                     padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-search"></i> Search
+            </button>
+          </div>
+          <div id="cs-card-fmcsa-result" style="font-size:12px;color:var(--text3)"></div>
+        </div>
+
         <div id="cs-card-status" style="font-size:12px;text-align:center;min-height:16px"></div>
 
         <!-- Action buttons -->
@@ -4526,6 +4546,74 @@ async function csCompleteFromCard(taskId, contactId, taskTitle, staffName, btn) 
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = '✓ Complete'; }
     toast('Error: ' + e.message);
+  }
+}
+
+
+
+// ── CS Task Card — FMCSA lookup and push to GHL contact ──────────────────────
+async function csCardDotSearch(contactId) {
+  const dotInput  = document.getElementById('cs-card-dot');
+  const resultEl  = document.getElementById('cs-card-fmcsa-result');
+  const dot = (dotInput?.value || '').trim();
+  if (!dot) { if (resultEl) resultEl.innerHTML = '<span style="color:var(--yellow)">Enter a DOT number first</span>'; return; }
+  if (resultEl) resultEl.innerHTML = '<i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Searching FMCSA...';
+
+  try {
+    const res  = await fetch(`/api/dot/${dot}`);
+    const data = await res.json();
+    if (!res.ok || !data.info) throw new Error(data.error || 'Not found');
+    const info = data.info;
+    window._csCardDotInfo = { info, contactId };
+
+    resultEl.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:var(--text)">${info.legal_name || '—'}
+          <span style="font-size:11px;font-weight:400;color:${info.operating_status==='AUTHORIZED'?'var(--green)':'#ef4444'};margin-left:6px">${info.operating_status||''}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">
+          ${info.dot_number  ? `<div style="color:var(--text3);font-size:11px"><span style="color:var(--text2)">DOT#</span> ${info.dot_number}</div>` : ''}
+          ${info.mc_number   ? `<div style="color:var(--text3);font-size:11px"><span style="color:var(--text2)">MC#</span> ${info.mc_number}</div>` : ''}
+          ${info.ein         ? `<div style="color:var(--text3);font-size:11px"><span style="color:var(--text2)">EIN</span> ${info.ein}</div>` : ''}
+          ${info.phone       ? `<div style="color:var(--text3);font-size:11px"><span style="color:var(--text2)">Phone</span> ${info.phone}</div>` : ''}
+          ${info.email       ? `<div style="color:var(--text3);font-size:11px;grid-column:span 2"><span style="color:var(--text2)">Email</span> ${info.email}</div>` : ''}
+          ${info.mailing_address ? `<div style="color:var(--text3);font-size:11px;grid-column:span 2"><span style="color:var(--text2)">Address</span> ${info.mailing_address}</div>` : ''}
+          ${info.mcs150_date ? `<div style="color:var(--text3);font-size:11px"><span style="color:var(--text2)">MCS-150</span> ${info.mcs150_date}</div>` : ''}
+          ${info.mcs150_mileage_year ? `<div style="color:var(--text3);font-size:11px"><span style="color:var(--text2)">Mileage Year</span> ${info.mcs150_mileage_year}</div>` : ''}
+        </div>
+      </div>
+      <button onclick="csCardPushToContact()" id="cs-card-push-btn"
+        style="width:100%;background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;
+               padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ti ti-cloud-upload"></i> Update GHL Contact with FMCSA Data
+      </button>
+      <div id="cs-card-push-status" style="font-size:11px;margin-top:6px;text-align:center"></div>`;
+  } catch(e) {
+    if (resultEl) resultEl.innerHTML = `<span style="color:var(--red)">✗ ${e.message}</span>`;
+  }
+}
+
+async function csCardPushToContact() {
+  const { info, contactId } = window._csCardDotInfo || {};
+  if (!info || !contactId) return;
+  const btn = document.getElementById('cs-card-push-btn');
+  const statusEl = document.getElementById('cs-card-push-status');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Updating...'; }
+
+  try {
+    const res = await fetch(`/api/dot/${info.dot_number}/push-to-ghl`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contactId, info }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    if (btn) { btn.disabled = false; btn.innerHTML = '✓ Contact Updated!'; btn.style.background = 'rgba(0,196,106,.2)'; btn.style.color = 'var(--green)'; btn.style.border = '1px solid rgba(0,196,106,.4)'; }
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ GHL contact updated with FMCSA data — ${info.legal_name}</span>`;
+    toast('✓ GHL contact updated');
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-cloud-upload"></i> Update GHL Contact'; }
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
   }
 }
 
