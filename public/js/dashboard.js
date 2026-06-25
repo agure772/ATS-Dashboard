@@ -3352,7 +3352,7 @@ function csRenderTasks(tasks) {
         const displayTitle = t.title.replace(/^\[CS\]\s*/,'');
         const safeTitle = displayTitle.replace(/'/g,"\\'");
         const safeAssignee = g.name.replace(/'/g,"\\'");
-        const taskDataStr = JSON.stringify({id:t.id,title:t.title,body:t.body||'',dueDate:t.dueDate,completed:t.completed,contactId:t.contactId||'',contactName:t.contactName||'',businessName:t.businessName||t.companyName||'',assigneeId:t.assigneeId||'',assignedTo:t.assignedTo||'',assigneeName:s.assigneeName||''}).replace(/'/g,"&#39;").replace(/"/g,'&quot;');
+        const taskDataStr = JSON.stringify({id:t.id,title:t.title,body:t.body||'',dueDate:t.dueDate,completed:t.completed,contactId:t.contactId||'',contactName:t.contactName||'',businessName:t.businessName||t.companyName||'',assigneeId:t.assigneeId||'',assignedTo:t.assignedTo||'',assigneeName:t.assigneeName||g.name||''}).replace(/'/g,"&#39;").replace(/"/g,'&quot;');
         return `<div onclick='csOpenTaskCard(JSON.parse(this.dataset.task))' data-task="${taskDataStr}"
           style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:12px;cursor:pointer;
                  background:${isDone?'rgba(0,196,106,.04)':isOverdue?'rgba(239,68,68,.04)':'transparent'}"
