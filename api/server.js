@@ -1469,18 +1469,47 @@ app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => 
     currentTask = td.task || td || {};
   } catch(e) { console.log('Could not fetch task for completion:', e.message); }
 
-  // Step 2: Mark task complete — required fields: title (preserve original)
-  try {
-    await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, {
-      title:      currentTask.title || taskTitle || 'CS Task',
-      dueDate:    currentTask.dueDate || new Date().toISOString(),
+  // Step 2: Mark task complete — try multiple payload formats
+  // GHL v2 is picky about which fields are required
+  let completeErr = null;
+
+  // Attempt A: full payload with all fetched fields
+  const dueDate = currentTask.dueDate
+    ? (currentTask.dueDate.includes('T') ? currentTask.dueDate : new Date(currentTask.dueDate).toISOString())
+    : new Date(Date.now() + 86400000).toISOString();
+
+  const payloads = [
+    // Most complete — preserves all existing fields
+    { title: currentTask.title || taskTitle || 'CS Task',
+      body:  currentTask.body || currentTask.description || '',
+      dueDate,
       assignedTo: currentTask.assignedTo || undefined,
-      completed:  true,
-    });
-    console.log(`✓ CS task ${taskId} marked complete`);
-  } catch(err) {
-    console.error('CS complete error:', err.message);
-    return res.status(500).json({ error: err.message });
+      completed: true },
+    // Minimal with status string (some GHL versions use this)
+    { title: currentTask.title || taskTitle || 'CS Task',
+      dueDate,
+      completed: true,
+      status: 'completed' },
+    // Absolute minimum
+    { completed: true },
+  ];
+
+  for (const payload of payloads) {
+    try {
+      await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, payload);
+      console.log(`✓ CS task ${taskId} marked complete`);
+      completeErr = null;
+      break;
+    } catch(err) {
+      console.log(`Task complete attempt failed: ${err.message} | GHL: ${JSON.stringify(err.data||'').slice(0,200)}`);
+      completeErr = err;
+    }
+  }
+
+  if (completeErr) {
+    console.error('All complete attempts failed:', completeErr.message);
+    const ghlDetail = completeErr.data?.message || completeErr.data?.msg || completeErr.message;
+    return res.status(500).json({ error: ghlDetail });
   }
 
   // Step 3: Add note — best-effort, never blocks the response
