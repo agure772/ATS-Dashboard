@@ -1072,8 +1072,7 @@ app.get('/api/contacts/:id/permit-info', async (req, res) => {
       const pinM  = clean.match(/Password\s*(?:PIN|PIN#?)?\s*[:\-]?\s*(\S+)/i);
       const userM = clean.match(/Username\s*[:\-]?\s*(\S+)/i);
       const passM = clean.match(/Password\s*[:\-]?\s*(\S+)/i);
-      const typeM = clean.match(/Account\s*Type\s*[-:]\s*(.+?)(?:
-|$)/i);
+      const typeM = clean.match(/Account\s*Type\s*[-:]\s*(.+)/i);
       const emailM= clean.match(/([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/);
       return {
         raw:      clean,
