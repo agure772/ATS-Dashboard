@@ -658,8 +658,10 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
 // ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
 let tasksBoardCache = { data: null, ts: 0 };
 let tasksBoardRefreshing = false;
-const TASKS_BOARD_TTL  = 2 * 60 * 1000;  // serve cached data for 2 min (reduced so new items appear faster)
-const TASKS_BOARD_STALE = 20 * 60 * 1000; // after 20 min, cache is too old to serve at all
+const TASKS_BOARD_TTL   = 10 * 60 * 1000;  // serve fresh cache for 10 min without background refresh
+const TASKS_BOARD_STALE = 4 * 60 * 60 * 1000; // serve stale cache up to 4 hours while refreshing in bg
+// Key: once loaded, ALWAYS serve from cache (even if stale) and refresh in background.
+// Only blocks waiting for fresh data on very first load or manual force-refresh.
 
 async function buildTasksBoardData() {
   // GHL Users
