@@ -1100,6 +1100,95 @@ app.get('/api/contacts/:id/permit-info', async (req, res) => {
   }
 });
 
+
+// ── Fetch vehicles associated with a contact ──────────────────────────────────
+let vehicleSchemaKey = null; // cached object key
+
+async function getVehicleSchemaKey() {
+  if (vehicleSchemaKey) return vehicleSchemaKey;
+  try {
+    // Fetch all custom object schemas for this location
+    const data = await ghl('GET', `${V2}/objects/?locationId=${LOC_ID}`);
+    const objects = data.customObjects || data.objects || [];
+    // Find vehicle/tractor object
+    const vehicleObj = objects.find(o =>
+      /vehicle|tractor|truck/i.test(o.key || '') ||
+      /vehicle|tractor|truck/i.test(o.name || o.label || '')
+    );
+    vehicleSchemaKey = vehicleObj?.key || null;
+    if (vehicleSchemaKey) console.log('Vehicle schema key found:', vehicleSchemaKey);
+    return vehicleSchemaKey;
+  } catch(e) {
+    console.error('Vehicle schema fetch error:', e.message);
+    return null;
+  }
+}
+
+app.get('/api/contacts/:id/vehicles', async (req, res) => {
+  const contactId = req.params.id;
+  try {
+    // Try to get vehicle records via associations
+    let vehicles = [];
+
+    // Method 1: Custom objects search
+    const schemaKey = await getVehicleSchemaKey() || 'vehicles';
+    try {
+      const searchRes = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
+        locationId: LOC_ID,
+        page: 1,
+        pageSize: 20,
+        filters: [{ field: 'contact', operator: '=', value: contactId }],
+      });
+      vehicles = searchRes?.records || searchRes?.data || [];
+    } catch(e1) {
+      // Method 2: Try fetching associations
+      try {
+        const assocRes = await ghl('GET', `${V2}/contacts/${contactId}/associations`);
+        const assocs = assocRes?.associations || assocRes?.data || [];
+        // Filter for vehicle-type associations
+        const vehicleAssocs = assocs.filter(a =>
+          /vehicle|tractor|truck/i.test(a.type || a.objectKey || '')
+        );
+        vehicles = vehicleAssocs.map(a => a.record || a).filter(Boolean);
+      } catch(e2) {
+        console.log('Both vehicle fetch methods failed:', e2.message);
+      }
+    }
+
+    // Normalize vehicle records to a common format
+    const normalized = vehicles.map(v => {
+      const fields = v.properties || v.fields || v.customFields || v;
+      const get = (...keys) => {
+        for (const k of keys) {
+          const val = fields[k] || (Array.isArray(fields) && fields.find(f =>
+            (f.key||f.name||f.fieldKey||'').toLowerCase().includes(k.toLowerCase())
+          )?.value);
+          if (val) return String(val);
+        }
+        return null;
+      };
+      return {
+        id:    v.id || v.recordId,
+        vin:   get('vin', 'vin_number', 'vinNumber', 'VIN'),
+        make:  get('make', 'manufacturer', 'brand'),
+        model: get('model'),
+        year:  get('year', 'model_year', 'modelYear'),
+        plate: get('plate', 'plate_number', 'plateNumber', 'license_plate', 'licensePlate'),
+        unit:  get('unit', 'unit_number', 'unitNumber', 'unit_no'),
+        state: get('state', 'plate_state'),
+        type:  get('type', 'vehicle_type', 'vehicleType'),
+        status:get('status'),
+      };
+    }).filter(v => v.vin || v.plate || v.unit);
+
+    console.log(`Vehicles for contact ${contactId}: ${normalized.length}`);
+    res.json({ vehicles: normalized, raw: vehicles.slice(0,2) });
+  } catch(err) {
+    console.error('Vehicles fetch error:', err.message);
+    res.status(500).json({ error: err.message, vehicles: [] });
+  }
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
