@@ -3485,8 +3485,26 @@ async function csComplete(taskId, contactId, taskTitle, staffName) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    toast('✓ Task completed — note sent to operator');
-    setTimeout(() => csLoad(true), 500);
+    toast('✓ Task completed');
+
+    // ── Update in memory immediately — no API reload needed ──────────────
+    // Mark task as completed in csState.rawTasks
+    const t = csState.rawTasks.find(t => t.id === taskId);
+    if (t) { t.completed = true; t.status = 'completed'; }
+    // Also update in tbState.tasks
+    const t2 = (tbState.tasks || []).find(t => t.id === taskId);
+    if (t2) { t2.completed = true; t2.status = 'completed'; }
+
+    // Animate the row out then re-render
+    const rowEl = document.querySelector(`[data-task-id="${taskId}"]`) ||
+                  document.querySelector(`[onclick*="${taskId}"]`);
+    if (rowEl) {
+      rowEl.style.transition = 'opacity .3s, transform .3s';
+      rowEl.style.opacity = '0.3';
+      rowEl.style.transform = 'scale(.98)';
+    }
+    setTimeout(() => csApplyFilter(), 350); // re-render after brief animation
+
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = '✓ Complete'; }
     toast('Error: ' + e.message);
