@@ -4103,6 +4103,24 @@ async function csCreateAuditTask(contactId, name, bizName) {
       body: JSON.stringify({ title, body, assignedTo: assigneeId || undefined, dueDate, completed: false }),
     });
     const data = await res.json();
+
+    // ── Server says this contact already has an open CS task ──────────────
+    if (res.status === 409 && data.existingTask) {
+      if (taskBtn) { taskBtn.disabled = false; taskBtn.textContent = '+ CS Task'; taskBtn.style.background = 'rgba(124,58,237,.15)'; taskBtn.style.color = '#a78bfa'; }
+      const row = document.getElementById(`cs-audit-row-${contactId}`);
+      if (row) {
+        row.innerHTML = `<div style="padding:10px 14px;display:flex;align-items:center;gap:10px">
+          <i class="ti ti-alert-circle" style="color:var(--yellow);font-size:18px;flex-shrink:0"></i>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--yellow)">Already has an open CS task</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">${displayName} · <button onclick="csOpenTaskCard(${JSON.stringify({...data.existingTask, contactId, contactName: displayName}).replace(/"/g,'&quot;')})" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:11px;text-decoration:underline;padding:0">Open existing task →</button></div>
+          </div>
+        </div>`;
+      }
+      toast('⚠ Contact already has an open CS task');
+      return;
+    }
+
     if (!res.ok) throw new Error(data.error);
 
     // ── Inject task directly into memory so it shows immediately ──────────
