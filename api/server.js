@@ -1461,22 +1461,34 @@ app.post('/api/contacts/:id/tags', async (req, res) => {
 app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => {
   const { contactId, taskId } = req.params;
   const { completedBy, taskTitle } = req.body;
+  
+  // Step 1: Fetch the current task so we can preserve its fields
+  let currentTask = {};
   try {
-    // 1. Mark task complete in GHL
+    const td = await ghl('GET', `${V2}/contacts/${contactId}/tasks/${taskId}`);
+    currentTask = td.task || td || {};
+  } catch(e) { console.log('Could not fetch task for completion:', e.message); }
+
+  // Step 2: Mark task complete — required fields: title (preserve original)
+  try {
     await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, {
-      title:     taskTitle || 'CS Task',
-      completed: true,
-      dueDate:   new Date().toISOString(),
+      title:      currentTask.title || taskTitle || 'CS Task',
+      dueDate:    currentTask.dueDate || new Date().toISOString(),
+      assignedTo: currentTask.assignedTo || undefined,
+      completed:  true,
     });
-    // 2. Add note to contact so operators see it in GHL activity feed
-    const noteText = `✓ CS Task Completed: "${taskTitle}" — completed by ${completedBy || 'CS Staff'}`;
-    await ghl('POST', `${V2}/contacts/${contactId}/notes`, { body: noteText });
-    // 3. Bust tasks board cache
-    tasksBoardCache = { data: null, ts: 0 };
-    console.log(`✓ CS task ${taskId} completed by ${completedBy}`);
-    res.json({ success: true });
+    console.log(`✓ CS task ${taskId} marked complete`);
   } catch(err) {
     console.error('CS complete error:', err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
+
+  // Step 3: Add note — best-effort, never blocks the response
+  const noteText = `✓ CS Task Completed: "${taskTitle || currentTask.title}" — by ${completedBy || 'CS Staff'}`;
+  ghl('POST', `${V2}/contacts/${contactId}/notes`, { body: noteText })
+    .catch(e => console.log('Note post failed (non-critical):', e.message));
+
+  // Step 4: Bust cache
+  tasksBoardCache = { data: null, ts: 0 };
+  res.json({ success: true });
 });
