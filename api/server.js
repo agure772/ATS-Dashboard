@@ -1189,6 +1189,65 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
   }
 });
 
+
+// ── Vehicle CRUD ──────────────────────────────────────────────────────────────
+// Helper: map our field names → GHL custom object field keys
+function buildVehicleProperties(data) {
+  // These keys match GHL's custom object field schema — adjust if needed
+  const props = {};
+  if (data.vin    !== undefined) props.vin_number   = data.vin;
+  if (data.unit   !== undefined) props.unit_number  = data.unit;
+  if (data.status !== undefined) props.status       = data.status;
+  if (data.type   !== undefined) props.vehicle_type = data.type;
+  if (data.make   !== undefined) props.make         = data.make;
+  if (data.model  !== undefined) props.model        = data.model;
+  if (data.year   !== undefined) props.year         = String(data.year);
+  if (data.plate  !== undefined) props.plate_number = data.plate;
+  if (data.state  !== undefined) props.state        = data.state;
+  return props;
+}
+
+// Create vehicle record in GHL
+app.post('/api/contacts/:contactId/vehicles', async (req, res) => {
+  const { contactId } = req.params;
+  try {
+    const schemaKey = await getVehicleSchemaKey() || 'vehicles';
+    const props = buildVehicleProperties(req.body);
+
+    const payload = {
+      locationId:  LOC_ID,
+      properties:  props,
+      // Associate with contact
+      associations: [{ objectType: 'contact', id: contactId }],
+    };
+
+    const data = await ghl('POST', `${V2}/objects/${schemaKey}/records`, payload);
+    console.log(`✓ Vehicle created for contact ${contactId}`);
+    res.json({ success: true, record: data });
+  } catch(err) {
+    console.error('Vehicle create error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update vehicle record in GHL
+app.put('/api/vehicles/:recordId', async (req, res) => {
+  const { recordId } = req.params;
+  try {
+    const schemaKey = await getVehicleSchemaKey() || 'vehicles';
+    const props = buildVehicleProperties(req.body);
+
+    const data = await ghl('PUT', `${V2}/objects/${schemaKey}/records/${recordId}`, {
+      properties: props,
+    });
+    console.log(`✓ Vehicle ${recordId} updated`);
+    res.json({ success: true, record: data });
+  } catch(err) {
+    console.error('Vehicle update error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
