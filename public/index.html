@@ -518,6 +518,29 @@
           <div id="cs-dot-result" style="padding:16px 20px"></div>
         </div>
 
+        <!-- Vehicle Manager -->
+        <div style="margin-top:16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div>
+              <div style="font-size:13px;font-weight:800;color:var(--text)"><i class="ti ti-truck" style="color:var(--primary);margin-right:6px"></i>Vehicle Manager</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Search a contact to view and update their vehicles</div>
+            </div>
+          </div>
+          <div style="padding:16px 20px">
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+              <input id="vm-contact-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
+                oninput="vmSearchContact(this.value)"
+                style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px">
+            </div>
+            <div id="vm-contact-results" style="margin-bottom:10px"></div>
+            <div id="vm-selected-contact" style="display:none;margin-bottom:12px;padding:8px 12px;background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:8px;display:flex;align-items:center;justify-content:space-between">
+              <span id="vm-selected-name" style="font-size:12px;font-weight:700;color:var(--green)"></span>
+              <button onclick="vmClearContact()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">×</button>
+            </div>
+            <div id="vm-vehicles-area"></div>
+          </div>
+        </div>
+
         <!-- Contact Audit -->
         <div style="margin-top:16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
           <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
