@@ -4693,3 +4693,222 @@ async function csCardPushToContact() {
   }
 }
 
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// VEHICLE MANAGER — CS Board
+// ═════════════════════════════════════════════════════════════════════════════
+
+let vmSelectedContact = null;
+
+function vmSearchContact(query) {
+  const resultsEl = document.getElementById('vm-contact-results');
+  if (!resultsEl) return;
+  const q = (query || '').toLowerCase().trim();
+  const clients = state.clients || [];
+  const matches = q.length < 1
+    ? clients.slice().sort((a,b) => (a.name||'').localeCompare(b.name||'')).slice(0, 40)
+    : clients.filter(c =>
+        (c.name||'').toLowerCase().includes(q) ||
+        (c.dot_number||'').includes(q) ||
+        (c.business_name||'').toLowerCase().includes(q)
+      ).slice(0, 20);
+
+  if (!matches.length) { resultsEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:6px">No contacts found</div>'; return; }
+  resultsEl.style.cssText = 'max-height:180px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin-bottom:8px';
+  resultsEl.innerHTML = matches.map(c => {
+    const safeName = (c.name||'').replace(/'/g,"\\'");
+    return `<div onclick="vmSelectContact('${c.id}','${safeName}')"
+      style="padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;color:var(--text);display:flex;align-items:center;justify-content:space-between"
+      onmouseover="this.style.background='rgba(0,196,106,.08)'" onmouseout="this.style.background=''">
+      <span>${c.name}</span>
+      ${c.dot_number ? `<span style="color:var(--text3);font-size:11px">DOT# ${c.dot_number}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function vmSelectContact(id, name) {
+  vmSelectedContact = { id, name };
+  const searchEl = document.getElementById('vm-contact-search');
+  const resultsEl = document.getElementById('vm-contact-results');
+  const selEl = document.getElementById('vm-selected-contact');
+  const nameEl = document.getElementById('vm-selected-name');
+  if (searchEl) searchEl.value = '';
+  if (resultsEl) { resultsEl.innerHTML = ''; resultsEl.style.cssText = ''; }
+  if (selEl) selEl.style.display = 'flex';
+  if (nameEl) nameEl.textContent = '✓ ' + name;
+  vmLoadVehicles(id);
+}
+
+function vmClearContact() {
+  vmSelectedContact = null;
+  const selEl = document.getElementById('vm-selected-contact');
+  const areaEl = document.getElementById('vm-vehicles-area');
+  if (selEl) selEl.style.display = 'none';
+  if (areaEl) areaEl.innerHTML = '';
+}
+
+async function vmLoadVehicles(contactId) {
+  const area = document.getElementById('vm-vehicles-area');
+  if (!area) return;
+  area.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)"><i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Loading vehicles...</div>';
+
+  try {
+    const res  = await fetch(`/api/contacts/${contactId}/vehicles`);
+    const data = await res.json();
+    vmRenderVehicles(data.vehicles || [], contactId);
+  } catch(e) {
+    area.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+  }
+}
+
+function vmRenderVehicles(vehicles, contactId) {
+  const area = document.getElementById('vm-vehicles-area');
+  if (!area) return;
+
+  const addBtn = `<button onclick="vmOpenVehicleForm(null,'${contactId}')"
+    style="width:100%;background:rgba(0,196,106,.12);color:var(--primary);border:1px dashed rgba(0,196,106,.4);
+           border-radius:8px;padding:10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:10px;
+           display:flex;align-items:center;justify-content:center;gap:6px">
+    <i class="ti ti-plus"></i> Add New Vehicle
+  </button>`;
+
+  if (!vehicles.length) {
+    area.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">
+      No vehicles found for this contact.</div>${addBtn}`;
+    return;
+  }
+
+  area.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:4px">
+      ${vehicles.map(v => `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:800;color:var(--primary)">
+              ${v.unit ? 'UNIT ' + v.unit : 'VEHICLE'}
+              ${v.status ? `<span style="font-size:10px;font-weight:600;color:${v.status.toLowerCase()==='active'?'var(--green)':'var(--text3)'};margin-left:8px">${v.status}</span>` : ''}
+            </div>
+            <button onclick="vmOpenVehicleForm(${JSON.stringify(v).replace(/"/g,'&quot;')},'${contactId}')"
+              style="background:rgba(124,58,237,.12);color:#a78bfa;border:1px solid rgba(124,58,237,.3);
+                     border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">
+              ✏ Edit
+            </button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px">
+            ${[['Year',v.year],['Make',v.make],['Model',v.model],['VIN',v.vin],['Plate',v.plate],['State',v.state]]
+              .filter(([,val]) => val)
+              .map(([label,val]) => `
+                <div style="background:var(--bg2);border-radius:6px;padding:6px 8px">
+                  <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">${label}</div>
+                  <div style="font-size:12px;font-weight:700;color:var(--text);margin-top:1px">${val}</div>
+                </div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>${addBtn}`;
+}
+
+function vmOpenVehicleForm(vehicle, contactId) {
+  document.getElementById('vm-form-modal')?.remove();
+  const isEdit = vehicle && vehicle.id;
+  const v = vehicle || {};
+
+  const modal = document.createElement('div');
+  modal.id = 'vm-form-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9800;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.6)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1">
+        <div style="font-size:14px;font-weight:800;color:var(--text)">
+          <i class="ti ti-truck" style="color:var(--primary);margin-right:6px"></i>
+          ${isEdit ? 'Edit Vehicle' : 'Add New Vehicle'}
+        </div>
+        <button onclick="document.getElementById('vm-form-modal').remove()"
+          style="background:var(--bg3);border:1px solid var(--border);color:var(--text3);cursor:pointer;border-radius:8px;width:30px;height:30px;font-size:18px;display:flex;align-items:center;justify-content:center">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px">
+        ${[
+          ['vm-f-unit',   'Unit Number',   'text',   v.unit   || '', '0808, 116, 9791...'],
+          ['vm-f-vin',    'VIN Number',    'text',   v.vin    || '', '3AKJHHDR...'],
+          ['vm-f-year',   'Year',          'text',   v.year   || '', '2021'],
+          ['vm-f-make',   'Make',          'text',   v.make   || '', 'FRHT, Kenworth...'],
+          ['vm-f-model',  'Model',         'text',   v.model  || '', 'Cascadia...'],
+          ['vm-f-plate',  'Plate Number',  'text',   v.plate  || '', 'PZB9211'],
+          ['vm-f-state',  'State',         'text',   v.state  || '', 'MN'],
+        ].map(([id, label, type, val, ph]) => `
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em;margin-bottom:5px">${label.toUpperCase()}</div>
+            <input id="${id}" type="${type}" value="${val}" placeholder="${ph}"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box">
+          </div>`).join('')}
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em;margin-bottom:5px">STATUS</div>
+          <select id="vm-f-status" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px">
+            <option value="Active" ${(!v.status || v.status==='Active')?'selected':''}>Active</option>
+            <option value="Inactive" ${v.status==='Inactive'?'selected':''}>Inactive</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em;margin-bottom:5px">VEHICLE TYPE</div>
+          <select id="vm-f-type" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px">
+            <option value="Tractor" ${(!v.type || v.type==='Tractor')?'selected':''}>Tractor</option>
+            <option value="Trailer" ${v.type==='Trailer'?'selected':''}>Trailer</option>
+            <option value="Straight Truck" ${v.type==='Straight Truck'?'selected':''}>Straight Truck</option>
+          </select>
+        </div>
+        <div id="vm-form-status" style="font-size:12px;text-align:center;min-height:16px"></div>
+        <button onclick="vmSaveVehicle('${isEdit ? v.id : ''}','${contactId}')"
+          style="width:100%;background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
+                 padding:12px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
+          <i class="ti ti-device-floppy"></i> ${isEdit ? 'Save Changes' : 'Add Vehicle to GHL'}
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function vmSaveVehicle(recordId, contactId) {
+  const statusEl = document.getElementById('vm-form-status');
+  const get = id => document.getElementById(id)?.value.trim() || '';
+
+  const payload = {
+    unit:   get('vm-f-unit'),
+    vin:    get('vm-f-vin'),
+    year:   get('vm-f-year'),
+    make:   get('vm-f-make'),
+    model:  get('vm-f-model'),
+    plate:  get('vm-f-plate'),
+    state:  get('vm-f-state'),
+    status: get('vm-f-status'),
+    type:   get('vm-f-type'),
+  };
+
+  if (!payload.vin && !payload.plate) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">Enter at least a VIN or Plate number</span>';
+    return;
+  }
+
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3)">Saving to GHL...</span>';
+
+  try {
+    const url    = recordId ? `/api/vehicles/${recordId}` : `/api/contacts/${contactId}/vehicles`;
+    const method = recordId ? 'PUT' : 'POST';
+    const res    = await fetch(url, {
+      method, headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✓ Vehicle saved successfully!</span>';
+    toast(`✓ Vehicle ${recordId ? 'updated' : 'added'} in GHL`);
+    setTimeout(() => {
+      document.getElementById('vm-form-modal')?.remove();
+      vmLoadVehicles(contactId);
+    }, 700);
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
+
