@@ -944,8 +944,31 @@ app.post('/api/opportunities/:id/win', async (req, res) => {
 app.post('/api/contacts/:id/tasks', async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, body, assignedTo, dueDate, status } = req.body;
+    const { title, body, assignedTo, dueDate } = req.body;
     if (!title) return res.status(400).json({ error: 'title is required' });
+
+    // ── Server-side duplicate guard for [CS] tasks ─────────────────────────
+    // Fetches GHL directly — catches duplicates even across browser sessions
+    if (title.startsWith('[CS]')) {
+      try {
+        const existing = await ghl('GET', `${V2}/contacts/${id}/tasks`);
+        const openCS = (existing.tasks || []).find(t =>
+          t.title && t.title.startsWith('[CS]') && !t.completed
+        );
+        if (openCS) {
+          console.log(`⚠ Duplicate CS task blocked for contact ${id}: "${openCS.title}"`);
+          return res.status(409).json({
+            error: 'DUPLICATE',
+            message: 'Contact already has an open CS task',
+            existingTask: { ...openCS, contactId: id },
+          });
+        }
+      } catch(dupErr) {
+        // Non-fatal — if duplicate check fails, allow creation to proceed
+        console.log('Duplicate check skipped:', dupErr.message);
+      }
+    }
+
     const payload = {
       title,
       body:       body || '',
@@ -954,9 +977,8 @@ app.post('/api/contacts/:id/tasks', async (req, res) => {
       completed:  false,
     };
     const data = await ghl('POST', `${V2}/contacts/${id}/tasks`, payload);
-    // Bust tasks-board cache so the new task appears immediately on next Refresh
     tasksBoardCache = { data: null, ts: 0 };
-    console.log(`✓ Task created for contact ${id}, tasks-board cache busted`);
+    console.log(`✓ Task created for contact ${id}`);
     res.json({ success: true, task: data });
   } catch(err) {
     res.status(500).json({ error: err.message });
