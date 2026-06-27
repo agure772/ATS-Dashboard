@@ -500,59 +500,67 @@
         <!-- CS Task list -->
         <div id="cs-task-list"></div>
 
-        <!-- DOT Quick Update -->
-        <div style="margin-top:28px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
-          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-            <div>
-              <div style="font-size:13px;font-weight:800;color:var(--text)"><i class="ti ti-search" style="color:var(--primary);margin-right:6px"></i>DOT Quick Update</div>
-              <div style="font-size:11px;color:var(--text3);margin-top:2px">Look up a DOT number and push FMCSA data to the GHL contact</div>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center">
+        <!-- ── CS Tools Toolbar ───────────────────────────────────────────── -->
+        <div style="margin-top:20px">
+          <!-- Tool buttons row -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="csTool('dot')"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
+              id="cs-tool-btn-dot">
+              <i class="ti ti-search" style="color:var(--primary)"></i> DOT Lookup
+            </button>
+            <button onclick="csTool('vehicles')"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
+              id="cs-tool-btn-vehicles">
+              <i class="ti ti-truck" style="color:#f59e0b"></i> Vehicle Manager
+            </button>
+            <button onclick="csTool('audit')"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
+              id="cs-tool-btn-audit">
+              <i class="ti ti-zoom-scan" style="color:#a78bfa"></i> Contact Audit
+            </button>
+          </div>
+
+          <!-- DOT Lookup Panel -->
+          <div id="cs-tool-panel-dot" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">DOT QUICK UPDATE</div>
+            <div style="display:flex;gap:8px">
               <input id="cs-dot-input" type="text" placeholder="Enter DOT number..." onkeydown="if(event.key==='Enter')csDotLookup()"
-                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 12px;font-size:13px;width:200px">
-              <button onclick="csDotLookup()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+                style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px">
+              <button onclick="csDotLookup()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
                 <i class="ti ti-search"></i> Search
               </button>
             </div>
+            <div id="cs-dot-result" style="margin-top:12px"></div>
           </div>
-          <div id="cs-dot-result" style="padding:16px 20px"></div>
-        </div>
 
-        <!-- Vehicle Manager -->
-        <div style="margin-top:16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
-          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-            <div>
-              <div style="font-size:13px;font-weight:800;color:var(--text)"><i class="ti ti-truck" style="color:var(--primary);margin-right:6px"></i>Vehicle Manager</div>
-              <div style="font-size:11px;color:var(--text3);margin-top:2px">Search a contact to view and update their vehicles</div>
-            </div>
-          </div>
-          <div style="padding:16px 20px">
-            <div style="display:flex;gap:8px;margin-bottom:12px">
-              <input id="vm-contact-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
-                oninput="vmSearchContact(this.value)"
-                style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px">
-            </div>
-            <div id="vm-contact-results" style="margin-bottom:10px"></div>
-            <div id="vm-selected-contact" style="display:none;margin-bottom:12px;padding:8px 12px;background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:8px;display:flex;align-items:center;justify-content:space-between">
+          <!-- Vehicle Manager Panel -->
+          <div id="cs-tool-panel-vehicles" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">VEHICLE MANAGER</div>
+            <input id="vm-contact-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
+              oninput="vmSearchContact(this.value)"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
+            <div id="vm-contact-results"></div>
+            <div id="vm-selected-contact" style="display:none;padding:8px 12px;background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:8px;margin-bottom:10px;align-items:center;justify-content:space-between">
               <span id="vm-selected-name" style="font-size:12px;font-weight:700;color:var(--green)"></span>
-              <button onclick="vmClearContact()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">×</button>
+              <button onclick="vmClearContact()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">×</button>
             </div>
             <div id="vm-vehicles-area"></div>
           </div>
-        </div>
 
-        <!-- Contact Audit -->
-        <div style="margin-top:16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden">
-          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-            <div>
-              <div style="font-size:13px;font-weight:800;color:var(--text)"><i class="ti ti-zoom-scan" style="color:var(--primary);margin-right:6px"></i>Contact Audit</div>
-              <div style="font-size:11px;color:var(--text3);margin-top:2px">Advanced & Recurring contacts with missing fields</div>
+          <!-- Contact Audit Panel -->
+          <div id="cs-tool-panel-audit" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em">CONTACT AUDIT — Advanced &amp; Recurring only</div>
+              <button id="cs-audit-btn" onclick="csRunAudit()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:7px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px">
+                <i class="ti ti-zoom-scan"></i> Run Audit
+              </button>
             </div>
-            <button id="cs-audit-btn" onclick="csRunAudit()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-              <i class="ti ti-zoom-scan"></i> Run Audit
-            </button>
+            <div id="cs-audit-results"></div>
           </div>
-          <div id="cs-audit-results" style="padding:14px 20px"></div>
         </div>
 
         <!-- CS Staff Settings panel (hidden) -->
