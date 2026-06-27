@@ -4047,6 +4047,42 @@ async function csCreateAuditTask(contactId, name, bizName) {
   }
 }
 
+// ── CS Tools toolbar toggle ───────────────────────────────────────────────────
+const CS_TOOLS = ['dot','vehicles','audit'];
+let csActiveTool = null;
+
+function csTool(name) {
+  if (csActiveTool === name) {
+    // Close if already open
+    document.getElementById('cs-tool-panel-' + name).style.display = 'none';
+    const btn = document.getElementById('cs-tool-btn-' + name);
+    if (btn) { btn.style.background = 'var(--bg3)'; btn.style.color = 'var(--text)'; btn.style.borderColor = 'var(--border)'; }
+    csActiveTool = null;
+    return;
+  }
+  // Close any open panel first
+  if (csActiveTool) {
+    document.getElementById('cs-tool-panel-' + csActiveTool).style.display = 'none';
+    const old = document.getElementById('cs-tool-btn-' + csActiveTool);
+    if (old) { old.style.background = 'var(--bg3)'; old.style.color = 'var(--text)'; old.style.borderColor = 'var(--border)'; }
+  }
+  // Open selected panel
+  const panel = document.getElementById('cs-tool-panel-' + name);
+  const btn   = document.getElementById('cs-tool-btn-' + name);
+  if (panel) panel.style.display = 'block';
+  if (btn)  {
+    btn.style.background = name === 'vehicles' ? 'rgba(245,158,11,.15)'
+      : name === 'audit' ? 'rgba(124,58,237,.15)' : 'rgba(0,196,106,.15)';
+    btn.style.color = name === 'vehicles' ? '#f59e0b'
+      : name === 'audit' ? '#a78bfa' : 'var(--primary)';
+    btn.style.borderColor = name === 'vehicles' ? 'rgba(245,158,11,.4)'
+      : name === 'audit' ? 'rgba(124,58,237,.4)' : 'rgba(0,196,106,.4)';
+  }
+  csActiveTool = name;
+  // Auto-run audit when opening that panel
+  if (name === 'audit' && !csAuditData) csRunAudit();
+}
+
 // ── Selection helpers ─────────────────────────────────────────────────────────
 function csUpdateSelectionCount() {
   const checked = document.querySelectorAll('[id^="cs-chk-"]:not(#cs-chk-all):checked');
