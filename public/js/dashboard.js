@@ -4719,21 +4719,34 @@ async function csUpdateTaskCard(taskId, contactId) {
 }
 
 async function csCompleteFromCard(taskId, contactId, taskTitle, staffName, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  if (!contactId) { toast('No contact ID on this task — cannot complete'); return; }
+  if (!taskId)    { toast('No task ID — cannot complete'); return; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader" style="animation:spin .7s linear infinite"></i> Completing...'; }
+
   try {
     const res = await fetch(`/api/contacts/${contactId}/tasks/${taskId}/complete`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ completedBy: staffName, taskTitle }),
     });
-    if (!res.ok) throw new Error((await res.json()).error);
-    toast('✓ Task completed — note sent');
-    // Update in memory
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to complete task');
+
+    // ── Update in memory immediately ───────────────────────────────────────
     const t = csState.rawTasks.find(t => t.id === taskId);
-    if (t) t.completed = true;
-    setTimeout(() => { document.getElementById('cs-task-card-modal')?.remove(); csApplyFilter(); }, 500);
+    if (t) { t.completed = true; t.status = 'completed'; }
+    const t2 = (tbState.tasks || []).find(t => t.id === taskId);
+    if (t2) { t2.completed = true; t2.status = 'completed'; }
+
+    toast('✓ Task completed');
+    if (btn) { btn.innerHTML = '✓ Completed!'; btn.style.background = 'rgba(0,196,106,.2)'; btn.style.color = 'var(--green)'; btn.style.border = '1px solid rgba(0,196,106,.4)'; }
+    setTimeout(() => {
+      document.getElementById('cs-task-card-modal')?.remove();
+      csApplyFilter(); // re-render board — task moves to Completed section
+    }, 600);
   } catch(e) {
-    if (btn) { btn.disabled = false; btn.textContent = '✓ Complete'; }
-    toast('Error: ' + e.message);
+    console.error('Complete error:', e);
+    if (btn) { btn.disabled = false; btn.innerHTML = '✓ Complete'; }
+    toast('Error completing task: ' + e.message);
   }
 }
 
