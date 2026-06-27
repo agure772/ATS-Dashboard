@@ -3,14 +3,52 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ATS — Admin Truck Solutions</title>
+<title>ATS — Admin Truck Solutions | Compliance Portal</title>
+<meta name="description" content="Admin Truck Solutions internal compliance portal — manage FMCSA, IRP, IFTA, UCR, and permit filings for carrier clients.">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:title" content="ATS Compliance Portal">
+<meta property="og:description" content="Internal compliance dashboard for Admin Truck Solutions.">
+<meta property="og:type" content="website">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <link rel="stylesheet" href="css/dashboard.css">
+<style>
+  /* Accessibility: skip navigation link */
+  .skip-link {
+    position: absolute;
+    top: -48px;
+    left: 0;
+    background: #000;
+    color: #fff;
+    padding: 10px 16px;
+    z-index: 99999;
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 0 0 8px 0;
+    text-decoration: none;
+    transition: top .15s;
+  }
+  .skip-link:focus { top: 0; }
+  /* Screen-reader only utility */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
 </head>
 <body>
+
+<!-- Skip to main content (accessibility) -->
+<a href="#main-content" class="skip-link">Skip to main content</a>
 
 <div class="shell">
   <!-- ── Sidebar ─────────────────────────────────── -->
@@ -22,7 +60,7 @@
         <div class="logo-sub">Compliance Portal</div>
       </div>
     </div>
-    <nav>
+    <nav role="navigation" aria-label="Primary navigation">
       <div class="nav-section">
         <div class="nav-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-dashboard"></i>Dashboard</button>
@@ -66,7 +104,7 @@
   </aside>
 
   <!-- ── Main ───────────────────────────────────── -->
-  <main class="main">
+  <main class="main" id="main-content" role="main">
     <div class="topbar">
       <div>
         <div class="topbar-title" id="page-title">Dashboard</div>
@@ -74,10 +112,10 @@
       </div>
       <div class="search-box">
         <i class="ti ti-search"></i>
-        <input id="global-search" placeholder="Search clients..." oninput="handleSearch(this.value)">
+        <input id="global-search" placeholder="Search clients..." aria-label="Search clients" oninput="handleSearch(this.value)">
       </div>
-      <button class="topbar-btn btn-ghost" onclick="refreshData()"><i class="ti ti-refresh"></i>Sync GHL</button>
-      <button class="topbar-btn btn-primary" onclick="openAddClient()"><i class="ti ti-plus"></i>Add Client</button>
+      <button class="topbar-btn btn-ghost" onclick="refreshData()" aria-label="Sync with GoHighLevel"><i class="ti ti-refresh"></i>Sync GHL</button>
+      <button class="topbar-btn btn-primary" onclick="openAddClient()" aria-label="Add new client"><i class="ti ti-plus"></i>Add Client</button>
     </div>
 
     <!-- ── Loading state ── -->
@@ -181,7 +219,7 @@
               </div>
               <select id="tag-filter" onchange="setTagFilter(this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:5px 10px;color:var(--text);font-size:12px;cursor:pointer;max-width:160px"></select>
               <button class="tbl-btn" onclick="exportCSV()"><i class="ti ti-download"></i>Export</button>
-              <button class="tbl-btn primary" onclick="openAddClient()"><i class="ti ti-plus"></i>Add Client</button>
+              <button class="tbl-btn primary" onclick="openAddClient()" aria-label="Add new client"><i class="ti ti-plus"></i>Add Client</button>
             </div>
           </div>
           <div class="scroll-wrap">
@@ -326,7 +364,7 @@
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
           <div style="position:relative;flex:1;min-width:220px">
             <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px"></i>
-            <input id="tb-search" type="text" placeholder="Search tasks & opportunities..."
+            <input id="tb-search" type="text" placeholder="Search tasks & opportunities..." aria-label="Search tasks and opportunities"
               autocomplete="off" oninput="tbApplyFilters()"
               style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
                      border-radius:8px;padding:8px 12px 8px 34px;font-size:13px;box-sizing:border-box">
@@ -425,7 +463,7 @@
           <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
             <div style="position:relative">
               <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px"></i>
-              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..."
+              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..." aria-label="Search CS tasks"
                 oninput="csApplyFilter()"
                 style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px 8px 32px;font-size:13px;width:200px">
             </div>
@@ -768,7 +806,7 @@
           <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
             <div style="position:relative">
               <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px"></i>
-              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..."
+              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..." aria-label="Search CS tasks"
                 oninput="csApplyFilter()"
                 style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
                        padding:8px 12px 8px 32px;font-size:13px;width:200px">
