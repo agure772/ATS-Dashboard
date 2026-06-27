@@ -1422,18 +1422,36 @@ app.post('/api/contacts/:id/tags', async (req, res) => {
   fetchAllClients().catch(e => console.log('⚠️  Pre-load failed:', e.message));
 
   app.listen(PORT, () => {
-    console.log(`\n✅ Server ready — open your browser:`);
-    console.log(`   http://localhost:${PORT}\n`);
-    console.log(`   (First load takes ~30s for 1000+ contacts, then instant from cache)\n`);
+    console.log(`\n✅ Server ready on port ${PORT}`);
+
+    // ── Startup cache warm-up ─────────────────────────────────────────────
+    // Immediately begin building the tasks board cache in the background.
+    // This mirrors how the Compliance Grid works — data is ready before the
+    // first user arrives, so the Tasks Board loads instantly like the grid.
+    console.log('🔄 Starting background cache warm-up...');
+    Promise.all([
+      // Warm contacts cache (used by Dashboard + Compliance Grid)
+      fetchAllClients().catch(e => console.log('Contact warm-up error:', e.message)),
+      // Warm tasks board cache (used by Tasks Board + CS Board) — starts 8s
+      // after contacts to avoid competing for GHL rate limits
+      new Promise(resolve => setTimeout(() => {
+        buildTasksBoardData()
+          .then(data => {
+            tasksBoardCache = { data, ts: Date.now() };
+            console.log(`✅ Tasks board cache warm — ${data.tasks?.length || 0} tasks, ${data.users?.length || 0} staff`);
+          })
+          .catch(e => console.log('Tasks warm-up error:', e.message))
+          .finally(resolve);
+      }, 8000)),
+    ]);
 
     // ── Keep-alive ping — prevents Render free tier from spinning down ──────
-    // Pings the server every 14 minutes so it stays warm
     if (process.env.RENDER_EXTERNAL_URL) {
       const pingUrl = process.env.RENDER_EXTERNAL_URL + '/api/health';
       setInterval(() => {
         fetch(pingUrl).then(() => console.log('⚡ Keep-alive ping sent'))
                       .catch(e => console.log('Keep-alive ping failed:', e.message));
-      }, 14 * 60 * 1000); // every 14 minutes
+      }, 14 * 60 * 1000);
       console.log(`🔔 Keep-alive active → pinging ${pingUrl} every 14 min`);
     }
   });
