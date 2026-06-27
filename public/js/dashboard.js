@@ -189,6 +189,22 @@ async function loadClients() {
       updateUrgentBadge();
       showLoading(false);
       logActivity('sync', `Synced <strong>${state.clients.length}</strong> clients from GoHighLevel`);
+
+      // ── Background warm-up: silently pre-fetch tasks-board so Tasks Board loads instantly ──
+      setTimeout(() => {
+        fetch('/api/tasks-board')
+          .then(r => r.json())
+          .then(data => {
+            if (data.tasks && data.users) {
+              tbState.tasks  = data.tasks;
+              tbState.users  = (data.users || []).filter(u => !u.deleted);
+              tbState.loaded = true;
+              console.log(`✓ Tasks pre-loaded in background: ${tbState.tasks.length} tasks, ${tbState.users.length} staff`);
+            }
+          })
+          .catch(() => {}); // fully silent — never affects the user
+      }, 3000); // wait 3s so dashboard render isn't affected
+
       return;
     } catch (err) {
       if (attempt < 8) {
@@ -3733,7 +3749,44 @@ async function csCreateIntakeTask(contactId, companyName) {
 let csAuditData = null;
 
 // ── Run audit client-side from already-loaded state.clients ──────────────────
-function csRunAudit() {
+const CS_AUDIT_CACHE_KEY = 'ats_audit_cache';
+const CS_AUDIT_TTL       = 60 * 60 * 1000; // 1 hour
+
+function csShowCachedAudit() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(CS_AUDIT_CACHE_KEY) || 'null');
+    if (cached && cached.data && (Date.now() - cached.ts) < CS_AUDIT_TTL) {
+      csAuditData = cached.data;
+      csRenderAudit(cached.data);
+      const area = document.getElementById('cs-audit-results');
+      if (area) {
+        const ageMin = Math.round((Date.now() - cached.ts) / 60000);
+        const ageBar = document.createElement('div');
+        ageBar.style.cssText = 'font-size:10px;color:var(--text3);margin-bottom:10px;display:flex;align-items:center;gap:8px;padding:6px 0';
+        ageBar.innerHTML = `<i class="ti ti-clock"></i> Results from ${ageMin}m ago &nbsp;·&nbsp;
+          <button onclick="csRunAudit(true)" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:10px;text-decoration:underline;padding:0">Refresh now</button>`;
+        area.prepend(ageBar);
+      }
+      return true; // cache hit
+    }
+  } catch(e) {}
+  // No cache — show prompt
+  const area = document.getElementById('cs-audit-results');
+  if (area && !area.innerHTML.trim()) {
+    area.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">
+      Click <strong style="color:var(--text)">Run Audit</strong> to scan Advanced &amp; Recurring contacts for missing info.
+      <div style="font-size:11px;margin-top:6px;opacity:.6">Results cache for 1 hour — no auto-scan on open</div>
+    </div>`;
+  }
+  return false;
+}
+
+function csRunAudit(force = false) {
+  if (!force && csShowCachedAudit()) return; // use cache if fresh
+  csRunAuditFull(); // run fresh scan
+}
+
+function csRunAuditFull() {
   const btn  = document.getElementById('cs-audit-btn');
   const area = document.getElementById('cs-audit-results');
 
@@ -3773,6 +3826,10 @@ function csRunAudit() {
 
   issues.sort((a,b) => b.missing.length - a.missing.length);
   csAuditData = { total: clients.length, totalAll: allClients.length, issues, issueCount: issues.length };
+  // Cache results for 1 hour
+  try {
+    localStorage.setItem(CS_AUDIT_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: csAuditData }));
+  } catch(e) {}
   csRenderAudit(csAuditData);
 }
 
@@ -4079,8 +4136,8 @@ function csTool(name) {
       : name === 'audit' ? 'rgba(124,58,237,.4)' : 'rgba(0,196,106,.4)';
   }
   csActiveTool = name;
-  // Auto-run audit when opening that panel
-  if (name === 'audit' && !csAuditData) csRunAudit();
+  // Show cached audit results if available (no auto-run — user clicks Run Audit)
+  if (name === 'audit') csShowCachedAudit();
 }
 
 // ── Selection helpers ─────────────────────────────────────────────────────────
