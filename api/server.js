@@ -1026,16 +1026,29 @@ app.put('/api/contacts/:contactId/tasks/:taskId', async (req, res) => {
   const { contactId, taskId } = req.params;
   const { title, body, dueDate, assignedTo, completed } = req.body;
   try {
-    const payload = {};
-    if (title      !== undefined) payload.title      = title;
-    if (body       !== undefined) payload.body        = body;
-    if (dueDate    !== undefined) payload.dueDate     = dueDate;
-    if (assignedTo !== undefined) payload.assignedTo  = assignedTo;
-    if (completed  !== undefined) payload.completed   = completed;
+    // Fetch current task to merge fields — GHL requires title + dueDate in all updates
+    let current = {};
+    try {
+      const td = await ghl('GET', `${V2}/contacts/${contactId}/tasks/${taskId}`);
+      current = td.task || td || {};
+    } catch(e) { console.log('Could not pre-fetch task for update:', e.message); }
+
+    // Build payload merging current fields with requested changes
+    const payload = {
+      title:      title      !== undefined ? title      : (current.title || 'CS Task'),
+      body:       body       !== undefined ? body       : (current.body || current.description || ''),
+      dueDate:    dueDate    !== undefined ? dueDate    : (current.dueDate || new Date(Date.now()+86400000).toISOString()),
+      assignedTo: assignedTo !== undefined ? assignedTo : (current.assignedTo || undefined),
+    };
+    if (completed !== undefined) payload.completed = completed;
+
     const data = await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, payload);
-    tasksBoardCache = { data: null, ts: 0 }; // bust cache
+    tasksBoardCache = { data: null, ts: 0 };
     res.json({ success: true, task: data });
-  } catch(err) { res.status(500).json({ error: err.message }); }
+  } catch(err) {
+    console.error('Task update error:', err.message, err.data || '');
+    res.status(500).json({ error: err.data?.message || err.message });
+  }
 });
 
 
