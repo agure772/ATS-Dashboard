@@ -2650,6 +2650,62 @@ function tbShowItemDetail(data) {
 
     const modalBox = modal.querySelector('div');
     if (modalBox) modalBox.appendChild(portalSection);
+
+    // ── Fetch & display vehicles for NY/NM permit tasks ────────────────────
+    const isPermitTask = matchedPortals.some(p =>
+      p.keys.some(k => ['ny permit','ny permits','nm permit','nm permits','oscar'].includes(k))
+    );
+    if (isPermitTask && data.contactId) {
+      const vehSection = document.createElement('div');
+      vehSection.style.cssText = 'margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden';
+      vehSection.innerHTML = `
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.08em"><i class="ti ti-truck" style="color:var(--primary);margin-right:4px"></i>VEHICLES ON FILE</div>
+          <div id="tb-veh-count" style="font-size:10px;color:var(--text3)">Loading...</div>
+        </div>
+        <div id="tb-veh-list" style="padding:10px 14px;font-size:12px;color:var(--text3)">
+          <i class="ti ti-loader" style="animation:spin .8s linear infinite"></i>
+        </div>`;
+      if (modalBox) modalBox.appendChild(vehSection);
+
+      fetch('/api/contacts/' + data.contactId + '/vehicles')
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+          const vehs = res.vehicles || [];
+          const countEl = document.getElementById('tb-veh-count');
+          const listEl  = document.getElementById('tb-veh-list');
+          if (countEl) countEl.textContent = vehs.length + ' vehicle' + (vehs.length !== 1 ? 's' : '');
+          if (!listEl) return;
+          if (!vehs.length) {
+            listEl.innerHTML = '<span style="color:var(--text3)">No vehicles found for this contact. Check Render logs for API debug info.</span>';
+            return;
+          }
+          listEl.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' +
+            vehs.map(function(v) {
+              function cell(label, val) {
+                if (!val) return '';
+                return '<div style="min-width:80px"><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">' + label + '</div>' +
+                  '<div style="font-weight:700;color:var(--text);font-size:12px;margin-top:1px;display:flex;align-items:center;gap:4px">' + val +
+                  '<button onclick="navigator.clipboard.writeText(this.previousSibling.textContent||\x27' + String(val).replace(/'/g,"\'") + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" ' +
+                  'style="background:none;border:1px solid var(--border);border-radius:3px;padding:0 4px;cursor:pointer;font-size:9px;color:var(--text3);flex-shrink:0">📋</button></div></div>';
+              }
+              return '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:10px 12px">' +
+                (v.unit ? '<div style="font-size:10px;font-weight:800;color:var(--primary);margin-bottom:8px">UNIT ' + v.unit + '</div>' : '') +
+                '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+                cell('Year', v.year) +
+                cell('Make', v.make) +
+                cell('Model', v.model) +
+                cell('VIN', v.vin) +
+                cell('Plate', v.plate) +
+                cell('State', v.state) +
+                '</div></div>';
+            }).join('') + '</div>';
+        })
+        .catch(function() {
+          const listEl = document.getElementById('tb-veh-list');
+          if (listEl) listEl.innerHTML = '<span style="color:var(--text3)">Could not load vehicles.</span>';
+        });
+    }
   }
 }
 
