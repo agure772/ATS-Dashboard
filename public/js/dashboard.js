@@ -3703,6 +3703,17 @@ async function csSubmitTask() {
   if (!title) { status.innerHTML = '<span style="color:var(--red)">⚠ Please describe what needs to be done</span>'; return; }
   if (!assignee) assignee = csNextAssignee() || '';
 
+  // ── Duplicate guard ───────────────────────────────────────────────────────
+  const existingM = csFindOpenTask(csAddSelectedContact.id);
+  if (existingM) {
+    status.innerHTML = '<span style="color:var(--yellow)">⚠ This contact already has an open CS task — opening it</span>';
+    setTimeout(() => {
+      document.getElementById('cs-add-modal')?.remove();
+      csOpenTaskCard(existingM);
+    }, 900);
+    return;
+  }
+
   status.innerHTML = '<span style="color:var(--text3)">Creating CS task...</span>';
   try {
     const res = await fetch(`/api/contacts/${csAddSelectedContact.id}/tasks`, {
@@ -4048,7 +4059,26 @@ async function csToggleLicense(contactId, name, currentlyHas) {
 }
 
 // ── Create CS task from audit row ─────────────────────────────────────────────
+
+// ── Duplicate CS task guard ────────────────────────────────────────────────────
+function csFindOpenTask(contactId) {
+  if (!contactId || !csState.rawTasks) return null;
+  return csState.rawTasks.find(t =>
+    (t.contactId || t.contact_id) === contactId &&
+    !t.completed &&
+    t.status !== 'completed'
+  ) || null;
+}
+
 async function csCreateAuditTask(contactId, name, bizName) {
+  // ── Duplicate guard ───────────────────────────────────────────────────────
+  const existing = csFindOpenTask(contactId);
+  if (existing) {
+    toast('⚠ Already has an open CS task — opening it');
+    csOpenTaskCard(existing);
+    return;
+  }
+
   const selectEl  = document.getElementById(`cs-assignee-${contactId}`);
   const assigneeId = (selectEl && selectEl.value) ? selectEl.value : csNextAssignee();
   const assigneeName = (csState.allStaff.find(s => s.id === assigneeId) ||
@@ -4198,6 +4228,16 @@ async function csCreateSelectedTasks() {
     const title = `${CS_PREFIX} Update Missing Info — ${displayName}`;
     const body  = missingList.length ? `Please update:\n${missingList.map(m=>`• ${m}`).join('\n')}` : 'Please update contact info in GHL.';
     try {
+      // Dupe check — open existing task instead of creating new one
+      const existingT = csFindOpenTask(contactId);
+      if (existingT) {
+        console.log(`Skipped duplicate CS task for contact ${contactId}`);
+        chk.checked = false;
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--yellow)">⚠ ${displayName} already has an open task — skipped</span>`;
+        await new Promise(r => setTimeout(r, 60));
+        continue;
+      }
+
       const res = await fetch(`/api/contacts/${contactId}/tasks`, {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ title, body, assignedTo: assigneeId||undefined,
