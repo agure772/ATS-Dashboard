@@ -540,15 +540,15 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
     const customFields = [
       info.dot_number  && { id: 'E5MJr7vstJWSi59CxAbK', field_value: parseInt(info.dot_number) || info.dot_number },
       mcNum            && { id: 'twbBzamze4MVgetPLoSA',  field_value: parseInt(mcNum) || mcNum },
-      einNum           && { id: 'fr4t6AA1aM8dRhb7Pj3R',  field_value: info.ein },
+      einNum           && { id: 'fr4t6AA1aM8dRhb7Pj3R',  field_value: einNum },
       info.mcs150_year && { id: 'kmBR6gFRCxd0ZPFEXGz7',  field_value: parseInt(info.mcs150_year) },
       info.mcs150_mileage && { id: 'jzsQ29O684sLc2i5YE3e', field_value: parseInt(String(info.mcs150_mileage).replace(/,/g,'')) || 0 },
       info.mcs150_year && { id: 'u9LKMEGxjlhZGsUuhSRE',  field_value: parseInt(info.mcs150_year) },
       unitVal          && { id: 'ZK43DBIa2Nwqt8Wr7Fw3',  field_value: unitVal },
       info.power_units && { id: '0ckZ9VuFRCMao83FJKUQ',   field_value: String(info.power_units) },
       info.drivers     && { id: '6CvAenSFl04oBvhmbeEW',   field_value: String(info.drivers) },
-      info.physical_address && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.physical_address },
-      info.mailing_address  && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address },
+      // Use mailing_address only — physical_address shares same field ID which causes duplicate rejection
+      (info.mailing_address || info.physical_address) && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address || info.physical_address },
       osVal            && { id: 'Tx9uGn4hrVwJKv6EheCJ',  field_value: osVal },
     ].filter(Boolean);
 
@@ -1012,6 +1012,93 @@ app.put('/api/contacts/:contactId/tasks/:taskId', async (req, res) => {
     tasksBoardCache = { data: null, ts: 0 }; // bust cache
     res.json({ success: true, task: data });
   } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+
+// ── Permit login info from GHL custom fields ──────────────────────────────────
+let customFieldsSchemaCache = null;
+let customFieldsSchemaTTL  = 0;
+
+async function getCustomFieldsSchema() {
+  const now = Date.now();
+  if (customFieldsSchemaCache && now - customFieldsSchemaTTL < 60 * 60 * 1000) {
+    return customFieldsSchemaCache;
+  }
+  try {
+    const data = await ghl('GET', `${V2}/locations/${LOC_ID}/customFields`);
+    customFieldsSchemaCache = (data.customFields || []).reduce((acc, f) => {
+      acc[f.id] = f.name || f.label || '';
+      return acc;
+    }, {});
+    customFieldsSchemaTTL = now;
+    return customFieldsSchemaCache;
+  } catch(e) {
+    console.error('Custom fields schema fetch failed:', e.message);
+    return {};
+  }
+}
+
+app.get('/api/contacts/:id/permit-info', async (req, res) => {
+  try {
+    const [contactData, schema] = await Promise.all([
+      ghl('GET', `${V2}/contacts/${req.params.id}`),
+      getCustomFieldsSchema(),
+    ]);
+    const contact = contactData.contact || contactData;
+    const cf = contact.customFields || [];
+
+    // Build label→value map (case-insensitive label matching)
+    const fields = {};
+    cf.forEach(f => {
+      const label = (schema[f.id] || '').toLowerCase().trim();
+      const val   = f.value || f.fieldValue || '';
+      if (val) fields[label] = val;
+    });
+
+    // Extract permit sections by label keywords
+    const findField = (...keywords) => {
+      for (const kw of keywords) {
+        const match = Object.entries(fields).find(([k]) => k.includes(kw.toLowerCase()));
+        if (match) return match[1];
+      }
+      return null;
+    };
+
+    const parseCredBlock = (text) => {
+      if (!text) return null;
+      const clean = String(text).replace(/<[^>]+>/g, ' ');
+      const dotM  = clean.match(/DOT#?\s*[:\-]?\s*(\d+)/i);
+      const einM  = clean.match(/EIN#?\s*[:\-]?\s*(\d+)/i);
+      const pinM  = clean.match(/Password\s*(?:PIN|PIN#?)?\s*[:\-]?\s*(\S+)/i);
+      const userM = clean.match(/Username\s*[:\-]?\s*(\S+)/i);
+      const passM = clean.match(/Password\s*[:\-]?\s*(\S+)/i);
+      const typeM = clean.match(/Account\s*Type\s*[-:]\s*(.+?)(?:
+|$)/i);
+      const emailM= clean.match(/([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/);
+      return {
+        raw:      clean,
+        dot:      dotM?.[1]  || null,
+        ein:      einM?.[1]  || null,
+        pin:      pinM?.[1]  || null,
+        username: userM?.[1] || null,
+        password: passM?.[1] || null,
+        type:     typeM?.[1]?.trim() || null,
+        email:    emailM?.[1] || null,
+      };
+    };
+
+    res.json({
+      nyPermit:  parseCredBlock(findField('ny permit login', 'ny permit')),
+      nyFiling:  parseCredBlock(findField('ny filing login', 'ny filing')),
+      nmPermit:  parseCredBlock(findField('nm permit login', 'nm permit')),
+      ctPermit:  parseCredBlock(findField('ct permit login', 'ct permit')),
+      kyuLogin:  parseCredBlock(findField('kyu login', 'kyu account')),
+      allFields: fields, // raw for debugging
+    });
+  } catch(err) {
+    console.error('permit-info error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
