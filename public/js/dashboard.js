@@ -1407,9 +1407,10 @@ function tbGetItemStatus(item, isTask) {
 
 // ── Portal links — matched against task title keywords ────────────────────────
 const PORTAL_LINKS = [
+  { keys:['ny filing','new york filing'],                                label:'NY Filing Portal',        url:'https://www.oscar.ny.gov/OSCR/OSCRCarrierHome',                                                                                                                                                                                                                   color:'#3b82f6', fetchNotes:true },
   { keys:['ny permit','ny permits','2026 ny','oscar','new york permit'], label:'NY Oscar Portal',         url:'https://www.oscar.ny.gov/OSCR/OSCRCarrierHome',                                                                                                                                                                                                                   color:'#0076cc', fetchNotes:true },
   { keys:['kyu'],                                                         label:'KY Motor Carrier Portal', url:'https://apps.transportation.ky.gov/motorcarrierportal/Home.aspx?clear',                                                                                                                                                                                          color:'#3b82f6' },
-  { keys:['nm permit','nm permits','new mexico permit'],                  label:'NM TAP Portal',           url:'https://tap.state.nm.us/Tap/_/',                                                                                                                                                                                                                                 color:'#8b5cf6' },
+  { keys:['nm permit','nm permits','new mexico permit'],                  label:'NM TAP Portal',           url:'https://tap.state.nm.us/Tap/_/',                                                                                                                                                                                                                                 fetchNotes:true,                                                                                                                                                                                                                                 color:'#8b5cf6' },
   { keys:['ct permit','ct permits','connecticut'],                        label:'CT DRS eServices',        url:'https://drs.ct.gov/eservices/_/#0',                                                                                                                                                                                                                              color:'#06b6d4' },
   { keys:['mn filing','minnesota filing','biz name'],                    label:'MN SOS Business Search',  url:'https://mblsportal.sos.mn.gov/Business/Search',                                                                                                                                                                                                                  color:'#10b981' },
   { keys:['nebraska','ne filing','ne irp','nebraska irp'],                label:'Nebraska SOS eDocs',      url:'https://www.nebraska.gov/apps-sos-edocs/',                                                                                                                                                                                                                       color:'#f59e0b' },
@@ -2581,37 +2582,56 @@ function tbShowItemDetail(data) {
           '</div>';
         portalSection.appendChild(div);
 
-        fetch('/api/contacts/' + data.contactId + '/notes')
+        // Fetch credentials from GHL custom fields (not notes)
+        const tl = (data.title || '').toLowerCase();
+        const isNYFiling = tl.includes('ny filing') || tl.includes('new york filing');
+        const isNMPermit = tl.includes('nm permit') || tl.includes('new mexico permit');
+        const sectionKey = isNYFiling ? 'nyFiling' : isNMPermit ? 'nmPermit' : 'nyPermit';
+
+        fetch('/api/contacts/' + data.contactId + '/permit-info')
           .then(function(r){ return r.json(); })
           .then(function(res) {
-            const notes = res.notes || [];
-            let dot = '', ein = '', pin = '', found = false;
-            notes.forEach(function(n) {
-              const body = (n.body || n.text || '').replace(/<[^>]+>/g, ' ');
-              if (/NY.Oscar|Oscar.NY|NY.Permit/i.test(body)) {
-                found = true;
-                const dotM = body.match(/DOT#?\s*[:\-]?\s*(\d+)/i);
-                const einM = body.match(/EIN#?\s*[:\-]?\s*(\d+)/i);
-                const pinM = body.match(/Password\s*(?:PIN)?\s*[:\-]?\s*(\w+)/i);
-                if (dotM && !dot) dot = dotM[1];
-                if (einM && !ein) ein = einM[1];
-                if (pinM && !pin) pin = pinM[1];
-              }
-            });
             const el = document.getElementById('tb-ny-notes-content');
             if (!el) return;
-            if (!found) { el.textContent = 'No NY Oscar note found in GHL notes.'; return; }
+            const info = res[sectionKey];
+            if (!info || (!info.dot && !info.ein && !info.pin && !info.username && !info.password && !info.email)) {
+              el.innerHTML = '<span style="color:var(--text3)">' + (isNYFiling ? 'No NY Filing Login found on this contact.' : 'No NY Permit Login found on this contact.') + '</span>';
+              return;
+            }
+            function credRow(label, value, amber) {
+              if (!value) return '';
+              const col = amber ? '#f59e0b' : 'var(--text)';
+              const bg  = amber ? 'rgba(245,158,11,.08)' : 'var(--bg3)';
+              const bdr = amber ? '1px solid rgba(245,158,11,.2)' : '1px solid var(--border)';
+              const btnStyle = amber
+                ? 'background:none;border:1px solid rgba(245,158,11,.3);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px;color:#f59e0b'
+                : 'background:none;border:1px solid var(--border);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px';
+              const safeVal = String(value).replace(/'/g, "\'");
+              return '<div style="display:flex;align-items:center;justify-content:space-between;background:' + bg + ';border:' + bdr + ';border-radius:7px;padding:7px 10px">' +
+                '<span style="color:' + (amber ? '#f59e0b' : 'var(--text3)') + ';font-size:11px;font-weight:' + (amber ? '700' : '400') + '">' + label + '</span>' +
+                '<span style="font-weight:' + (amber ? '800' : '700') + ';color:' + col + ';font-size:13px;display:flex;align-items:center;gap:6px">' + value +
+                '<button onclick="navigator.clipboard.writeText(\x27' + safeVal + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="' + btnStyle + '">📋</button>' +
+                '</span></div>';
+            }
             let html = '<div style="display:flex;flex-direction:column;gap:6px">';
-            if (dot) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:7px;padding:7px 10px"><span style="color:var(--text3);font-size:11px">DOT#</span><span style="font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:6px">' + dot + '<button onclick="navigator.clipboard.writeText(\x27' + dot + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px">📋</button></span></div>';
-            if (ein) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:7px;padding:7px 10px"><span style="color:var(--text3);font-size:11px">EIN#</span><span style="font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:6px">' + ein + '<button onclick="navigator.clipboard.writeText(\x27' + ein + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="background:none;border:1px solid var(--border);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px">📋</button></span></div>';
-            if (pin) html += '<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:7px;padding:7px 10px"><span style="color:#f59e0b;font-size:11px;font-weight:700">Password PIN</span><span style="font-weight:800;color:#f59e0b;font-size:14px;display:flex;align-items:center;gap:6px">' + pin + '<button onclick="navigator.clipboard.writeText(\x27' + pin + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" style="background:none;border:1px solid rgba(245,158,11,.3);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:10px;color:#f59e0b">📋</button></span></div>';
-            if (!dot && !ein && !pin) html += '<span>Found NY note but could not parse details.</span>';
+            if (isNYFiling) {
+              html += credRow('Account Type', info.type);
+              html += credRow('Username', info.username || info.email);
+              html += credRow('Password', info.password, true);
+            } else if (isNMPermit) {
+              html += credRow('Email / Username', info.email || info.username);
+              html += credRow('Password', info.password || info.pin, true);
+            } else {
+              html += credRow('DOT#', info.dot);
+              html += credRow('EIN#', info.ein);
+              html += credRow('Password PIN', info.pin, true);
+            }
             html += '</div>';
             el.innerHTML = html;
           })
           .catch(function(err) {
             const el = document.getElementById('tb-ny-notes-content');
-            if (el) { el.style.color = 'var(--red)'; el.textContent = 'Error loading notes: ' + (err.message||'failed'); }
+            if (el) { el.style.color = 'var(--red)'; el.textContent = 'Error: ' + (err.message||'failed'); }
           });
       } else {
         // Regular portal — show link button + credentials if any
