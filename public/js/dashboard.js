@@ -50,6 +50,22 @@ const state = {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  // ── Immediate background warm-up ─────────────────────────────────────────
+  // Fire as soon as page loads — doesn't wait for clients or anything else.
+  // Server returns cached data instantly if available; only waits on cold start.
+  (function warmUpTasksBoard() {
+    fetch('/api/tasks-board')
+      .then(r => r.json())
+      .then(data => {
+        if (data.tasks && data.users) {
+          tbState.tasks  = data.tasks;
+          tbState.users  = (data.users || []).filter(u => !u.deleted);
+          tbState.loaded = true;
+          console.log(`✓ Tasks warm: ${tbState.tasks.length} tasks, ${tbState.users.length} staff`);
+        }
+      })
+      .catch(() => {}); // silent — never affects UI
+  })();
   setupNav();
   renderDeadlines();
   checkHealth();
@@ -189,21 +205,6 @@ async function loadClients() {
       updateUrgentBadge();
       showLoading(false);
       logActivity('sync', `Synced <strong>${state.clients.length}</strong> clients from GoHighLevel`);
-
-      // ── Background warm-up: silently pre-fetch tasks-board so Tasks Board loads instantly ──
-      setTimeout(() => {
-        fetch('/api/tasks-board')
-          .then(r => r.json())
-          .then(data => {
-            if (data.tasks && data.users) {
-              tbState.tasks  = data.tasks;
-              tbState.users  = (data.users || []).filter(u => !u.deleted);
-              tbState.loaded = true;
-              console.log(`✓ Tasks pre-loaded in background: ${tbState.tasks.length} tasks, ${tbState.users.length} staff`);
-            }
-          })
-          .catch(() => {}); // fully silent — never affects the user
-      }, 3000); // wait 3s so dashboard render isn't affected
 
       return;
     } catch (err) {
