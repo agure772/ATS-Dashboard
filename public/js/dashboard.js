@@ -5295,7 +5295,8 @@ function tbRenderUnassigned() {
 
   let unassignedTasks = tbState.tasks.filter(t => isUnassigned(t) && isATS(t));
   let unassignedOpps  = tbState.opps.filter(o =>
-    (!o.assignedTo || o.assignedTo === '') && isATS(o)
+    (!o.assignedTo || o.assignedTo === '') && isATS(o) &&
+    !(o.stageName || '').toLowerCase().includes('complet')
   );
 
   // Apply type filter
