@@ -117,8 +117,9 @@ async function loadPipelines() {
     const d = await ghl('GET', `${V2}/opportunities/pipelines?locationId=${LOC_ID}`);
     (d.pipelines||[]).forEach(p => {
       const stages = {};
-      (p.stages||[]).forEach(s => { stages[s.name] = s.id; });
-      pipelineCache[p.name] = { id: p.id, stages };
+      const pid = p.id || p._id || p.pipelineId;
+      (p.stages||[]).forEach(s => { stages[s.name] = s.id || s._id || s.stageId; });
+      pipelineCache[p.name] = { id: pid, stages };
     });
     console.log(`✅ ${Object.keys(pipelineCache).length} pipelines loaded`);
   } catch(e) {
@@ -745,6 +746,23 @@ async function buildTasksBoardData() {
   oppsData.forEach(o => { if (o.assignedTo && o.ownerName) userMap[o.assignedTo] = o.ownerName; });
   oppsData.forEach(o => { if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo]; });
 
+  // Ensure pipeline cache is populated (re-fetch if empty)
+  if (Object.keys(pipelineCache).length === 0) {
+    console.log('⚠ pipelineCache empty — fetching pipelines now...');
+    try {
+      const d = await ghl('GET', `${V2}/opportunities/pipelines?locationId=${LOC_ID}`);
+      (d.pipelines||[]).forEach(p => {
+        const stages = {};
+        const pid = p.id || p._id || p.pipelineId;
+        (p.stages||[]).forEach(s => { stages[s.name] = s.id || s._id || s.stageId; });
+        pipelineCache[p.name] = { id: pid, stages };
+      });
+      console.log(`✅ Pipelines loaded on-demand: ${Object.keys(pipelineCache).length}`);
+    } catch(e) {
+      console.error('Pipeline fetch failed:', e.message);
+    }
+  }
+
   // Build reverse lookup: pipelineId -> pipelineName, stageId -> stageName
   const pipelineIdToName = {};
   const stageIdToName = {};
@@ -754,6 +772,14 @@ async function buildTasksBoardData() {
       stageIdToName[sId] = sName;
     });
   });
+
+  // Log first opp to verify pipelineId fields exist
+  if (oppsData.length > 0) {
+    const sample = oppsData[0];
+    console.log(`🔍 Sample opp: pipelineId="${sample.pipelineId}" pipelineStageId="${sample.pipelineStageId}" name="${sample.name}"`);
+    console.log(`🔍 pipelineIdToName keys: ${Object.keys(pipelineIdToName).slice(0,3).join(', ')}`);
+    console.log(`🔍 Resolved: pipelineName="${pipelineIdToName[sample.pipelineId]||'NOT FOUND'}" stageName="${stageIdToName[sample.pipelineStageId]||'NOT FOUND'}"`);
+  }
 
   // Enrich opportunities with contact info (name, company, tags, phone, email, DOT#)
   oppsData.forEach(o => {
