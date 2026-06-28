@@ -2872,7 +2872,7 @@ function tbShowItemDetail(data) {
           if (countEl) countEl.textContent = vehs.length + ' vehicle' + (vehs.length !== 1 ? 's' : '');
           if (!listEl) return;
           if (!vehs.length) {
-            listEl.innerHTML = '<span style="color:var(--text3)">No vehicles found for this contact. Check Render logs for API debug info.</span>';
+            listEl.innerHTML = '<span style="color:var(--text3)">No vehicles found for this contact.</span>';
             return;
           }
           listEl.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' +
@@ -2881,16 +2881,24 @@ function tbShowItemDetail(data) {
                 if (!val) return '';
                 return '<div style="min-width:80px"><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">' + label + '</div>' +
                   '<div style="font-weight:700;color:var(--text);font-size:12px;margin-top:1px;display:flex;align-items:center;gap:4px">' + val +
-                  '<button onclick="navigator.clipboard.writeText(this.previousSibling.textContent||\x27' + String(val).replace(/'/g,"\'") + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" ' +
+                  '<button onclick="navigator.clipboard.writeText(\x27' + String(val).replace(/'/g,"\\'") + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" ' +
                   'style="background:none;border:1px solid var(--border);border-radius:3px;padding:0 4px;cursor:pointer;font-size:9px;color:var(--text3);flex-shrink:0">📋</button></div></div>';
               }
+              var srcLabel = v.source === 'custom_object' ? 'Vehicle Manager' : (v.source === 'association' || v.source === 'assoc_records') ? 'Associations' : '';
+              var statusColor = (v.status||'').toLowerCase() === 'active' ? 'var(--green)' : '#f59e0b';
               return '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:10px 12px">' +
-                (v.unit ? '<div style="font-size:10px;font-weight:800;color:var(--primary);margin-bottom:8px">UNIT ' + v.unit + '</div>' : '') +
+                '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
+                (v.unit ? '<div style="font-size:10px;font-weight:800;color:var(--primary)">UNIT ' + v.unit + '</div>' : '<div></div>') +
+                '<div style="display:flex;align-items:center;gap:5px">' +
+                (v.status ? '<span style="font-size:9px;font-weight:700;color:' + statusColor + ';background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.2);border-radius:4px;padding:1px 6px">' + v.status + '</span>' : '') +
+                (v.type ? '<span style="font-size:9px;color:#94a3b8;background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.2);border-radius:4px;padding:1px 6px">' + v.type + '</span>' : '') +
+                (srcLabel ? '<span style="font-size:8px;color:var(--text3);opacity:.5">' + srcLabel + '</span>' : '') +
+                '</div></div>' +
                 '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+                cell('VIN', v.vin) +
                 cell('Year', v.year) +
                 cell('Make', v.make) +
                 cell('Model', v.model) +
-                cell('VIN', v.vin) +
                 cell('Plate', v.plate) +
                 cell('State', v.state) +
                 '</div></div>';
