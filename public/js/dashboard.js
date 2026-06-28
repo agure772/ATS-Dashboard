@@ -1467,6 +1467,9 @@ function tbInit() {
             ${s.name} (${sc} staff)
           </option>`;
         }).join('')}
+        <option value="__unassigned__" ${'__unassigned__' === tbState.selectedSup ? 'selected' : ''}>
+          ⚠ Unassigned (Advance & Recurring)
+        </option>
       </select>
       <button onclick="tbOpenAdmin()" title="Admin: manage supervisors"
         style="background:var(--bg3);border:1px solid var(--border);color:var(--text3);
@@ -1643,6 +1646,9 @@ function tbRender() {
   const grid  = document.getElementById('tb-staff-grid');
   const label = document.getElementById('tb-team-label');
   if (!grid) return;
+
+  // Special unassigned view
+  if (tbState.selectedSup === '__unassigned__') { tbRenderUnassigned(); return; }
 
   const supUser  = tbState.users.find(u => u.id === tbState.selectedSup);
   const supColor = tbSupColor(tbState.selectedSup);
@@ -5264,6 +5270,203 @@ async function vmSaveVehicle(recordId, contactId) {
     }, 700);
   } catch(e) {
     if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
+
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// UNASSIGNED TASKS & OPPORTUNITIES VIEW
+// ═════════════════════════════════════════════════════════════════════════════
+
+function tbRenderUnassigned() {
+  const grid  = document.getElementById('tb-staff-grid');
+  const label = document.getElementById('tb-team-label');
+  if (!grid) return;
+
+  // Filter to unassigned items (no assigneeId / assignedTo)
+  const isUnassigned = t => !t.assigneeId && !t.assignedTo && !t.assignedUserId && !t.userId && !t.owner;
+
+  // Only show ATS Advance + Recurring contacts
+  const isATS = item => {
+    const tags = (item.customerTags || []).map(t => String(t).toLowerCase());
+    return tags.some(t => t.includes('advance') || t.includes('recurring'));
+  };
+
+  let unassignedTasks = tbState.tasks.filter(t => isUnassigned(t) && isATS(t));
+  let unassignedOpps  = tbState.opps.filter(o =>
+    (!o.assignedTo || o.assignedTo === '') && isATS(o)
+  );
+
+  // Apply type filter
+  let items = [];
+  if (tbState.filterType !== 'opps')  unassignedTasks.forEach(t => {
+    if (tbItemMatchesSearch(t, true)) items.push({...t, _type:'task', _status:tbGetItemStatus(t,true), _staffName:'Unassigned'});
+  });
+  if (tbState.filterType !== 'tasks') unassignedOpps.forEach(o => {
+    if (tbItemMatchesSearch(o, false)) items.push({...o, _type:'opp', _status:tbGetItemStatus(o,false), _staffName:'Unassigned'});
+  });
+
+  // Apply status filter
+  if (tbState.filterStatus !== 'all') items = items.filter(i => i._status === tbState.filterStatus);
+
+  // Sort newest first
+  items.sort((a,b) => {
+    const statusOrder = {overdue:0,open:1,completed:2,lost:3};
+    const sd = (statusOrder[a._status]||1) - (statusOrder[b._status]||1);
+    if (sd !== 0) return sd;
+    return new Date(b.dueDate||b.dateAdded||0) - new Date(a.dueDate||a.dateAdded||0);
+  });
+
+  // Stats
+  const overdueCount = items.filter(i => i._status === 'overdue').length;
+  const openCount    = items.filter(i => i._status === 'open').length;
+  const doneCount    = items.filter(i => i._status === 'completed').length;
+
+  if (label) label.textContent = `UNASSIGNED — ATS ADVANCE & RECURRING CONTACTS`;
+
+  // Update stats display
+  const statsEl = document.getElementById('tb-stats');
+  if (statsEl) statsEl.innerHTML = `
+    <div class="stat-box"><i class="ti ti-list-check"></i><div><div class="stat-num">${items.length}</div><div class="stat-lbl">Total Unassigned</div></div></div>
+    <div class="stat-box urgent"><i class="ti ti-alert-triangle"></i><div><div class="stat-num">${overdueCount}</div><div class="stat-lbl">Overdue</div></div></div>
+    <div class="stat-box open"><i class="ti ti-clock"></i><div><div class="stat-num">${openCount}</div><div class="stat-lbl">Open</div></div></div>
+    <div class="stat-box done"><i class="ti ti-circle-check"></i><div><div class="stat-num">${doneCount}</div><div class="stat-lbl">Completed</div></div></div>`;
+
+  if (!items.length) {
+    grid.innerHTML = `<div style="text-align:center;padding:60px;color:var(--text3);grid-column:1/-1">
+      <i class="ti ti-circle-check" style="font-size:40px;color:var(--green);opacity:.4;display:block;margin-bottom:12px"></i>
+      <div style="font-size:15px;font-weight:700;color:var(--text)">No unassigned items!</div>
+      <div style="font-size:12px;margin-top:6px">All tasks and opportunities for ATS Advance & Recurring contacts have been assigned.</div>
+    </div>`;
+    return;
+  }
+
+  // Group by contact
+  const byContact = {};
+  items.forEach(item => {
+    const name = item.contactName || item.companyName || item.contactPhone || 'Unknown';
+    if (!byContact[name]) byContact[name] = { name, dotNumber: item.dotNumber || '', items: [] };
+    byContact[name].items.push(item);
+  });
+
+  grid.innerHTML = `
+    <div style="grid-column:1/-1">
+      <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
+        <i class="ti ti-alert-triangle" style="color:#f59e0b;font-size:16px;flex-shrink:0"></i>
+        <div style="font-size:12px;color:var(--text2)">
+          <strong>${items.length} unassigned item${items.length!==1?'s':''}</strong> for ATS Advance & Recurring contacts.
+          Click <strong>↑ Assign</strong> on any item to assign it to a staff member.
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${Object.values(byContact).map(contact => `
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+            <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg3)">
+              <div style="width:30px;height:30px;border-radius:8px;background:rgba(0,196,106,.12);color:var(--green);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                ${(contact.name||'?').slice(0,2).toUpperCase()}
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:700;color:var(--text)">${contact.name}</div>
+                ${contact.dotNumber ? `<div style="font-size:11px;color:var(--text3)">DOT# ${contact.dotNumber}</div>` : ''}
+              </div>
+              <div style="margin-left:auto;font-size:11px;color:var(--text3)">${contact.items.length} item${contact.items.length!==1?'s':''}</div>
+            </div>
+            <div style="display:flex;flex-direction:column">
+              ${contact.items.map(item => {
+                const isTask = item._type === 'task';
+                const isOvr  = item._status === 'overdue';
+                const isDone = item._status === 'completed';
+                const statusDot = isDone ? 'var(--green)' : isOvr ? '#ef4444' : '#f59e0b';
+                const displayTitle = (item.title||item.name||'').replace(/^\[CS\]\s*/,'');
+                const due = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}) : '';
+                const isNewItem = item.id && !tbGetViewedTasks().has(item.id);
+                return `<div style="padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px">
+                  <div style="width:6px;height:6px;border-radius:50%;background:${statusDot};flex-shrink:0"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                      ${displayTitle}
+                      ${isNewItem ? '<span style="font-size:9px;background:rgba(0,196,106,.2);color:var(--primary);border:1px solid rgba(0,196,106,.5);padding:1px 5px;border-radius:3px;font-weight:800">NEW</span>' : ''}
+                    </div>
+                    <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;align-items:center;gap:8px">
+                      <span style="background:rgba(124,58,237,.12);color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700">${isTask?'TASK':'OPP'}</span>
+                      ${due ? `<span style="color:${isOvr?'#ef4444':'var(--text3)'}">Due: ${due}</span>` : ''}
+                    </div>
+                  </div>
+                  <button onclick="tbQuickAssign('${item.id||''}','${isTask}','${item.contactId||''}')"
+                    style="background:rgba(0,196,106,.12);color:var(--green);border:1px solid rgba(0,196,106,.3);
+                           border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">
+                    ↑ Assign
+                  </button>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+// Quick assign modal for unassigned items
+function tbQuickAssign(itemId, isTask, contactId) {
+  document.getElementById('tb-quick-assign-modal')?.remove();
+  const staffPool = tbState.users.length ? tbState.users : ATS_STAFF_FALLBACK;
+
+  const modal = document.createElement('div');
+  modal.id = 'tb-quick-assign-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9900;display:flex;align-items:center;justify-content:center';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:380px;max-width:95vw">
+      <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:16px">Assign to Staff</div>
+      <div style="display:flex;flex-direction:column;gap:8px" id="qa-staff-list">
+        ${staffPool.map(u => `
+          <button onclick="tbDoQuickAssign('${itemId}','${isTask}','${contactId}','${u.id}','${u.name.replace(/'/g,"\\'")}',this.parentElement.parentElement.parentElement)"
+            style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                   padding:10px 14px;font-size:13px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:10px">
+            <div style="width:28px;height:28px;border-radius:8px;background:rgba(0,196,106,.12);color:var(--green);font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              ${u.name.split(' ').map(w=>w[0]).join('').slice(0,2)}
+            </div>
+            ${u.name}
+          </button>`).join('')}
+      </div>
+      <button onclick="document.getElementById('tb-quick-assign-modal').remove()"
+        style="margin-top:12px;width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text3);border-radius:9px;padding:9px;cursor:pointer;font-size:13px">
+        Cancel
+      </button>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function tbDoQuickAssign(itemId, isTask, contactId, userId, userName, modal) {
+  const isTaskBool = isTask === 'true' || isTask === true;
+  try {
+    if (isTaskBool) {
+      const res = await fetch(`/api/contacts/${contactId}/tasks/${itemId}/assign`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ assignedTo: userId }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+    } else {
+      const res = await fetch(`/api/opportunities/${itemId}/assign`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ assignedTo: userId }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+    }
+    // Remove from tbState
+    if (isTaskBool) {
+      const t = tbState.tasks.find(t => t.id === itemId);
+      if (t) { t.assigneeId = userId; t.assignedTo = userId; }
+    } else {
+      const o = tbState.opps.find(o => o.id === itemId);
+      if (o) o.assignedTo = userId;
+    }
+    modal?.remove();
+    toast(`✓ Assigned to ${userName}`);
+    tbRenderUnassigned(); // refresh the unassigned view
+  } catch(e) {
+    toast('Error assigning: ' + e.message);
   }
 }
 
