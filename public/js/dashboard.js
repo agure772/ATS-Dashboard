@@ -5379,7 +5379,12 @@ function tbRenderUnassigned() {
                 const isOvr  = item._status === 'overdue';
                 const isDone = item._status === 'completed';
                 const statusDot = isDone ? 'var(--green)' : isOvr ? '#ef4444' : '#f59e0b';
-                const displayTitle = (item.title||item.name||'').replace(/^\[CS\]\s*/,'');
+                const displayTitle = isTask
+                  ? (item.title||'Untitled Task').replace(/^\[CS\]\s*/,'')
+                  : (item.pipelineName || item.name || 'Opportunity');
+                const subDetail = isTask
+                  ? (item.body ? `<span style="color:var(--text3);font-style:italic">${item.body.slice(0,80)}${item.body.length>80?'…':''}</span>` : '')
+                  : (item.stageName ? `<span style="background:rgba(99,102,241,.12);color:#818cf8;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700">Stage: ${item.stageName}</span>` : '');
                 const due = item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}) : '';
                 const isNewItem = item.id && !tbGetViewedTasks().has(item.id);
                 return `<div style="padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px">
@@ -5389,8 +5394,9 @@ function tbRenderUnassigned() {
                       ${displayTitle}
                       ${isNewItem ? '<span style="font-size:9px;background:rgba(0,196,106,.2);color:var(--primary);border:1px solid rgba(0,196,106,.5);padding:1px 5px;border-radius:3px;font-weight:800">NEW</span>' : ''}
                     </div>
-                    <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;align-items:center;gap:8px">
+                    <div style="font-size:11px;color:var(--text3);margin-top:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                       <span style="background:rgba(124,58,237,.12);color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700">${isTask?'TASK':'OPP'}</span>
+                      ${subDetail}
                       ${due ? `<span style="color:${isOvr?'#ef4444':'var(--text3)'}">Due: ${due}</span>` : ''}
                     </div>
                   </div>
