@@ -199,52 +199,103 @@
       </div>
 
       <!-- COMPLIANCE GRID PAGE -->
-      <div id="page-compliance" class="page">
-        <div class="table-card">
-          <div class="table-topbar">
-            <div class="table-title"><i class="ti ti-table"></i>2026 compliance status</div>
-            <div class="table-actions">
-              <div class="filter-chips" id="filter-chips">
-                <button class="chip active" onclick="setFilter(this,'all')">All</button>
-                <button class="chip" onclick="setFilter(this,'done')"><i class="ti ti-circle-check"></i> Complete</button>
-                <button class="chip" onclick="setFilter(this,'pending')"><i class="ti ti-clock"></i> Pending</button>
-                <button class="chip" onclick="setFilter(this,'urgent')"><i class="ti ti-alert-triangle"></i> Urgent</button>
-              </div>
-              <div class="filter-chips" id="group-chips" style="margin-left:8px;border-left:1px solid var(--border);padding-left:8px">
-                <button class="chip active" onclick="setGroup(this,'all')">All columns</button>
-                <button class="chip" onclick="setGroup(this,'annual')">2026 Annual</button>
-                <button class="chip" onclick="setGroup(this,'ifta')">IFTA</button>
-                <button class="chip" onclick="setGroup(this,'onboard')">Onboarding</button>
-                <button class="chip" onclick="setGroup(this,'other')">Other</button>
-              </div>
-              <select id="tag-filter" onchange="setTagFilter(this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:5px 10px;color:var(--text);font-size:12px;cursor:pointer;max-width:160px"></select>
-              <button class="tbl-btn" onclick="exportCSV()"><i class="ti ti-download"></i>Export</button>
-              <button class="tbl-btn primary" onclick="openAddClient()" aria-label="Add new client"><i class="ti ti-plus"></i>Add Client</button>
+      <div id="page-compliance" class="page" style="padding:24px;max-width:1200px;margin:0 auto">
+
+        <!-- ── Header ───────────────────────────────────────────────────────── -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+          <div>
+            <div style="font-size:24px;font-weight:800;color:var(--text);letter-spacing:-.5px">
+              Compliance <span style="color:var(--primary)">overview</span>
             </div>
+            <div id="comp-subtitle" style="font-size:13px;color:var(--text3);margin-top:3px">2026 Filing Season</div>
           </div>
-          <div class="scroll-wrap">
-            <table id="compliance-table">
-              <thead>
-                <tr>
-                  <th class="sticky-col">Company</th>
-                  <th>Score</th>
-                  <th>2290</th>
-                  <th>UCR</th>
-                  <th>Biz Name</th>
-                  <th>IFTA Lic</th>
-                  <th>IRP Cab</th>
-                  <th>MCS-150</th>
-                  <th>Clearinghouse</th>
-                  <th>NM Permit</th>
-                  <th>NY Permit</th>
-                </tr>
-              </thead>
-              <tbody id="compliance-tbody"></tbody>
-            </table>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button onclick="exportCSV()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px"><i class="ti ti-download"></i> Export</button>
+            <button onclick="openAddClient()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px"><i class="ti ti-plus"></i> Add Client</button>
           </div>
-          <div class="add-row" onclick="openAddClient()">
-            <i class="ti ti-plus"></i>Add a client
+        </div>
+
+        <!-- ── Stats bar ─────────────────────────────────────────────────────── -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+          <div id="comp-stat-carriers" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(0,196,106,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-truck" style="color:var(--green);font-size:18px"></i>
+            </div>
+            <div><div id="stat-carriers-num" style="font-size:28px;font-weight:800;color:var(--text);line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">TRACKED CARRIERS</div></div>
           </div>
+          <div id="comp-stat-urgent" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-alert-triangle" style="color:#ef4444;font-size:18px"></i>
+            </div>
+            <div><div id="stat-urgent-num" style="font-size:28px;font-weight:800;color:#ef4444;line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">URGENT / DUE</div></div>
+          </div>
+          <div id="comp-stat-ontrack" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-shield-check" style="color:#3b82f6;font-size:18px"></i>
+            </div>
+            <div><div id="stat-ontrack-pct" style="font-size:28px;font-weight:800;color:#3b82f6;line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">ON-TRACK</div></div>
+          </div>
+        </div>
+
+        <!-- ── Segment tabs ──────────────────────────────────────────────────── -->
+        <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-right:4px">SEGMENT</span>
+          <button onclick="setSegmentFilter(this,'all')" id="seg-btn-all"
+            style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">
+            Customers <span id="seg-count-all">—</span>
+          </button>
+          <button onclick="setSegmentFilter(this,'advance')" id="seg-btn-advance"
+            style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">
+            ATS Advance <span id="seg-count-advance">—</span>
+          </button>
+          <button onclick="setSegmentFilter(this,'recurring')" id="seg-btn-recurring"
+            style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">
+            ATS Recurring <span id="seg-count-recurring">—</span>
+          </button>
+        </div>
+
+        <!-- ── List toolbar ──────────────────────────────────────────────────── -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <div id="comp-count" style="font-size:12px;color:var(--text3);white-space:nowrap">— contacts</div>
+          <div style="position:relative;flex:1;min-width:200px">
+            <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px;pointer-events:none"></i>
+            <input id="comp-search" type="text" autocomplete="off" placeholder="Search name, DOT#..."
+              oninput="compSearch(this.value)"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 12px 7px 32px;font-size:12px;box-sizing:border-box">
+          </div>
+          <select id="tag-filter" onchange="setTagFilter(this.value)"
+            style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:12px;cursor:pointer;max-width:160px"></select>
+          <div style="display:flex;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px">
+            <button onclick="setFilter(this,'all')" id="comp-filt-all"
+              style="background:var(--primary);color:#0a1a0f;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">All</button>
+            <button onclick="setFilter(this,'urgent')" id="comp-filt-urgent"
+              style="background:transparent;color:var(--text3);border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer">Urgent</button>
+            <button onclick="setFilter(this,'done')" id="comp-filt-done"
+              style="background:transparent;color:var(--text3);border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer">On-track</button>
+          </div>
+          <!-- hidden group-chips kept for JS compatibility -->
+          <div id="group-chips" style="display:none">
+            <button class="chip active" onclick="setGroup(this,'all')">All columns</button>
+            <button class="chip" onclick="setGroup(this,'annual')">2026 Annual</button>
+            <button class="chip" onclick="setGroup(this,'ifta')">IFTA</button>
+            <button class="chip" onclick="setGroup(this,'onboard')">Onboarding</button>
+            <button class="chip" onclick="setGroup(this,'other')">Other</button>
+          </div>
+          <div id="filter-chips" style="display:none">
+            <button class="chip active" onclick="setFilter(this,'all')">All</button>
+          </div>
+        </div>
+
+        <!-- ── Client list ───────────────────────────────────────────────────── -->
+        <div id="compliance-list" style="display:flex;flex-direction:column;gap:6px"></div>
+
+        <!-- kept for CSV export compatibility -->
+        <table id="compliance-table" style="display:none"><thead><tr></tr></thead><tbody id="compliance-tbody"></tbody></table>
+
+        <div style="margin-top:12px">
+          <button onclick="openAddClient()" style="width:100%;background:var(--bg2);border:1px dashed var(--border);color:var(--text3);border-radius:10px;padding:12px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+            <i class="ti ti-plus"></i> Add a client
+          </button>
         </div>
       </div>
 
