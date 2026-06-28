@@ -732,28 +732,63 @@ function renderComplianceTable() {
     // Status dot color
     const dotColor = hasUrgent ? '#ef4444' : done === SERVICES.length ? 'var(--green)' : '#f59e0b';
 
-    // Expanded service items
+    // Helper to make a service pill
+    const makePill = (s) => {
+      const st  = client.cells[s.key] || 'pending';
+      const opp = client.oppIndex?.[s.key];
+      const stColors = {
+        done:    { bg:'rgba(0,196,106,.12)', col:'var(--green)', bdr:'rgba(0,196,106,.3)' },
+        pending: { bg:'rgba(245,158,11,.08)', col:'#f59e0b',     bdr:'rgba(245,158,11,.25)' },
+        urgent:  { bg:'rgba(239,68,68,.12)', col:'#ef4444',      bdr:'rgba(239,68,68,.3)' },
+      };
+      const c2   = stColors[st] || stColors.pending;
+      const icon = st==='done' ? '✓' : st==='urgent' ? '⚠' : '○';
+      return `<div onclick="event.stopPropagation();openCellModal('${client.id}','${encName}','${s.key}','${s.label}','${st}','${opp?.id||''}')"
+        title="${s.label} — ${st}"
+        style="background:${c2.bg};border:1px solid ${c2.bdr};color:${c2.col};
+               border-radius:7px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;
+               display:flex;align-items:center;gap:5px;white-space:nowrap">
+        <span style="font-size:10px">${icon}</span>${s.short}
+      </div>`;
+    };
+
+    // Service categories for card view
+    // Onboard (Step1/2/3) removed; Prorate + IFTA Audit in full details only
+    const CARD_HIDDEN = new Set(['new_company_setup','prorate_account','clearinghouse_setup','new_prorate_account','ifta_audit']);
+    const annualSvcs  = SERVICES.filter(s => s.group === 'annual');
+    const iftaSvcs    = SERVICES.filter(s => s.group === 'ifta');
+    const otherSvcs   = SERVICES.filter(s => s.group !== 'annual' && s.group !== 'ifta' && !CARD_HIDDEN.has(s.key));
+
+    // IFTA summary badge for the toggle button
+    const iftaDone    = iftaSvcs.filter(s => client.cells[s.key] === 'done').length;
+    const iftaUrgent  = iftaSvcs.some(s => client.cells[s.key] === 'urgent');
+    const iftaBadgeC  = iftaUrgent ? '#ef4444' : iftaDone === iftaSvcs.length ? 'var(--green)' : '#f59e0b';
+
     const expandedHtml = `
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
-        ${visibleServices.map(s => {
-          const st  = client.cells[s.key] || 'pending';
-          const opp = client.oppIndex?.[s.key];
-          const stColors = {
-            done:    { bg:'rgba(0,196,106,.12)', col:'var(--green)',  bdr:'rgba(0,196,106,.3)' },
-            pending: { bg:'rgba(245,158,11,.1)', col:'#f59e0b',       bdr:'rgba(245,158,11,.3)' },
-            urgent:  { bg:'rgba(239,68,68,.12)', col:'#ef4444',        bdr:'rgba(239,68,68,.3)' },
-          };
-          const c2 = stColors[st] || stColors.pending;
-          const icon = st==='done' ? '✓' : st==='urgent' ? '⚠' : '○';
-          return `<div onclick="event.stopPropagation();openCellModal('${client.id}','${encName}','${s.key}','${s.label}','${st}','${opp?.id||''}')"
-            title="${s.label} — ${st}"
-            style="background:${c2.bg};border:1px solid ${c2.bdr};color:${c2.col};
-                   border-radius:7px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;
-                   display:flex;align-items:center;gap:5px;white-space:nowrap">
-            <span style="font-size:10px">${icon}</span>${s.short}
-          </div>`;
-        }).join('')}
+      <!-- Annual services -->
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+        ${annualSvcs.map(s => makePill(s)).join('')}
       </div>
+
+      <!-- IFTA Quarterly — collapsible -->
+      <div style="margin-bottom:10px">
+        <button onclick="event.stopPropagation();var p=this.nextElementSibling;p.style.display=p.style.display==='none'?'flex':'none';this.querySelector('.ifta-chev').style.transform=p.style.display!=='none'?'rotate(180deg)':'rotate(0deg)'"
+          style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);color:#f59e0b;
+                 border-radius:7px;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;
+                 display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <i class="ti ti-chart-bar" style="font-size:12px"></i>
+          IFTA Quarterly
+          <span style="font-size:10px;opacity:.7">${iftaDone}/${iftaSvcs.length}</span>
+          <i class="ti ti-chevron-down ifta-chev" style="font-size:12px;transition:transform .2s"></i>
+        </button>
+        <div style="display:none;flex-wrap:wrap;gap:6px">
+          ${iftaSvcs.map(s => makePill(s)).join('')}
+        </div>
+      </div>
+
+      <!-- Other services (BOI etc) — not onboard/prorate/audit -->
+      ${otherSvcs.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${otherSvcs.map(s => makePill(s)).join('')}</div>` : ''}
+
       <button onclick="event.stopPropagation();openCompanyPanel('${client.id}')"
         style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;
                padding:6px 14px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px">
