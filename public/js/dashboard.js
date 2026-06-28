@@ -623,51 +623,171 @@ function copyText(text) {
 }
 
 // ─── Compliance Table ─────────────────────────────────────────────────────────
+// ── Compliance new card-list renderer ────────────────────────────────────────
+let compExpandedIds = new Set(); // track which cards are expanded
+let compSegmentFilter = 'all';   // 'all' | 'advance' | 'recurring'
+let compSearchQuery   = '';
+
+function compSearch(q) {
+  compSearchQuery = (q || '').toLowerCase().trim();
+  applyFilter();
+}
+
+function setSegmentFilter(btn, seg) {
+  compSegmentFilter = seg;
+  // Update button styles
+  ['all','advance','recurring'].forEach(s => {
+    const b = document.getElementById('seg-btn-' + s);
+    if (!b) return;
+    if (s === seg) { b.style.background = 'var(--primary)'; b.style.color = '#0a1a0f'; b.style.border = 'none'; }
+    else { b.style.background = 'var(--bg3)'; b.style.color = 'var(--text)'; b.style.border = '1px solid var(--border)'; }
+  });
+  applyFilter();
+}
+
+function toggleCompCard(id) {
+  if (compExpandedIds.has(id)) compExpandedIds.delete(id);
+  else compExpandedIds.add(id);
+  const panel  = document.getElementById('comp-expand-' + id);
+  const chev   = document.getElementById('comp-chev-' + id);
+  if (panel) panel.style.display = compExpandedIds.has(id) ? 'block' : 'none';
+  if (chev)  chev.style.transform = compExpandedIds.has(id) ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
 function renderComplianceTable() {
   const visibleServices = state.groupFilter === 'all'
     ? SERVICES
     : SERVICES.filter(s => s.group === state.groupFilter);
 
-  const thead = document.querySelector('#compliance-table thead tr');
-  thead.innerHTML = `
-    <th class="sticky-col">Company</th>
-    <th>Score</th>
-    ${visibleServices.map(s => `<th title="${s.label}">${s.short}</th>`).join('')}
-  `;
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  const allClients = state.clients || [];
+  const advCount  = allClients.filter(c => (c.tags||[]).some(t => /advance/i.test(t))).length;
+  const recCount  = allClients.filter(c => (c.tags||[]).some(t => /recurring/i.test(t))).length;
 
-  document.getElementById('compliance-tbody').innerHTML = state.filtered.map(client => {
-    const allCells = SERVICES.map(s => client.cells[s.key] || 'pending');
-    const done     = allCells.filter(v => v === 'done').length;
-    const sc       = scoreColor(done, SERVICES.length);
-    const color    = clientColor(client.name);
-    const ini      = client.initials;
-    const tags     = (client.tags || []).slice(0, 2);
-    return `<tr data-id="${client.id}">
-      <td class="sticky-col">
-        <div class="co-cell" onclick="openCompanyPanel('${client.id}')" style="cursor:pointer">
-          <div class="co-avatar" style="background:${color}22;color:${color}">${ini}</div>
-          <div>
-            <div class="co-name">${client.name}</div>
-            <div class="co-mc">
-              ${tags.length ? tags.map(t => `<span class="row-tag">${t}</span>`).join('') : ''}
-              ${(client.oppTags||[]).slice(0,2).map(t => `<span class="row-tag" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.2)">${t}</span>`).join('')}
-              ${!tags.length && !(client.oppTags||[]).length ? '—' : ''}
-            </div>
+  const setSafe = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+  setSafe('seg-count-all',       allClients.length);
+  setSafe('seg-count-advance',   advCount);
+  setSafe('seg-count-recurring', recCount);
+
+  // Apply segment filter on top of existing state.filtered
+  let clients = state.filtered;
+  if (compSegmentFilter === 'advance')   clients = clients.filter(c => (c.tags||[]).some(t => /advance/i.test(t)));
+  if (compSegmentFilter === 'recurring') clients = clients.filter(c => (c.tags||[]).some(t => /recurring/i.test(t)));
+  if (compSearchQuery) clients = clients.filter(c =>
+    (c.name||'').toLowerCase().includes(compSearchQuery) ||
+    (c.dot_number||'').includes(compSearchQuery) ||
+    (c.business_name||'').toLowerCase().includes(compSearchQuery)
+  );
+
+  const urgentCount  = clients.filter(c => SERVICES.some(s => c.cells[s.key] === 'urgent')).length;
+  const onTrackCount = clients.filter(c => {
+    const done = SERVICES.filter(s => c.cells[s.key] === 'done').length;
+    return done / SERVICES.length >= 0.5;
+  }).length;
+  const onTrackPct = clients.length ? Math.round(onTrackCount / clients.length * 100) : 0;
+
+  setSafe('stat-carriers-num', clients.length);
+  setSafe('stat-urgent-num',   urgentCount);
+  setSafe('stat-ontrack-pct',  onTrackPct + '%');
+  setSafe('comp-count',        clients.length + ' of ' + allClients.length + ' contacts');
+  const sub = document.getElementById('comp-subtitle');
+  if (sub) sub.textContent = allClients.length + ' tracked customers · ' + (state.clients?.length || 0) + ' total in GoHighLevel';
+
+  // ── Client cards ──────────────────────────────────────────────────────────
+  const list = document.getElementById('compliance-list');
+  if (!list) return;
+
+  if (!clients.length) {
+    list.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);font-size:13px">No contacts match current filters</div>';
+    return;
+  }
+
+  list.innerHTML = clients.map(client => {
+    const done      = SERVICES.filter(s => client.cells[s.key] === 'done').length;
+    const hasUrgent = SERVICES.some(s => client.cells[s.key] === 'urgent');
+    const hasPending = SERVICES.some(s => !client.cells[s.key] || client.cells[s.key] === 'pending');
+    const sc        = scoreColor(done, SERVICES.length);
+    const color     = clientColor(client.name);
+    const isExp     = compExpandedIds.has(client.id);
+    const encName   = encodeURIComponent(client.name);
+    const tags      = (client.tags||[]).slice(0,3);
+
+    // Status dot color
+    const dotColor = hasUrgent ? '#ef4444' : done === SERVICES.length ? 'var(--green)' : '#f59e0b';
+
+    // Expanded service items
+    const expandedHtml = `
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+        ${visibleServices.map(s => {
+          const st  = client.cells[s.key] || 'pending';
+          const opp = client.oppIndex?.[s.key];
+          const stColors = {
+            done:    { bg:'rgba(0,196,106,.12)', col:'var(--green)',  bdr:'rgba(0,196,106,.3)' },
+            pending: { bg:'rgba(245,158,11,.1)', col:'#f59e0b',       bdr:'rgba(245,158,11,.3)' },
+            urgent:  { bg:'rgba(239,68,68,.12)', col:'#ef4444',        bdr:'rgba(239,68,68,.3)' },
+          };
+          const c2 = stColors[st] || stColors.pending;
+          const icon = st==='done' ? '✓' : st==='urgent' ? '⚠' : '○';
+          return `<div onclick="openCellModal('${client.id}','${encName}','${s.key}','${s.label}','${st}','${opp?.id||''}')"
+            title="${s.label} — ${st}"
+            style="background:${c2.bg};border:1px solid ${c2.bdr};color:${c2.col};
+                   border-radius:7px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;
+                   display:flex;align-items:center;gap:5px;white-space:nowrap">
+            <span style="font-size:10px">${icon}</span>${s.short}
+          </div>`;
+        }).join('')}
+      </div>
+      <button onclick="openCompanyPanel('${client.id}')"
+        style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;
+               padding:6px 14px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px">
+        <i class="ti ti-external-link"></i> View full details
+      </button>`;
+
+    return `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .15s"
+         onmouseover="this.style.borderColor='rgba(0,196,106,.25)'" onmouseout="this.style.borderColor='var(--border)'">
+      <!-- Card header — always visible -->
+      <div onclick="toggleCompCard('${client.id}')"
+        style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer">
+        <div style="width:36px;height:36px;border-radius:10px;background:${color}22;color:${color};
+                    font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          ${client.initials}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${client.name}
+            ${hasUrgent ? '<span style="background:#ef4444;color:#fff;border-radius:4px;padding:1px 7px;font-size:9px;font-weight:800;letter-spacing:.04em">DUE</span>' : ''}
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${client.dot_number ? '<span>DOT# ' + client.dot_number + '</span>' : ''}
+            ${tags.map(t => `<span style="background:rgba(0,196,106,.1);color:var(--green);border:1px solid rgba(0,196,106,.2);border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700;text-transform:uppercase">${t}</span>`).join('')}
           </div>
         </div>
-      </td>
-      <td><span class="score-pill" style="background:${sc.bg};color:${sc.col}">${done}/${SERVICES.length}</span></td>
-      ${visibleServices.map(s => {
-        const st  = client.cells[s.key] || 'pending';
-        const opp = client.oppIndex?.[s.key];
-        const tip = opp ? `${s.label} · ${opp.stage || st}` : `${s.label} · no GHL opp yet`;
-        return `<td style="text-align:center">
-          <span class="cell-badge ${badgeClass(st)}" title="${tip}"
-            onclick="openCellModal('${client.id}','${encodeURIComponent(client.name)}','${s.key}','${s.label}','${st}','${opp?.id || ''}')">
-            ${badgeIcon(st)}
-          </span>
-        </td>`;
-      }).join('')}
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0"></div>
+            <span style="font-size:14px;font-weight:800;color:${sc.col}">${done}/${SERVICES.length}</span>
+          </div>
+          <i class="ti ti-chevron-down" id="comp-chev-${client.id}"
+            style="color:var(--text3);font-size:14px;transition:transform .2s;${isExp?'transform:rotate(180deg)':''}"></i>
+        </div>
+      </div>
+      <!-- Expanded detail -->
+      <div id="comp-expand-${client.id}" style="display:${isExp?'block':'none'};padding:12px 16px 14px;border-top:1px solid var(--border);background:var(--bg3)">
+        ${expandedHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Also keep hidden tbody for CSV export
+  document.getElementById('compliance-tbody').innerHTML = clients.map(client => {
+    const allCells = SERVICES.map(s => client.cells[s.key] || 'pending');
+    const done = allCells.filter(v => v === 'done').length;
+    const sc = scoreColor(done, SERVICES.length);
+    return `<tr data-id="${client.id}">
+      <td>${client.name}</td>
+      <td>${done}/${SERVICES.length}</td>
+      ${SERVICES.map(s => `<td>${client.cells[s.key]||'pending'}</td>`).join('')}
     </tr>`;
   }).join('');
 }
