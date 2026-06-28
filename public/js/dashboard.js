@@ -631,6 +631,7 @@ let compSearchQuery   = '';
 function compSearch(q) {
   compSearchQuery = (q || '').toLowerCase().trim();
   applyFilter();
+  renderComplianceTable();
 }
 
 function setSegmentFilter(btn, seg) {
@@ -639,10 +640,11 @@ function setSegmentFilter(btn, seg) {
   ['all','advance','recurring'].forEach(s => {
     const b = document.getElementById('seg-btn-' + s);
     if (!b) return;
-    if (s === seg) { b.style.background = 'var(--primary)'; b.style.color = '#0a1a0f'; b.style.border = 'none'; }
-    else { b.style.background = 'var(--bg3)'; b.style.color = 'var(--text)'; b.style.border = '1px solid var(--border)'; }
+    if (s === seg) { b.style.background = 'var(--primary)'; b.style.color = '#0a1a0f'; b.style.border = 'none'; b.style.fontWeight = '700'; }
+    else { b.style.background = 'var(--bg3)'; b.style.color = 'var(--text)'; b.style.border = '1px solid var(--border)'; b.style.fontWeight = '400'; }
   });
   applyFilter();
+  renderComplianceTable(); // re-render with new segment filter applied
 }
 
 function toggleCompCard(id) {
@@ -728,7 +730,7 @@ function renderComplianceTable() {
           };
           const c2 = stColors[st] || stColors.pending;
           const icon = st==='done' ? '✓' : st==='urgent' ? '⚠' : '○';
-          return `<div onclick="openCellModal('${client.id}','${encName}','${s.key}','${s.label}','${st}','${opp?.id||''}')"
+          return `<div onclick="event.stopPropagation();openCellModal('${client.id}','${encName}','${s.key}','${s.label}','${st}','${opp?.id||''}')"
             title="${s.label} — ${st}"
             style="background:${c2.bg};border:1px solid ${c2.bdr};color:${c2.col};
                    border-radius:7px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;
@@ -737,7 +739,7 @@ function renderComplianceTable() {
           </div>`;
         }).join('')}
       </div>
-      <button onclick="openCompanyPanel('${client.id}')"
+      <button onclick="event.stopPropagation();openCompanyPanel('${client.id}')"
         style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;
                padding:6px 14px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px">
         <i class="ti ti-external-link"></i> View full details
