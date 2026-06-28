@@ -471,6 +471,10 @@
             <button onclick="csOpenAddTask()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
               <i class="ti ti-plus"></i> Add CS Task
             </button>
+            <button onclick="csTool('audit');document.getElementById('cs-tool-panel-audit')?.scrollIntoView({behavior:'smooth',block:'start'})"
+              style="background:rgba(124,58,237,.12);color:#a78bfa;border:1px solid rgba(124,58,237,.35);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-zoom-scan"></i> Run Audit
+            </button>
             <button onclick="csRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
               <i class="ti ti-refresh"></i> Refresh
             </button>
