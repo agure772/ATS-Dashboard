@@ -288,6 +288,21 @@ function setFilter(el, mode) {
   state.filterMode = mode;
   document.querySelectorAll('#filter-chips .chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
+  // Update compact inline-styled filter buttons
+  const compMap = { all: 'comp-filt-all', urgent: 'comp-filt-urgent', done: 'comp-filt-done' };
+  Object.entries(compMap).forEach(([key, id]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (key === mode) {
+      btn.style.background = 'var(--primary)';
+      btn.style.color = '#0a1a0f';
+      btn.style.fontWeight = '700';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.color = 'var(--text3)';
+      btn.style.fontWeight = '400';
+    }
+  });
   applyFilter(); renderComplianceTable();
 }
 function setGroup(el, group) {
