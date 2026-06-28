@@ -1176,63 +1176,93 @@ async function getVehicleSchemaKey() {
 
 app.get('/api/contacts/:id/vehicles', async (req, res) => {
   const contactId = req.params.id;
-  try {
-    // Try to get vehicle records via associations
-    let vehicles = [];
 
-    // Method 1: Custom objects search
+  // Shared normalizer — works for both custom-object records and association records
+  function normalizeVehicle(v, source) {
+    const fields = v.properties || v.fields || v.customFields || {};
+    const get = (...keys) => {
+      for (const k of keys) {
+        // Direct property on fields object
+        if (fields[k] != null && fields[k] !== '') return String(fields[k]);
+        // Array of {key, value} field descriptors
+        if (Array.isArray(fields)) {
+          const found = fields.find(f =>
+            (f.key||f.name||f.fieldKey||'').toLowerCase().includes(k.toLowerCase())
+          );
+          if (found?.value != null && found.value !== '') return String(found.value);
+        }
+        // Top-level on the record itself (associations endpoint puts fields at root)
+        if (v[k] != null && v[k] !== '') return String(v[k]);
+      }
+      return null;
+    };
+    return {
+      id:     v.id || v.recordId || null,
+      vin:    get('vin', 'vin_number', 'vinNumber', 'VIN#', 'VIN'),
+      make:   get('make', 'manufacturer', 'brand'),
+      model:  get('model'),
+      year:   get('year', 'model_year', 'modelYear'),
+      plate:  get('plate', 'plate_number', 'plateNumber', 'license_plate', 'licensePlate'),
+      unit:   get('unit', 'unit_number', 'unitNumber', 'unit_no', 'Unit'),
+      state:  get('state', 'plate_state'),
+      type:   get('type', 'vehicle_type', 'vehicleType', 'Vehicle Type'),
+      status: get('status', 'Status'),
+      source,
+    };
+  }
+
+  try {
     const schemaKey = await getVehicleSchemaKey() || 'vehicles';
-    try {
-      const searchRes = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
+    const results = { method1: [], method2: [], method3: [] };
+
+    // Run all three sources in parallel
+    await Promise.allSettled([
+
+      // Source 1: Custom objects search (Vehicle Manager / left-nav vehicles)
+      ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
         locationId: LOC_ID,
         page: 1,
-        pageSize: 20,
+        pageSize: 50,
         filters: [{ field: 'contact', operator: '=', value: contactId }],
-      });
-      vehicles = searchRes?.records || searchRes?.data || [];
-    } catch(e1) {
-      // Method 2: Try fetching associations
-      try {
-        const assocRes = await ghl('GET', `${V2}/contacts/${contactId}/associations`);
-        const assocs = assocRes?.associations || assocRes?.data || [];
-        // Filter for vehicle-type associations
+      }).then(r => {
+        results.method1 = (r?.records || r?.data || []).map(v => normalizeVehicle(v, 'custom_object'));
+        console.log(`  Source 1 (custom objects): ${results.method1.length} records`);
+      }).catch(e => console.log('Source 1 failed:', e.message)),
+
+      // Source 2: Contact associations endpoint (Associations tab → Vehicles section)
+      ghl('GET', `${V2}/contacts/${contactId}/associations`).then(r => {
+        const assocs = r?.associations || r?.data || [];
         const vehicleAssocs = assocs.filter(a =>
-          /vehicle|tractor|truck/i.test(a.type || a.objectKey || '')
+          /vehicle|tractor|truck/i.test(a.type || a.objectKey || a.entityType || '')
         );
-        vehicles = vehicleAssocs.map(a => a.record || a).filter(Boolean);
-      } catch(e2) {
-        console.log('Both vehicle fetch methods failed:', e2.message);
-      }
+        results.method2 = vehicleAssocs.map(a => normalizeVehicle(a.record || a, 'association'));
+        console.log(`  Source 2 (associations): ${results.method2.length} records`);
+      }).catch(e => console.log('Source 2 failed:', e.message)),
+
+      // Source 3: Object records by association (fetches full records for each associated vehicle)
+      ghl('GET', `${V2}/contacts/${contactId}/associations/${schemaKey}`).then(r => {
+        const recs = r?.records || r?.data || r?.associations || [];
+        results.method3 = recs.map(v => normalizeVehicle(v, 'assoc_records'));
+        console.log(`  Source 3 (assoc records): ${results.method3.length} records`);
+      }).catch(e => console.log('Source 3 skipped:', e.message)),
+
+    ]);
+
+    // Merge all sources, deduplicate by VIN (or unit if no VIN)
+    const all = [...results.method1, ...results.method2, ...results.method3]
+      .filter(v => v.vin || v.unit || v.plate);
+
+    const seen = new Set();
+    const normalized = [];
+    for (const v of all) {
+      const key = (v.vin || v.unit || v.plate || '').toUpperCase().trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      normalized.push(v);
     }
 
-    // Normalize vehicle records to a common format
-    const normalized = vehicles.map(v => {
-      const fields = v.properties || v.fields || v.customFields || v;
-      const get = (...keys) => {
-        for (const k of keys) {
-          const val = fields[k] || (Array.isArray(fields) && fields.find(f =>
-            (f.key||f.name||f.fieldKey||'').toLowerCase().includes(k.toLowerCase())
-          )?.value);
-          if (val) return String(val);
-        }
-        return null;
-      };
-      return {
-        id:    v.id || v.recordId,
-        vin:   get('vin', 'vin_number', 'vinNumber', 'VIN'),
-        make:  get('make', 'manufacturer', 'brand'),
-        model: get('model'),
-        year:  get('year', 'model_year', 'modelYear'),
-        plate: get('plate', 'plate_number', 'plateNumber', 'license_plate', 'licensePlate'),
-        unit:  get('unit', 'unit_number', 'unitNumber', 'unit_no'),
-        state: get('state', 'plate_state'),
-        type:  get('type', 'vehicle_type', 'vehicleType'),
-        status:get('status'),
-      };
-    }).filter(v => v.vin || v.plate || v.unit);
-
-    console.log(`Vehicles for contact ${contactId}: ${normalized.length}`);
-    res.json({ vehicles: normalized, raw: vehicles.slice(0,2) });
+    console.log(`Vehicles for contact ${contactId}: ${normalized.length} (deduped from ${all.length} raw)`);
+    res.json({ vehicles: normalized, sources: { m1: results.method1.length, m2: results.method2.length, m3: results.method3.length } });
   } catch(err) {
     console.error('Vehicles fetch error:', err.message);
     res.status(500).json({ error: err.message, vehicles: [] });
