@@ -745,6 +745,16 @@ async function buildTasksBoardData() {
   oppsData.forEach(o => { if (o.assignedTo && o.ownerName) userMap[o.assignedTo] = o.ownerName; });
   oppsData.forEach(o => { if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo]; });
 
+  // Build reverse lookup: pipelineId -> pipelineName, stageId -> stageName
+  const pipelineIdToName = {};
+  const stageIdToName = {};
+  Object.entries(pipelineCache).forEach(([pName, p]) => {
+    pipelineIdToName[p.id] = pName;
+    Object.entries(p.stages).forEach(([sName, sId]) => {
+      stageIdToName[sId] = sName;
+    });
+  });
+
   // Enrich opportunities with contact info (name, company, tags, phone, email, DOT#)
   oppsData.forEach(o => {
     const cid = o.contactId || o.contact?.id;
@@ -759,6 +769,9 @@ async function buildTasksBoardData() {
     } else {
       o.dotNumber = extractDot(o.name);
     }
+    // Attach human-readable pipeline and stage names
+    o.pipelineName = pipelineIdToName[o.pipelineId] || '';
+    o.stageName    = stageIdToName[o.pipelineStageId] || '';
   });
 
   // Tasks — per contact, high concurrency batches
