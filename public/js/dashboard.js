@@ -59,9 +59,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       .then(data => {
         if (data.tasks && data.users) {
           tbState.tasks  = data.tasks;
+          tbState.opps   = data.opportunities || [];
           tbState.users  = (data.users || []).filter(u => !u.deleted);
           tbState.loaded = true;
-          console.log(`✓ Tasks warm: ${tbState.tasks.length} tasks, ${tbState.users.length} staff`);
+          console.log(`✓ Tasks warm: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} staff`);
         }
       })
       .catch(() => {}); // silent — never affects UI
