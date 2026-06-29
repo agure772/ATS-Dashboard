@@ -1370,6 +1370,138 @@ app.put('/api/vehicles/:recordId', async (req, res) => {
   }
 });
 
+// ── Driver Manager ────────────────────────────────────────────────────────────
+let driverSchemaKey = null;
+
+async function getDriverSchemaKey() {
+  if (driverSchemaKey) return driverSchemaKey;
+  try {
+    const data = await ghl('GET', `${V2}/objects/?locationId=${LOC_ID}`);
+    const objects = data.customObjects || data.objects || [];
+    const driverObj = objects.find(o =>
+      /driver/i.test(o.key || '') ||
+      /driver/i.test(o.name || o.label || '')
+    );
+    driverSchemaKey = driverObj?.key || null;
+    if (driverSchemaKey) console.log('Driver schema key found:', driverSchemaKey);
+    return driverSchemaKey;
+  } catch(e) {
+    console.error('Driver schema fetch error:', e.message);
+    return null;
+  }
+}
+
+// GET all drivers for a contact (via relations.recordId)
+app.get('/api/contacts/:id/drivers', async (req, res) => {
+  const contactId = req.params.id;
+  function normalizeDriver(v) {
+    const p = v.properties || {};
+    return {
+      id:         v.id || v.recordId || null,
+      license:    p['driver_license'] || p['license'] || p['license_number'] || null,
+      fullName:   p['full_name'] || p['name'] || p['driver_name'] || null,
+      dob:        p['dob'] || p['date_of_birth'] || p['dateOfBirth'] || null,
+      cdlExp:     p['cdl_exp'] || p['cdl_expiration'] || p['cdl_expiry'] || p['cdl_exp_date'] || null,
+      cdlUpload:  p['cdl_upload'] || p['cdl_file'] || null,
+    };
+  }
+  try {
+    const schemaKey = await getDriverSchemaKey();
+    if (!schemaKey) return res.json({ vehicles: [], drivers: [], error: 'Driver schema not found' });
+    let drivers = [];
+    let page = 1;
+    while (page <= 20) {
+      const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
+        locationId: LOC_ID, page, pageLimit: 100,
+      });
+      const recs = r?.records || r?.data || [];
+      if (!recs.length) break;
+      if (page === 1) {
+        console.log(`Driver search: contactId="${contactId}", page1 count=${recs.length}`);
+        if (recs[0]) console.log('Driver sample properties:', Object.keys(recs[0].properties || {}));
+      }
+      const matched = recs.filter(rec =>
+        (rec.relations || []).some(rel => rel.recordId === contactId)
+      );
+      drivers.push(...matched.map(v => normalizeDriver(v)));
+      if (recs.length < 100) break;
+      page++;
+    }
+    console.log(`Drivers for ${contactId}: ${drivers.length}`);
+    res.json({ drivers });
+  } catch(err) {
+    console.error('Drivers fetch error:', err.message);
+    res.status(500).json({ error: err.message, drivers: [] });
+  }
+});
+
+// POST create driver record
+app.post('/api/contacts/:contactId/drivers', async (req, res) => {
+  const { contactId } = req.params;
+  try {
+    const schemaKey = await getDriverSchemaKey();
+    if (!schemaKey) throw new Error('Driver schema not found');
+    const d = req.body;
+    const props = {};
+    if (d.license)  props.driver_license = d.license;
+    if (d.fullName) props.full_name      = d.fullName;
+    if (d.dob)      props.dob            = d.dob;
+    if (d.cdlExp)   props.cdl_exp        = d.cdlExp;
+    const payload = {
+      locationId:   LOC_ID,
+      properties:   props,
+      associations: [{ objectType: 'contact', id: contactId }],
+    };
+    const data = await ghl('POST', `${V2}/objects/${schemaKey}/records`, payload);
+    console.log(`✓ Driver created for contact ${contactId}`);
+    res.json({ success: true, record: data });
+  } catch(err) {
+    console.error('Driver create error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT update driver record
+app.put('/api/drivers/:recordId', async (req, res) => {
+  const { recordId } = req.params;
+  try {
+    const schemaKey = await getDriverSchemaKey();
+    if (!schemaKey) throw new Error('Driver schema not found');
+    const d = req.body;
+    const props = {};
+    if (d.license  !== undefined) props.driver_license = d.license;
+    if (d.fullName !== undefined) props.full_name      = d.fullName;
+    if (d.dob      !== undefined) props.dob            = d.dob;
+    if (d.cdlExp   !== undefined) props.cdl_exp        = d.cdlExp;
+    const data = await ghl('PUT', `${V2}/objects/${schemaKey}/records/${recordId}`, { properties: props });
+    console.log(`✓ Driver ${recordId} updated`);
+    res.json({ success: true, record: data });
+  } catch(err) {
+    console.error('Driver update error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: expose raw driver record structure
+app.get('/api/debug/drivers/:id', async (req, res) => {
+  const contactId = req.params.id;
+  const schemaKey = await getDriverSchemaKey();
+  const result = { schemaKey };
+  try {
+    const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
+      locationId: LOC_ID, page: 1, pageLimit: 3,
+    });
+    const recs = r?.records || r?.data || [];
+    result.sample = recs.map(rec => ({
+      id: rec.id,
+      properties: Object.keys(rec.properties || {}),
+      propertyValues: rec.properties,
+      relations: rec.relations,
+    }));
+  } catch(e) { result.error = e.message; }
+  res.json(result);
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
