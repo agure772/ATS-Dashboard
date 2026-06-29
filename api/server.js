@@ -1283,7 +1283,7 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
     let pagesScanned = 0;
     while (pagesScanned < 20) {
       const body = { locationId: LOC_ID, pageLimit: 100 };
-      if (searchAfter) body.searchAfter = searchAfter;
+      if (searchAfter) body.searchAfter = searchAfter; // GHL cursor — may be array or string
 
       const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, body);
       const recs = r?.records || r?.data || [];
@@ -1294,16 +1294,17 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
       );
       vehicles.push(...matched.map(v => normalizeVehicle(v, 'relations')));
 
-      // Use searchAfter cursor from last record for next page
+      // searchAfter is an array on the last record — pass it as-is for next page cursor
       const lastRec = recs[recs.length - 1];
-      searchAfter = lastRec?.searchAfter || null;
-      if (!searchAfter || recs.length < 100) break;
+      const nextCursor = lastRec?.searchAfter;
+      if (!nextCursor || recs.length < 100) break;
+      searchAfter = nextCursor; // could be array like [timestamp, id]
       pagesScanned++;
     }
 
     const normalized = vehicles.filter(v => v.vin || v.unit || v.plate);
-    console.log(`Vehicles for ${contactId}: ${normalized.length} found across ${page} pages`);
-    res.json({ vehicles: normalized, pages_searched: page });
+    console.log(`Vehicles for ${contactId}: ${normalized.length} found across ${pagesScanned + 1} pages`);
+    res.json({ vehicles: normalized, pages_searched: pagesScanned + 1 });
   } catch(err) {
     console.error('Vehicles fetch error:', err.message);
     res.status(500).json({ error: err.message, vehicles: [] });
