@@ -1073,7 +1073,9 @@ app.get('/api/debug/vehicles/:id', async (req, res) => {
       id: rec.id,
       topLevelKeys: Object.keys(rec),
       properties: rec.properties ? Object.keys(rec.properties) : [],
-      associations: rec.associations,
+      relations: rec.relations,
+      owners: rec.owners,
+      followers: rec.followers,
     }));
   } catch(e) { results.recordStructure = { error: e.message }; }
 
@@ -1249,91 +1251,65 @@ async function getVehicleSchemaKey() {
 app.get('/api/contacts/:id/vehicles', async (req, res) => {
   const contactId = req.params.id;
 
+  // Normalize a vehicle record using the confirmed GHL field names from debug
   function normalizeVehicle(v, source) {
-    const fields = v.properties || v.fields || v.customFields || {};
-    const get = (...keys) => {
-      for (const k of keys) {
-        if (fields[k] != null && fields[k] !== '') return String(fields[k]);
-        if (Array.isArray(fields)) {
-          const found = fields.find(f =>
-            (f.key||f.name||f.fieldKey||'').toLowerCase().includes(k.toLowerCase())
-          );
-          if (found?.value != null && found.value !== '') return String(found.value);
-        }
-        if (v[k] != null && v[k] !== '') return String(v[k]);
-      }
-      return null;
-    };
+    const p = v.properties || {};
+    const rel = v.relations || [];
+    // Check if this vehicle is related to the contact
+    const isRelated = rel.some(r => r.id === contactId || r.value === contactId);
     return {
-      id:     v.id || v.recordId || null,
-      vin:    get('vin', 'vin_number', 'vinNumber', 'VIN#', 'VIN'),
-      make:   get('make', 'manufacturer', 'brand'),
-      model:  get('model'),
-      year:   get('year', 'model_year', 'modelYear'),
-      plate:  get('plate', 'plate_number', 'plateNumber', 'license_plate', 'licensePlate'),
-      unit:   get('unit', 'unit_number', 'unitNumber', 'unit_no', 'Unit'),
-      state:  get('state', 'plate_state'),
-      type:   get('type', 'vehicle_type', 'vehicleType', 'Vehicle Type'),
-      status: get('status', 'Status'),
+      id:         v.id || v.recordId || null,
+      vin:        p['vin_'] || p['vin'] || null,
+      make:       p['make'] || null,
+      model:      p['model'] || p['model_year'] || null,
+      year:       p['model_year'] || null,
+      plate:      p['license_plate'] || null,
+      unit:       p['unit_'] || p['unit'] || null,
+      state:      p['state'] || null,
+      type:       p['vehicle_type'] || null,
+      status:     p['status'] || null,
+      owner:      p['registration_info.owner'] || null,
       source,
+      _isRelated: isRelated,
     };
   }
 
   try {
     const schemaKey = await getVehicleSchemaKey() || 'custom_objects.vehicles';
-    const results = { m1: [], m2: [], m3: [] };
+    let vehicles = [];
 
-    await Promise.allSettled([
-
-      // Source 1: Custom objects search — corrected field names per GHL API
-      ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
+    // Fetch pages of vehicle records and filter by relations to this contact
+    let page = 1;
+    let found = false;
+    while (page <= 10) {
+      const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
         locationId: LOC_ID,
-        page: 1,
-        pageLimit: 20,
-        filters: [{ field: 'contact', operator: 'eq', value: contactId }],
-      }).then(r => {
-        results.m1 = (r?.records || r?.data || []).map(v => normalizeVehicle(v, 'custom_object'));
-        console.log(`  Vehicles source1: ${results.m1.length}`);
-      }).catch(e => console.log('Vehicles source1 failed:', e.message)),
+        page,
+        pageLimit: 100,
+      });
+      const recs = r?.records || r?.data || [];
+      if (!recs.length) break;
 
-      // Source 2: Associations via contact endpoint (GHL v2)
-      ghl('GET', `${V2}/contacts/${contactId}/associations/`).then(r => {
-        const assocs = r?.associations || r?.data || [];
-        const vAssocs = assocs.filter(a =>
-          /vehicle|tractor|truck/i.test(a.type || a.objectKey || a.entityType || a.objectType || '')
+      const matched = recs.filter(rec => {
+        const rels = rec.relations || [];
+        return rels.some(r =>
+          r.id === contactId || r.value === contactId ||
+          (Array.isArray(r) && r.includes(contactId))
         );
-        results.m2 = vAssocs.map(a => normalizeVehicle(a.record || a, 'association'));
-        console.log(`  Vehicles source2: ${results.m2.length} (from ${assocs.length} assocs)`);
-      }).catch(e => console.log('Vehicles source2 failed:', e.message)),
-
-      // Source 3: Direct object records lookup by contact association
-      ghl('GET', `${V2}/objects/${schemaKey}/records?locationId=${LOC_ID}&page=1&pageLimit=20`).then(async r => {
-        // Filter to only records associated with this contact
-        const all = r?.records || r?.data || [];
-        const contactRecs = all.filter(rec => {
-          const assocIds = rec.associations?.map(a => a.id) || [];
-          return assocIds.includes(contactId);
-        });
-        results.m3 = contactRecs.map(v => normalizeVehicle(v, 'assoc_records'));
-        console.log(`  Vehicles source3: ${results.m3.length}`);
-      }).catch(e => console.log('Vehicles source3 failed:', e.message)),
-
-    ]);
-
-    // Merge and deduplicate by VIN or unit
-    const all = [...results.m1, ...results.m2, ...results.m3]
-      .filter(v => v.vin || v.unit || v.plate);
-    const seen = new Set();
-    const normalized = [];
-    for (const v of all) {
-      const key = (v.vin || v.unit || v.plate || '').toUpperCase().trim();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      normalized.push(v);
+      });
+      if (matched.length) {
+        vehicles.push(...matched.map(v => normalizeVehicle(v, 'relations')));
+        found = true;
+      }
+      // If we've found vehicles and page > 1, stop paginating
+      if (found && matched.length === 0) break;
+      if (recs.length < 100) break; // last page
+      page++;
     }
 
-    console.log(`Vehicles for ${contactId}: ${normalized.length} deduped`);
-    res.json({ vehicles: normalized, sources: { m1: results.m1.length, m2: results.m2.length, m3: results.m3.length } });
+    const normalized = vehicles.filter(v => v.vin || v.unit || v.plate);
+    console.log(`Vehicles for ${contactId}: ${normalized.length} found across ${page} pages`);
+    res.json({ vehicles: normalized, pages_searched: page });
   } catch(err) {
     console.error('Vehicles fetch error:', err.message);
     res.status(500).json({ error: err.message, vehicles: [] });
