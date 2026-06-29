@@ -2877,7 +2877,8 @@ function tbShowItemDetail(data) {
             return;
           }
           listEl.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' +
-            vehs.map(function(v) {
+            vehs.map(function(v, idx) {
+              var uid = 'veh-' + idx;
               function cell(label, val) {
                 if (!val) return '';
                 return '<div style="min-width:80px"><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">' + label + '</div>' +
@@ -2885,17 +2886,20 @@ function tbShowItemDetail(data) {
                   '<button onclick="navigator.clipboard.writeText(\x27' + String(val).replace(/'/g,"\\'") + '\x27);this.textContent=\x27✓\x27;setTimeout(()=>this.textContent=\x27📋\x27,1200)" ' +
                   'style="background:none;border:1px solid var(--border);border-radius:3px;padding:0 4px;cursor:pointer;font-size:9px;color:var(--text3);flex-shrink:0">📋</button></div></div>';
               }
-              var srcLabel = v.source === 'custom_object' ? 'Vehicle Manager' : (v.source === 'association' || v.source === 'assoc_records') ? 'Associations' : '';
               var statusColor = (v.status||'').toLowerCase() === 'active' ? 'var(--green)' : '#f59e0b';
-              return '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:10px 12px">' +
-                '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
-                (v.unit ? '<div style="font-size:10px;font-weight:800;color:var(--primary)">UNIT ' + v.unit + '</div>' : '<div></div>') +
-                '<div style="display:flex;align-items:center;gap:5px">' +
+              var vinShort = v.vin ? v.vin.slice(-6) : '';
+              var headerLabel = (v.unit ? 'UNIT ' + v.unit : 'VEHICLE') + (vinShort ? '  ···' + vinShort : '');
+              return '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;overflow:hidden;margin-bottom:0">' +
+                '<div onclick="var b=document.getElementById(\x27' + uid + '\x27);var a=document.getElementById(\x27' + uid + '-arr\x27);if(b){var open=b.style.display!==\x27none\x27;b.style.display=open?\x27none\x27:\x27flex\x27;a.textContent=open?\x27›\x27:\x27⌄\x27;}" ' +
+                'style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;cursor:pointer;user-select:none">' +
+                '<div style="display:flex;align-items:center;gap:8px">' +
+                '<span style="font-size:10px;font-weight:800;color:var(--primary)">' + headerLabel + '</span>' +
                 (v.status ? '<span style="font-size:9px;font-weight:700;color:' + statusColor + ';background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.2);border-radius:4px;padding:1px 6px">' + v.status + '</span>' : '') +
                 (v.type ? '<span style="font-size:9px;color:#94a3b8;background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.2);border-radius:4px;padding:1px 6px">' + v.type + '</span>' : '') +
-                (srcLabel ? '<span style="font-size:8px;color:var(--text3);opacity:.5">' + srcLabel + '</span>' : '') +
-                '</div></div>' +
-                '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+                '</div>' +
+                '<span id="' + uid + '-arr" style="color:var(--text3);font-size:16px;line-height:1">›</span>' +
+                '</div>' +
+                '<div id="' + uid + '" style="display:none;gap:12px;flex-wrap:wrap;padding:8px 12px 10px 12px;border-top:1px solid var(--border)">' +
                 cell('VIN', v.vin) +
                 cell('Year', v.year) +
                 cell('Make', v.make) +
