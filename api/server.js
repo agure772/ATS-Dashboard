@@ -1048,37 +1048,45 @@ app.get('/api/debug/tasks', async (req, res) => {
 // ── Raw vehicle debug — see exactly what GHL returns for a contact's vehicles ──
 app.get('/api/debug/vehicles/:id', async (req, res) => {
   const contactId = req.params.id;
-  const results = {};
-  const schemaKey = await getVehicleSchemaKey() || 'vehicles';
+  const results = { schemaKey: null };
+  const schemaKey = await getVehicleSchemaKey() || 'custom_objects.vehicles';
   results.schemaKey = schemaKey;
-  results.pipelineCacheKeys = Object.keys(pipelineCache);
 
-  // Try 1: custom objects search — corrected params
+  // Try search with different field names to find the right one
+  for (const fieldName of ['contact', 'contact_id', 'contactId', 'owner', 'associations.contact']) {
+    try {
+      const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
+        locationId: LOC_ID, page: 1, pageLimit: 3,
+        filters: [{ field: fieldName, operator: 'eq', value: contactId }],
+      });
+      results[`field_${fieldName}`] = { count: (r?.records||r?.data||[]).length, sample: (r?.records||r?.data||[])[0] || null };
+    } catch(e) { results[`field_${fieldName}`] = { error: e.message }; }
+  }
+
+  // Fetch a few records with no filter to see their structure
   try {
     const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
-      locationId: LOC_ID, page: 1, pageLimit: 20,
-      filters: [{ field: 'contact', operator: 'eq', value: contactId }],
+      locationId: LOC_ID, page: 1, pageLimit: 2,
     });
-    results.method1_customObjects = { count: (r?.records||r?.data||[]).length, sample: (r?.records||r?.data||[])[0] || null, raw: r };
-  } catch(e) { results.method1_customObjects = { error: e.message }; }
+    const recs = r?.records || r?.data || [];
+    results.recordStructure = recs.map(rec => ({
+      id: rec.id,
+      topLevelKeys: Object.keys(rec),
+      properties: rec.properties ? Object.keys(rec.properties) : [],
+      associations: rec.associations,
+    }));
+  } catch(e) { results.recordStructure = { error: e.message }; }
 
-  // Try 2: associations list
-  try {
-    const r = await ghl('GET', `${V2}/contacts/${contactId}/associations`);
-    results.method2_associations = { raw: r };
-  } catch(e) { results.method2_associations = { error: e.message }; }
-
-  // Try 3: associations by schema key
-  try {
-    const r = await ghl('GET', `${V2}/contacts/${contactId}/associations/${schemaKey}`);
-    results.method3_assocByKey = { raw: r };
-  } catch(e) { results.method3_assocByKey = { error: e.message }; }
-
-  // Try 4: objects records with owner filter
-  try {
-    const r = await ghl('GET', `${V2}/objects/${schemaKey}/records?locationId=${LOC_ID}&contactId=${contactId}`);
-    results.method4_recordsByContact = { raw: r };
-  } catch(e) { results.method4_recordsByContact = { error: e.message }; }
+  // Try associations endpoint variations
+  for (const [label, path] of [
+    ['assoc_v2', `${V2}/contacts/${contactId}/associations`],
+    ['assoc_typed', `${V2}/contacts/${contactId}/associations/${schemaKey}`],
+    ['assoc_api', `/associations?contactId=${contactId}&locationId=${LOC_ID}`],
+  ]) {
+    try {
+      results[label] = await ghl('GET', path);
+    } catch(e) { results[label] = { error: e.message }; }
+  }
 
   res.json(results);
 });
