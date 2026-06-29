@@ -4387,10 +4387,13 @@ function csTool(name) {
   if (panel) panel.style.display = 'block';
   if (btn)  {
     btn.style.background = name === 'vehicles' ? 'rgba(245,158,11,.15)'
+      : name === 'drivers' ? 'rgba(96,165,250,.15)'
       : name === 'audit' ? 'rgba(124,58,237,.15)' : 'rgba(0,196,106,.15)';
     btn.style.color = name === 'vehicles' ? '#f59e0b'
+      : name === 'drivers' ? '#60a5fa'
       : name === 'audit' ? '#a78bfa' : 'var(--primary)';
     btn.style.borderColor = name === 'vehicles' ? 'rgba(245,158,11,.4)'
+      : name === 'drivers' ? 'rgba(96,165,250,.4)'
       : name === 'audit' ? 'rgba(124,58,237,.4)' : 'rgba(0,196,106,.4)';
   }
   csActiveTool = name;
@@ -5287,6 +5290,199 @@ async function vmSaveVehicle(recordId, contactId) {
 }
 
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DRIVER MANAGER (CS Board tool — mirrors Vehicle Manager)
+// ═════════════════════════════════════════════════════════════════════════════
+
+let dmSelectedContact = null;
+
+function dmSearchContact(query) {
+  const resultsEl = document.getElementById('dm-contact-results');
+  if (!resultsEl) return;
+  const q = (query || '').toLowerCase().trim();
+  const clients = state.clients || [];
+  const matches = q.length < 1
+    ? clients.slice().sort((a,b) => (a.name||'').localeCompare(b.name||'')).slice(0, 40)
+    : clients.filter(c =>
+        (c.name||'').toLowerCase().includes(q) ||
+        (c.dot_number||'').includes(q) ||
+        (c.business_name||'').toLowerCase().includes(q)
+      ).slice(0, 20);
+
+  if (!matches.length) { resultsEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:6px">No contacts found</div>'; return; }
+  resultsEl.style.cssText = 'max-height:180px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin-bottom:8px';
+  resultsEl.innerHTML = matches.map(c => {
+    const safeName = (c.name||'').replace(/'/g,"\\'");
+    return `<div onclick="dmSelectContact('${c.id}','${safeName}')"
+      style="padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;color:var(--text);display:flex;align-items:center;justify-content:space-between"
+      onmouseover="this.style.background='rgba(96,165,250,.08)'" onmouseout="this.style.background=''">
+      <span>${c.name}</span>
+      ${c.dot_number ? `<span style="color:var(--text3);font-size:11px">DOT# ${c.dot_number}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function dmSelectContact(id, name) {
+  dmSelectedContact = { id, name };
+  const searchEl  = document.getElementById('dm-contact-search');
+  const resultsEl = document.getElementById('dm-contact-results');
+  const selEl     = document.getElementById('dm-selected-contact');
+  const nameEl    = document.getElementById('dm-selected-name');
+  if (searchEl)  searchEl.value = '';
+  if (resultsEl) { resultsEl.innerHTML = ''; resultsEl.style.cssText = ''; }
+  if (selEl)     selEl.style.display = 'flex';
+  if (nameEl)    nameEl.textContent = '✓ ' + name;
+  dmLoadDrivers(id);
+}
+
+function dmClearContact() {
+  dmSelectedContact = null;
+  const selEl  = document.getElementById('dm-selected-contact');
+  const areaEl = document.getElementById('dm-drivers-area');
+  if (selEl)  selEl.style.display = 'none';
+  if (areaEl) areaEl.innerHTML = '';
+}
+
+async function dmLoadDrivers(contactId) {
+  const area = document.getElementById('dm-drivers-area');
+  if (!area) return;
+  area.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)"><i class="ti ti-loader" style="animation:spin .8s linear infinite"></i> Loading drivers...</div>';
+  try {
+    const res  = await fetch(`/api/contacts/${contactId}/drivers`);
+    const data = await res.json();
+    dmRenderDrivers(data.drivers || [], contactId);
+  } catch(e) {
+    area.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+  }
+}
+
+function dmRenderDrivers(drivers, contactId) {
+  const area = document.getElementById('dm-drivers-area');
+  if (!area) return;
+
+  const addBtn = `<button onclick="dmOpenDriverForm(null,'${contactId}')"
+    style="width:100%;background:rgba(96,165,250,.12);color:#60a5fa;border:1px dashed rgba(96,165,250,.4);
+           border-radius:8px;padding:10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:10px;
+           display:flex;align-items:center;justify-content:center;gap:6px">
+    <i class="ti ti-plus"></i> Add New Driver
+  </button>`;
+
+  if (!drivers.length) {
+    area.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">
+      No drivers found for this contact.</div>${addBtn}`;
+    return;
+  }
+
+  area.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:4px">
+      ${drivers.map(d => `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:800;color:#60a5fa">
+              ${d.fullName || 'Unnamed Driver'}
+              ${d.license ? `<span style="font-size:10px;font-weight:600;color:var(--text3);margin-left:8px">CDL: ${d.license}</span>` : ''}
+            </div>
+            <button onclick="dmOpenDriverForm(${JSON.stringify(d).replace(/"/g,'&quot;')},'${contactId}')"
+              style="background:rgba(124,58,237,.12);color:#a78bfa;border:1px solid rgba(124,58,237,.3);
+                     border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">
+              ✏ Edit
+            </button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px">
+            ${[['License #', d.license],['Full Name', d.fullName],['Date of Birth', d.dob],['CDL Expires', d.cdlExp]]
+              .filter(([,val]) => val)
+              .map(([label,val]) => `
+                <div style="background:var(--bg2);border-radius:6px;padding:6px 8px">
+                  <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">${label}</div>
+                  <div style="font-size:12px;font-weight:700;color:var(--text);margin-top:1px">${val}</div>
+                </div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>${addBtn}`;
+}
+
+function dmOpenDriverForm(driver, contactId) {
+  document.getElementById('dm-form-modal')?.remove();
+  const isEdit = driver && driver.id;
+  const d = driver || {};
+
+  const modal = document.createElement('div');
+  modal.id = 'dm-form-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9800;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.6)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1">
+        <div style="font-size:14px;font-weight:800;color:var(--text)">
+          <i class="ti ti-id-badge" style="color:#60a5fa;margin-right:6px"></i>
+          ${isEdit ? 'Edit Driver' : 'Add New Driver'}
+        </div>
+        <button onclick="document.getElementById('dm-form-modal').remove()"
+          style="background:var(--bg3);border:1px solid var(--border);color:var(--text3);cursor:pointer;border-radius:8px;width:30px;height:30px;font-size:18px;display:flex;align-items:center;justify-content:center">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px">
+        ${[
+          ['dm-f-name',    'Full Name',          'text', d.fullName || '', 'John Smith'],
+          ['dm-f-license', 'Driver License / CDL #', 'text', d.license  || '', 'F366070520715'],
+          ['dm-f-dob',     'Date of Birth',      'text', d.dob      || '', 'YYYY-MM-DD'],
+          ['dm-f-cdlexp',  'CDL Expiration Date','text', d.cdlExp   || '', 'YYYY-MM-DD'],
+        ].map(([id, label, type, val, ph]) => `
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em;margin-bottom:5px">${label.toUpperCase()}</div>
+            <input id="${id}" type="${type}" value="${val}" placeholder="${ph}"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box">
+          </div>`).join('')}
+        <div id="dm-form-status" style="font-size:12px;text-align:center;min-height:16px"></div>
+        <button onclick="dmSaveDriver('${isEdit ? d.id : ''}','${contactId}')"
+          style="width:100%;background:#60a5fa;color:#0a1a2f;border:none;border-radius:10px;
+                 padding:12px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
+          <i class="ti ti-device-floppy"></i> ${isEdit ? 'Save Changes' : 'Add Driver to GHL'}
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function dmSaveDriver(recordId, contactId) {
+  const statusEl = document.getElementById('dm-form-status');
+  const get = id => document.getElementById(id)?.value.trim() || '';
+
+  const payload = {
+    fullName: get('dm-f-name'),
+    license:  get('dm-f-license'),
+    dob:      get('dm-f-dob'),
+    cdlExp:   get('dm-f-cdlexp'),
+  };
+
+  if (!payload.license && !payload.fullName) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">Enter at least a name or license number</span>';
+    return;
+  }
+
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3)">Saving to GHL...</span>';
+
+  try {
+    const url    = recordId ? `/api/drivers/${recordId}` : `/api/contacts/${contactId}/drivers`;
+    const method = recordId ? 'PUT' : 'POST';
+    const res    = await fetch(url, {
+      method, headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✓ Driver saved successfully!</span>';
+    toast(`✓ Driver ${recordId ? 'updated' : 'added'} in GHL`);
+    setTimeout(() => {
+      document.getElementById('dm-form-modal')?.remove();
+      dmLoadDrivers(contactId);
+    }, 700);
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // UNASSIGNED TASKS & OPPORTUNITIES VIEW
