@@ -1278,24 +1278,19 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
     const schemaKey = await getVehicleSchemaKey() || 'custom_objects.vehicles';
     let vehicles = [];
 
-    // Fetch vehicle records using searchAfter cursor pagination, filter by relations.recordId
-    let searchAfter = null;
-    let pagesScanned = 0;
-    while (pagesScanned < 20) {
-      const body = { locationId: LOC_ID, pageLimit: 100 };
-      if (searchAfter) body.searchAfter = searchAfter; // GHL cursor — may be array or string
+    // Fetch vehicle records page by page, filter by relations.recordId === contactId
+    let page = 1;
+    while (page <= 20) {
+      const body = { locationId: LOC_ID, page, pageLimit: 100 };
 
       const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, body);
       const recs = r?.records || r?.data || [];
       if (!recs.length) break;
 
-      // Log first page details to diagnose matching
-      if (pagesScanned === 0) {
-        console.log(`Vehicle search: contactId="${contactId}", total records=${recs.length}`);
-        if (recs[0]) {
-          const sampleRels = recs[0].relations || [];
-          console.log(`First record relations:`, JSON.stringify(sampleRels));
-        }
+      // Log first page to diagnose matching
+      if (page === 1) {
+        console.log(`Vehicle search: contactId="${contactId}", total records page1=${recs.length}`);
+        if (recs[0]) console.log(`First record relations:`, JSON.stringify(recs[0].relations));
       }
 
       const matched = recs.filter(rec =>
@@ -1303,17 +1298,13 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
       );
       vehicles.push(...matched.map(v => normalizeVehicle(v, 'relations')));
 
-      // searchAfter is an array on the last record — pass it as-is for next page cursor
-      const lastRec = recs[recs.length - 1];
-      const nextCursor = lastRec?.searchAfter;
-      if (!nextCursor || recs.length < 100) break;
-      searchAfter = nextCursor; // could be array like [timestamp, id]
-      pagesScanned++;
+      if (recs.length < 100) break; // last page
+      page++;
     }
 
     const normalized = vehicles.filter(v => v.vin || v.unit || v.plate);
-    console.log(`Vehicles for ${contactId}: ${normalized.length} found across ${pagesScanned + 1} pages`);
-    res.json({ vehicles: normalized, pages_searched: pagesScanned + 1 });
+    console.log(`Vehicles for ${contactId}: ${normalized.length} found across ${page} pages`);
+    res.json({ vehicles: normalized, pages_searched: page });
   } catch(err) {
     console.error('Vehicles fetch error:', err.message);
     res.status(500).json({ error: err.message, vehicles: [] });
