@@ -1278,33 +1278,27 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
     const schemaKey = await getVehicleSchemaKey() || 'custom_objects.vehicles';
     let vehicles = [];
 
-    // Fetch pages of vehicle records and filter by relations to this contact
-    let page = 1;
-    let found = false;
-    while (page <= 10) {
-      const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
-        locationId: LOC_ID,
-        page,
-        pageLimit: 100,
-      });
+    // Fetch vehicle records using searchAfter cursor pagination, filter by relations.recordId
+    let searchAfter = null;
+    let pagesScanned = 0;
+    while (pagesScanned < 20) {
+      const body = { locationId: LOC_ID, pageLimit: 100 };
+      if (searchAfter) body.searchAfter = searchAfter;
+
+      const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, body);
       const recs = r?.records || r?.data || [];
       if (!recs.length) break;
 
-      const matched = recs.filter(rec => {
-        const rels = rec.relations || [];
-        return rels.some(r =>
-          r.id === contactId || r.value === contactId ||
-          (Array.isArray(r) && r.includes(contactId))
-        );
-      });
-      if (matched.length) {
-        vehicles.push(...matched.map(v => normalizeVehicle(v, 'relations')));
-        found = true;
-      }
-      // If we've found vehicles and page > 1, stop paginating
-      if (found && matched.length === 0) break;
-      if (recs.length < 100) break; // last page
-      page++;
+      const matched = recs.filter(rec =>
+        (rec.relations || []).some(rel => rel.recordId === contactId)
+      );
+      vehicles.push(...matched.map(v => normalizeVehicle(v, 'relations')));
+
+      // Use searchAfter cursor from last record for next page
+      const lastRec = recs[recs.length - 1];
+      searchAfter = lastRec?.searchAfter || null;
+      if (!searchAfter || recs.length < 100) break;
+      pagesScanned++;
     }
 
     const normalized = vehicles.filter(v => v.vin || v.unit || v.plate);
