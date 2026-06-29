@@ -5390,7 +5390,7 @@ function tbRenderUnassigned() {
                 const statusDot = isDone ? 'var(--green)' : isOvr ? '#ef4444' : '#f59e0b';
                 const displayTitle = isTask
                   ? (item.title||'Untitled Task').replace(/^\[CS\]\s*/,'')
-                  : (item.pipelineName || item.name || 'Opportunity');
+                  : (item.pipelineName || item.name || 'Opportunity').replace(/^\d+\.\s*/,'').replace(/^2026\s*/,'').trim();
                 const subDetail = isTask
                   ? (item.body ? `<span style="color:var(--text3);font-style:italic">${item.body.slice(0,80)}${item.body.length>80?'…':''}</span>` : '')
                   : (item.stageName ? `<span style="background:rgba(99,102,241,.12);color:#818cf8;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700">Stage: ${item.stageName}</span>` : '');
