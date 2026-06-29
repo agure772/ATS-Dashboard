@@ -1289,6 +1289,15 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
       const recs = r?.records || r?.data || [];
       if (!recs.length) break;
 
+      // Log first page details to diagnose matching
+      if (pagesScanned === 0) {
+        console.log(`Vehicle search: contactId="${contactId}", total records=${recs.length}`);
+        if (recs[0]) {
+          const sampleRels = recs[0].relations || [];
+          console.log(`First record relations:`, JSON.stringify(sampleRels));
+        }
+      }
+
       const matched = recs.filter(rec =>
         (rec.relations || []).some(rel => rel.recordId === contactId)
       );
