@@ -1053,13 +1053,13 @@ app.get('/api/debug/vehicles/:id', async (req, res) => {
   results.schemaKey = schemaKey;
   results.pipelineCacheKeys = Object.keys(pipelineCache);
 
-  // Try 1: custom objects search
+  // Try 1: custom objects search — corrected params
   try {
     const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
-      locationId: LOC_ID, page: 1, pageSize: 20,
-      filters: [{ field: 'contact', operator: '=', value: contactId }],
+      locationId: LOC_ID, page: 1, pageLimit: 20,
+      filters: [{ field: 'contact', operator: 'eq', value: contactId }],
     });
-    results.method1_customObjects = { count: (r?.records||r?.data||[]).length, sample: (r?.records||r?.data||[])[0] || null };
+    results.method1_customObjects = { count: (r?.records||r?.data||[]).length, sample: (r?.records||r?.data||[])[0] || null, raw: r };
   } catch(e) { results.method1_customObjects = { error: e.message }; }
 
   // Try 2: associations list
@@ -1241,21 +1241,17 @@ async function getVehicleSchemaKey() {
 app.get('/api/contacts/:id/vehicles', async (req, res) => {
   const contactId = req.params.id;
 
-  // Shared normalizer — works for both custom-object records and association records
   function normalizeVehicle(v, source) {
     const fields = v.properties || v.fields || v.customFields || {};
     const get = (...keys) => {
       for (const k of keys) {
-        // Direct property on fields object
         if (fields[k] != null && fields[k] !== '') return String(fields[k]);
-        // Array of {key, value} field descriptors
         if (Array.isArray(fields)) {
           const found = fields.find(f =>
             (f.key||f.name||f.fieldKey||'').toLowerCase().includes(k.toLowerCase())
           );
           if (found?.value != null && found.value !== '') return String(found.value);
         }
-        // Top-level on the record itself (associations endpoint puts fields at root)
         if (v[k] != null && v[k] !== '') return String(v[k]);
       }
       return null;
@@ -1276,46 +1272,49 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
   }
 
   try {
-    const schemaKey = await getVehicleSchemaKey() || 'vehicles';
-    const results = { method1: [], method2: [], method3: [] };
+    const schemaKey = await getVehicleSchemaKey() || 'custom_objects.vehicles';
+    const results = { m1: [], m2: [], m3: [] };
 
-    // Run all three sources in parallel
     await Promise.allSettled([
 
-      // Source 1: Custom objects search (Vehicle Manager / left-nav vehicles)
+      // Source 1: Custom objects search — corrected field names per GHL API
       ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
         locationId: LOC_ID,
         page: 1,
-        pageSize: 50,
-        filters: [{ field: 'contact', operator: '=', value: contactId }],
+        pageLimit: 20,
+        filters: [{ field: 'contact', operator: 'eq', value: contactId }],
       }).then(r => {
-        results.method1 = (r?.records || r?.data || []).map(v => normalizeVehicle(v, 'custom_object'));
-        console.log(`  Source 1 (custom objects): ${results.method1.length} records`);
-      }).catch(e => console.log('Source 1 failed:', e.message)),
+        results.m1 = (r?.records || r?.data || []).map(v => normalizeVehicle(v, 'custom_object'));
+        console.log(`  Vehicles source1: ${results.m1.length}`);
+      }).catch(e => console.log('Vehicles source1 failed:', e.message)),
 
-      // Source 2: Contact associations endpoint (Associations tab → Vehicles section)
-      ghl('GET', `${V2}/contacts/${contactId}/associations`).then(r => {
+      // Source 2: Associations via contact endpoint (GHL v2)
+      ghl('GET', `${V2}/contacts/${contactId}/associations/`).then(r => {
         const assocs = r?.associations || r?.data || [];
-        const vehicleAssocs = assocs.filter(a =>
-          /vehicle|tractor|truck/i.test(a.type || a.objectKey || a.entityType || '')
+        const vAssocs = assocs.filter(a =>
+          /vehicle|tractor|truck/i.test(a.type || a.objectKey || a.entityType || a.objectType || '')
         );
-        results.method2 = vehicleAssocs.map(a => normalizeVehicle(a.record || a, 'association'));
-        console.log(`  Source 2 (associations): ${results.method2.length} records`);
-      }).catch(e => console.log('Source 2 failed:', e.message)),
+        results.m2 = vAssocs.map(a => normalizeVehicle(a.record || a, 'association'));
+        console.log(`  Vehicles source2: ${results.m2.length} (from ${assocs.length} assocs)`);
+      }).catch(e => console.log('Vehicles source2 failed:', e.message)),
 
-      // Source 3: Object records by association (fetches full records for each associated vehicle)
-      ghl('GET', `${V2}/contacts/${contactId}/associations/${schemaKey}`).then(r => {
-        const recs = r?.records || r?.data || r?.associations || [];
-        results.method3 = recs.map(v => normalizeVehicle(v, 'assoc_records'));
-        console.log(`  Source 3 (assoc records): ${results.method3.length} records`);
-      }).catch(e => console.log('Source 3 skipped:', e.message)),
+      // Source 3: Direct object records lookup by contact association
+      ghl('GET', `${V2}/objects/${schemaKey}/records?locationId=${LOC_ID}&page=1&pageLimit=20`).then(async r => {
+        // Filter to only records associated with this contact
+        const all = r?.records || r?.data || [];
+        const contactRecs = all.filter(rec => {
+          const assocIds = rec.associations?.map(a => a.id) || [];
+          return assocIds.includes(contactId);
+        });
+        results.m3 = contactRecs.map(v => normalizeVehicle(v, 'assoc_records'));
+        console.log(`  Vehicles source3: ${results.m3.length}`);
+      }).catch(e => console.log('Vehicles source3 failed:', e.message)),
 
     ]);
 
-    // Merge all sources, deduplicate by VIN (or unit if no VIN)
-    const all = [...results.method1, ...results.method2, ...results.method3]
+    // Merge and deduplicate by VIN or unit
+    const all = [...results.m1, ...results.m2, ...results.m3]
       .filter(v => v.vin || v.unit || v.plate);
-
     const seen = new Set();
     const normalized = [];
     for (const v of all) {
@@ -1325,8 +1324,8 @@ app.get('/api/contacts/:id/vehicles', async (req, res) => {
       normalized.push(v);
     }
 
-    console.log(`Vehicles for contact ${contactId}: ${normalized.length} (deduped from ${all.length} raw)`);
-    res.json({ vehicles: normalized, sources: { m1: results.method1.length, m2: results.method2.length, m3: results.method3.length } });
+    console.log(`Vehicles for ${contactId}: ${normalized.length} deduped`);
+    res.json({ vehicles: normalized, sources: { m1: results.m1.length, m2: results.m2.length, m3: results.m3.length } });
   } catch(err) {
     console.error('Vehicles fetch error:', err.message);
     res.status(500).json({ error: err.message, vehicles: [] });
