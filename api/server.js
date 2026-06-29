@@ -1045,6 +1045,44 @@ app.get('/api/debug/tasks', async (req, res) => {
 
 
 // ── Get notes for a contact (used by NY Permit task detail) ──────────────────
+// ── Raw vehicle debug — see exactly what GHL returns for a contact's vehicles ──
+app.get('/api/debug/vehicles/:id', async (req, res) => {
+  const contactId = req.params.id;
+  const results = {};
+  const schemaKey = await getVehicleSchemaKey() || 'vehicles';
+  results.schemaKey = schemaKey;
+  results.pipelineCacheKeys = Object.keys(pipelineCache);
+
+  // Try 1: custom objects search
+  try {
+    const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
+      locationId: LOC_ID, page: 1, pageSize: 20,
+      filters: [{ field: 'contact', operator: '=', value: contactId }],
+    });
+    results.method1_customObjects = { count: (r?.records||r?.data||[]).length, sample: (r?.records||r?.data||[])[0] || null };
+  } catch(e) { results.method1_customObjects = { error: e.message }; }
+
+  // Try 2: associations list
+  try {
+    const r = await ghl('GET', `${V2}/contacts/${contactId}/associations`);
+    results.method2_associations = { raw: r };
+  } catch(e) { results.method2_associations = { error: e.message }; }
+
+  // Try 3: associations by schema key
+  try {
+    const r = await ghl('GET', `${V2}/contacts/${contactId}/associations/${schemaKey}`);
+    results.method3_assocByKey = { raw: r };
+  } catch(e) { results.method3_assocByKey = { error: e.message }; }
+
+  // Try 4: objects records with owner filter
+  try {
+    const r = await ghl('GET', `${V2}/objects/${schemaKey}/records?locationId=${LOC_ID}&contactId=${contactId}`);
+    results.method4_recordsByContact = { raw: r };
+  } catch(e) { results.method4_recordsByContact = { error: e.message }; }
+
+  res.json(results);
+});
+
 app.get('/api/contacts/:id/notes', async (req, res) => {
   try {
     const data = await ghl('GET', `${V2}/contacts/${req.params.id}/notes/`);
