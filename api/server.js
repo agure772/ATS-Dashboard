@@ -562,7 +562,10 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
       osVal            && { id: 'Tx9uGn4hrVwJKv6EheCJ',  field_value: osVal },
     ].filter(Boolean);
 
+    const cleanName = (info.legal_name || '').replace(/\s+DOT#?\s*\d+/i,'').trim();
     const payload = {
+      firstName: cleanName || undefined,
+      lastName:  '',
       companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
       phone:    info.phone    || undefined,
       email:    info.email    || undefined,
