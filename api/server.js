@@ -412,6 +412,11 @@ async function scrapeSAFER(dotNumber) {
           if (!result.mailing_address && r.mailing_street) {
             result.mailing_address = [r.mailing_street, r.mailing_city, r.mailing_state, r.mailing_zip].filter(Boolean).join(', ');
           }
+          // Store individual address parts
+          if (!result.mailing_street && r.mailing_street) result.mailing_street = r.mailing_street;
+          if (!result.mailing_city   && r.mailing_city)   result.mailing_city   = r.mailing_city;
+          if (!result.mailing_state  && r.mailing_state)  result.mailing_state  = r.mailing_state;
+          if (!result.mailing_zip    && r.mailing_zip)    result.mailing_zip    = r.mailing_zip;
           console.log('Socrata phone:', result.phone, 'email:', result.email, 'mileage:', result.mcs150_mileage, 'year:', result.mcs150_year);
         }
       }
@@ -490,6 +495,10 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
       mc_number:         mcNumber,
       physical_address:  [carrier.phyStreet, carrier.phyCity, carrier.phyState, carrier.phyZipcode].filter(Boolean).join(', '),
       mailing_address:   safer.mailing_address || '',
+      mailing_street:    safer.mailing_street  || carrier.phyStreet   || '',
+      mailing_city:      safer.mailing_city    || carrier.phyCity     || '',
+      mailing_state:     safer.mailing_state   || carrier.phyState    || '',
+      mailing_zip:       safer.mailing_zip     || carrier.phyZipcode  || '',
       phone:             safer.phone || '',
       email:             safer.email || '',
       ein:               carrier.ein || '',
@@ -555,8 +564,13 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
 
     const payload = {
       companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
-      phone: info.phone || undefined,
-      email: info.email || undefined,
+      phone:    info.phone    || undefined,
+      email:    info.email    || undefined,
+      address1: info.mailing_street || undefined,
+      city:     info.mailing_city   || undefined,
+      state:    info.mailing_state  || undefined,
+      postalCode: info.mailing_zip  || undefined,
+      country:  info.mailing_street ? 'US' : undefined,
       customFields,
     };
 
@@ -599,14 +613,20 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
     // 1. Create the contact
     const mcNum = info.mc_number ? String(info.mc_number).replace(/^MC-/i,'') : '';
     const einStr = info.ein ? String(info.ein) : '';
+    const cleanName = (info.legal_name || '').replace(/\s+DOT#?\s*\d+/i,'').trim();
     const contactPayload = {
-      firstName: info.legal_name || info.dba_name || `DOT#${info.dot_number}`,
+      firstName: cleanName || info.dba_name || `DOT#${info.dot_number}`,
       lastName: '',
       companyName: info.legal_name
         ? `${info.legal_name} DOT# ${info.dot_number}`
         : `DOT# ${info.dot_number}`,
       phone: info.phone || '',
       email: info.email || '',
+      address1: info.mailing_street || '',
+      city:     info.mailing_city   || '',
+      state:    info.mailing_state  || '',
+      postalCode: info.mailing_zip  || '',
+      country:  'US',
       tags: ['ats-dashboard'],
       customFields: [
         info.dot_number && { id: 'E5MJr7vstJWSi59CxAbK', field_value: parseInt(info.dot_number) },
@@ -614,7 +634,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
         einStr         && { id: 'fr4t6AA1aM8dRhb7Pj3R', field_value: einStr },
         info.mcs150_year && { id: 'kmBR6gFRCxd0ZPFEXGz7', field_value: parseInt(info.mcs150_year) },
         info.mcs150_mileage && { id: 'jzsQ29O684sLc2i5YE3e', field_value: parseInt(String(info.mcs150_mileage).replace(/,/g,'')) },
-        info.physical_address && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.physical_address },
+        (info.mailing_address || info.physical_address) && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address || info.physical_address },
       ].filter(Boolean),
       locationId: process.env.GHL_LOCATION_ID,
     };
@@ -634,7 +654,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
         const pipeline = pipelineCache[PIPELINE_MAP[serviceKey]?.name];
         if (!pipeline) continue;
         const oppPayload = {
-          name: `${info.legal_name || `DOT#${info.dot_number}`}`,
+          name: cleanName || `DOT#${info.dot_number}`,
           pipelineId: pipeline.id,
           pipelineStageId: pipeline.stages?.[0]?.id,
           status: 'open',
