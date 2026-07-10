@@ -560,7 +560,19 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
       // Use mailing_address only — physical_address shares same field ID which causes duplicate rejection
       (info.mailing_address || info.physical_address) && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address || info.physical_address },
       osVal            && { id: 'Tx9uGn4hrVwJKv6EheCJ',  field_value: osVal },
+      taskNameFieldId  && cleanName && { id: taskNameFieldId, field_value: cleanName },
     ].filter(Boolean);
+
+    // Fetch custom field schema to find Task Name field ID
+    let taskNameFieldId = null;
+    try {
+      const schema = await ghl('GET', `${V2}/locations/${LOC_ID}/customFields`);
+      const taskField = (schema.customFields || []).find(f =>
+        /task.?name/i.test(f.name || f.fieldKey || '')
+      );
+      taskNameFieldId = taskField?.id || null;
+      if (taskNameFieldId) console.log(`Task Name field ID: ${taskNameFieldId}`);
+    } catch(e) { console.log('Could not fetch custom fields schema:', e.message); }
 
     const cleanName = (info.legal_name || '').replace(/\s+DOT#?\s*\d+/i,'').trim();
     const payload = {
@@ -617,6 +629,19 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
     const mcNum = info.mc_number ? String(info.mc_number).replace(/^MC-/i,'') : '';
     const einStr = info.ein ? String(info.ein) : '';
     const cleanName = (info.legal_name || '').replace(/\s+DOT#?\s*\d+/i,'').trim();
+
+    // Find Task Name custom field ID
+    let taskNameFieldId = null;
+    try {
+      const schema = await ghl('GET', `${V2}/locations/${LOC_ID}/customFields`);
+      const taskField = (schema.customFields || []).find(f =>
+        /task.?name/i.test(f.name || f.fieldKey || '')
+      );
+      taskNameFieldId = taskField?.id || null;
+      if (taskNameFieldId) console.log(`Task Name field ID: ${taskNameFieldId}`);
+      else console.log('Task Name field not found. Available fields:', (schema.customFields||[]).map(f=>f.name).slice(0,10));
+    } catch(e) { console.log('Custom field schema error:', e.message); }
+
     const contactPayload = {
       firstName: cleanName || info.dba_name || `DOT#${info.dot_number}`,
       lastName: '',
@@ -638,6 +663,7 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
         info.mcs150_year && { id: 'kmBR6gFRCxd0ZPFEXGz7', field_value: parseInt(info.mcs150_year) },
         info.mcs150_mileage && { id: 'jzsQ29O684sLc2i5YE3e', field_value: parseInt(String(info.mcs150_mileage).replace(/,/g,'')) },
         (info.mailing_address || info.physical_address) && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address || info.physical_address },
+        taskNameFieldId && cleanName && { id: taskNameFieldId, field_value: cleanName },
       ].filter(Boolean),
       locationId: process.env.GHL_LOCATION_ID,
     };
