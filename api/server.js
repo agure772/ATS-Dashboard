@@ -547,21 +547,7 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
     const mcNum  = info.mc_number ? String(info.mc_number).replace(/^MC-/i,'') : '';
     const einNum = info.ein       ? String(info.ein).replace(/-/g,'')        : '';
 
-    const customFields = [
-      info.dot_number  && { id: 'E5MJr7vstJWSi59CxAbK', field_value: parseInt(info.dot_number) || info.dot_number },
-      mcNum            && { id: 'twbBzamze4MVgetPLoSA',  field_value: parseInt(mcNum) || mcNum },
-      einNum           && { id: 'fr4t6AA1aM8dRhb7Pj3R',  field_value: einNum },
-      info.mcs150_year && { id: 'kmBR6gFRCxd0ZPFEXGz7',  field_value: parseInt(info.mcs150_year) },
-      info.mcs150_mileage && { id: 'jzsQ29O684sLc2i5YE3e', field_value: parseInt(String(info.mcs150_mileage).replace(/,/g,'')) || 0 },
-      info.mcs150_year && { id: 'u9LKMEGxjlhZGsUuhSRE',  field_value: parseInt(info.mcs150_year) },
-      unitVal          && { id: 'ZK43DBIa2Nwqt8Wr7Fw3',  field_value: unitVal },
-      info.power_units && { id: '0ckZ9VuFRCMao83FJKUQ',   field_value: String(info.power_units) },
-      info.drivers     && { id: '6CvAenSFl04oBvhmbeEW',   field_value: String(info.drivers) },
-      // Use mailing_address only — physical_address shares same field ID which causes duplicate rejection
-      (info.mailing_address || info.physical_address) && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address || info.physical_address },
-      osVal            && { id: 'Tx9uGn4hrVwJKv6EheCJ',  field_value: osVal },
-      taskNameFieldId  && cleanName && { id: taskNameFieldId, field_value: cleanName },
-    ].filter(Boolean);
+    const cleanName = (info.legal_name || '').replace(/\s+DOT#?\s*\d+/i,'').trim();
 
     // Fetch custom field schema to find Task Name field ID
     let taskNameFieldId = null;
@@ -572,9 +558,23 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
       );
       taskNameFieldId = taskField?.id || null;
       if (taskNameFieldId) console.log(`Task Name field ID: ${taskNameFieldId}`);
+      else console.log('Task Name field not found. Fields:', (schema.customFields||[]).map(f=>f.name).slice(0,15));
     } catch(e) { console.log('Could not fetch custom fields schema:', e.message); }
 
-    const cleanName = (info.legal_name || '').replace(/\s+DOT#?\s*\d+/i,'').trim();
+    const customFields = [
+      info.dot_number  && { id: 'E5MJr7vstJWSi59CxAbK', field_value: parseInt(info.dot_number) || info.dot_number },
+      mcNum            && { id: 'twbBzamze4MVgetPLoSA',  field_value: parseInt(mcNum) || mcNum },
+      einNum           && { id: 'fr4t6AA1aM8dRhb7Pj3R',  field_value: einNum },
+      info.mcs150_year && { id: 'kmBR6gFRCxd0ZPFEXGz7',  field_value: parseInt(info.mcs150_year) },
+      info.mcs150_mileage && { id: 'jzsQ29O684sLc2i5YE3e', field_value: parseInt(String(info.mcs150_mileage).replace(/,/g,'')) || 0 },
+      info.mcs150_year && { id: 'u9LKMEGxjlhZGsUuhSRE',  field_value: parseInt(info.mcs150_year) },
+      unitVal          && { id: 'ZK43DBIa2Nwqt8Wr7Fw3',  field_value: unitVal },
+      info.power_units && { id: '0ckZ9VuFRCMao83FJKUQ',   field_value: String(info.power_units) },
+      info.drivers     && { id: '6CvAenSFl04oBvhmbeEW',   field_value: String(info.drivers) },
+      (info.mailing_address || info.physical_address) && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address || info.physical_address },
+      osVal            && { id: 'Tx9uGn4hrVwJKv6EheCJ',  field_value: osVal },
+      taskNameFieldId  && cleanName && { id: taskNameFieldId, field_value: cleanName },
+    ].filter(Boolean);
     const payload = {
       firstName: cleanName || undefined,
       lastName:  '',
