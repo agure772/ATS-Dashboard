@@ -1136,10 +1136,12 @@ async function dotLookup() {
     }
 
     renderDotResult(data.info);
-    document.getElementById('dot-result').style.display = 'block';
-    // Show create section as soon as we have FMCSA data
+    document.getElementById('dot-result').style.display  = 'block';
+    // Always show create section as soon as we have FMCSA data
     const createSec = document.getElementById('dot-create-section');
     if (createSec) createSec.style.display = 'block';
+    // Reset push status
+    document.getElementById('dot-push-status').innerHTML = '';
     status.textContent = `✓ Found: ${data.info.legal_name}`;
     status.style.color = 'var(--green)';
 
@@ -1231,29 +1233,75 @@ function dotSearchGHL(query) {
       (c.business_name || '').toLowerCase().includes(q);
   }).slice(0, 6);
 
+  // Always show create section
+  const sec = document.getElementById('dot-create-section');
+  if (sec) sec.style.display = 'block';
+
   if (!matches.length) {
     document.getElementById('dot-ghl-matches').innerHTML =
       '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT.</div>';
-    const sec = document.getElementById('dot-create-section');
-    if (sec) sec.style.display = 'block';
     return;
   }
-  // Matches found — still show create section below (user may want to add as new)
-  const sec2 = document.getElementById('dot-create-section');
-  if (sec2) sec2.style.display = 'block';
 
-  document.getElementById('dot-ghl-matches').innerHTML = matches.map(c => `
-    <div onclick="dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
-      style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid ${dotSelectedGHL?.id === c.id ? 'var(--primary)' : 'var(--border)'};background:${dotSelectedGHL?.id === c.id ? 'rgba(0,196,106,.08)' : 'var(--bg3)'};margin-bottom:5px;transition:all .15s"
+  document.getElementById('dot-ghl-matches').innerHTML = matches.map(c => {
+    const isSelected = dotSelectedGHL?.id === c.id;
+    // Mismatch detection: compare FMCSA data vs GHL contact data
+    const mismatches = [];
+    if (dotCurrentInfo) {
+      const fmcsaDot  = String(dotCurrentInfo.dot_number || '').trim();
+      const ghlDot    = String(c.dot_number || '').trim();
+      const fmcsaName = (dotCurrentInfo.legal_name || '').trim().toUpperCase();
+      const ghlName   = (c.business_name || c.name || '').trim().toUpperCase();
+      const fmcsaPhone = (dotCurrentInfo.phone || '').replace(/\D/g,'');
+      const ghlPhone   = (c.phone || '').replace(/\D/g,'');
+      const fmcsaEmail = (dotCurrentInfo.email || '').trim().toLowerCase();
+      const ghlEmail   = (c.email || '').trim().toLowerCase();
+      const fmcsaAddr  = (dotCurrentInfo.mailing_address || '').trim().toUpperCase();
+      const ghlAddr    = (c.mailing_address || '').trim().toUpperCase();
+
+      if (fmcsaDot  && ghlDot  && fmcsaDot  !== ghlDot)  mismatches.push({ field:'DOT#',   fmcsa: fmcsaDot,   ghl: ghlDot });
+      if (fmcsaName && ghlName && fmcsaName !== ghlName)  mismatches.push({ field:'Name',   fmcsa: fmcsaName,  ghl: ghlName });
+      if (fmcsaPhone && ghlPhone && fmcsaPhone !== ghlPhone) mismatches.push({ field:'Phone', fmcsa: dotCurrentInfo.phone, ghl: c.phone });
+      if (fmcsaEmail && ghlEmail && fmcsaEmail !== ghlEmail) mismatches.push({ field:'Email', fmcsa: fmcsaEmail, ghl: ghlEmail });
+      if (fmcsaAddr  && ghlAddr  && fmcsaAddr  !== ghlAddr)  mismatches.push({ field:'Address', fmcsa: dotCurrentInfo.mailing_address, ghl: c.mailing_address });
+    }
+
+    const mismatchBadge = mismatches.length
+      ? `<span style="font-size:9px;font-weight:800;background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:4px;padding:1px 6px;white-space:nowrap">${mismatches.length} MISMATCH${mismatches.length>1?'ES':''}</span>`
+      : `<span style="font-size:9px;font-weight:800;background:rgba(0,196,106,.1);color:var(--green);border:1px solid rgba(0,196,106,.3);border-radius:4px;padding:1px 6px">✓ MATCH</span>`;
+
+    const mismatchDetail = mismatches.length ? `
+      <div style="margin-top:6px;padding:8px 10px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:6px">
+        <div style="font-size:10px;font-weight:700;color:#ef4444;margin-bottom:4px">⚠ Fields that differ from FMCSA:</div>
+        ${mismatches.map(m => `
+          <div style="font-size:10px;margin-bottom:3px;display:grid;grid-template-columns:60px 1fr 1fr;gap:4px">
+            <span style="color:var(--text3);font-weight:600">${m.field}</span>
+            <span style="color:#ef4444" title="GHL value">GHL: ${m.ghl || '—'}</span>
+            <span style="color:var(--green)" title="FMCSA value">FMCSA: ${m.fmcsa || '—'}</span>
+          </div>`).join('')}
+        <button onclick="event.stopPropagation();dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}');dotPushToGHL()"
+          style="margin-top:6px;width:100%;background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">
+          ↑ Update GHL with FMCSA Data
+        </button>
+      </div>` : '';
+
+    return `<div onclick="dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
+      style="padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid ${isSelected ? 'var(--primary)' : 'var(--border)'};background:${isSelected ? 'rgba(0,196,106,.08)' : 'var(--bg3)'};margin-bottom:6px;transition:all .15s"
       id="dot-match-${c.id}">
-      <div style="width:30px;height:30px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--primary);flex-shrink:0">${c.initials}</div>
-      <div style="flex:1">
-        <div style="font-size:12px;font-weight:600;color:var(--text)">${c.name}</div>
-        ${c.dot_number ? `<div style="font-size:10px;color:var(--text3)">DOT# ${c.dot_number}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:30px;height:30px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--primary);flex-shrink:0">${c.initials}</div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600;color:var(--text)">${c.name}</div>
+          ${c.dot_number ? `<div style="font-size:10px;color:var(--text3)">DOT# ${c.dot_number}</div>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          ${mismatchBadge}
+          ${isSelected ? '<i class="ti ti-check" style="color:var(--primary)"></i>' : ''}
+        </div>
       </div>
-      ${dotSelectedGHL?.id === c.id ? '<i class="ti ti-check" style="color:var(--primary)"></i>' : ''}
-    </div>
-  `).join('');
+      ${mismatchDetail}
+    </div>`;
+  }).join('');
 }
 
 function dotSelectContact(id, name, dotNumber) {
@@ -1282,9 +1330,7 @@ async function dotCreateContact() {
     });
     const data = await res.json();
     if (res.status === 409) {
-      // Already exists — show warning instead of error
-      const sec3 = document.getElementById('dot-create-section');
-      if (sec3) sec3.style.display = 'none';
+      // Already exists — show warning but KEEP create section visible
       document.getElementById('dot-push-status').innerHTML = `
         <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:10px 14px;margin-top:8px">
           <div style="font-size:13px;font-weight:700;color:var(--yellow)"><i class="ti ti-alert-triangle"></i> Contact Already Exists</div>
@@ -1296,8 +1342,6 @@ async function dotCreateContact() {
     }
     if (!res.ok) throw new Error(data.error);
 
-    const sec3 = document.getElementById('dot-create-section');
-    if (sec3) sec3.style.display = 'none';
     document.getElementById('dot-push-status').innerHTML = `
       <div style="background:rgba(0,196,106,.1);border:1px solid rgba(0,196,106,.3);border-radius:8px;padding:10px 14px;margin-top:8px">
         <div style="font-size:13px;font-weight:700;color:var(--green)"><i class="ti ti-check"></i> Contact Created Successfully!</div>
