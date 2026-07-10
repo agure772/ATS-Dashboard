@@ -1140,6 +1140,9 @@ async function dotLookup() {
     // Always show create section as soon as we have FMCSA data
     const createSec = document.getElementById('dot-create-section');
     if (createSec) createSec.style.display = 'block';
+    // Show company name that will be created
+    const previewEl = document.getElementById('dot-create-preview');
+    if (previewEl) previewEl.textContent = data.info.legal_name ? `→ ${data.info.legal_name}  (DOT# ${data.info.dot_number})` : '';
     // Reset push status
     document.getElementById('dot-push-status').innerHTML = '';
     status.textContent = `✓ Found: ${data.info.legal_name}`;
