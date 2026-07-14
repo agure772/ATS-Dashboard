@@ -1589,16 +1589,30 @@ app.post('/api/opps/:oppId/tags', async (req, res) => {
   const { oppId } = req.params;
   const { tag } = req.body;
   try {
-    // GHL: get current opp then add tag
-    const opp = await ghl('GET', `${V2}/opportunities/${oppId}`);
-    const existing = opp?.opportunity?.tags || opp?.tags || [];
+    // Step 1: Get current opp to find existing tags and pipelineId
+    const oppRes = await ghl('GET', `${V2}/opportunities/${oppId}`);
+    const oppData = oppRes?.opportunity || oppRes || {};
+    const existing = oppData.tags || [];
     const newTags  = [...new Set([...existing, tag])];
-    await ghl('PUT', `${V2}/opportunities/${oppId}`, { tags: newTags });
+
+    console.log(`Adding tag "${tag}" to opp ${oppId}. Existing: [${existing.join(', ')}] → New: [${newTags.join(', ')}]`);
+
+    // Step 2: GHL opportunity update — tags go as top-level array
+    // Some GHL versions use PATCH, some PUT — try PUT with full payload
+    const updateRes = await ghl('PUT', `${V2}/opportunities/${oppId}`, {
+      name:            oppData.name,
+      pipelineId:      oppData.pipelineId,
+      pipelineStageId: oppData.pipelineStageId,
+      status:          oppData.status || 'open',
+      monetaryValue:   oppData.monetaryValue || 0,
+      tags:            newTags,
+    });
+
+    console.log(`✓ Tag update response:`, JSON.stringify(updateRes).slice(0, 200));
     tasksBoardCache = { data: null, ts: 0 };
-    console.log(`✓ Tag "${tag}" added to opp ${oppId}`);
     res.json({ success: true, tags: newTags });
   } catch(err) {
-    console.error('Tag add error:', err.message);
+    console.error('Tag add error:', err.message, err.data ? JSON.stringify(err.data).slice(0,300) : '');
     res.status(500).json({ error: err.message });
   }
 });
