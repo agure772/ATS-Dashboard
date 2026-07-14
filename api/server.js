@@ -1,1824 +1,1110 @@
-require('dotenv').config();
-console.log('=== ATS SERVER v2.6 STARTING ===');
-const express = require('express');
-const cors    = require('cors');
-const fetch   = require('node-fetch');
-const path    = require('path');
-
-const app  = express();
-const PORT = process.env.PORT || 3001;
-
-app.use(express.json());
-// Allow GHL to embed this app in an iframe
-app.use((req, res, next) => {
-  res.removeHeader('X-Frame-Options');
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' *.gohighlevel.com *.leadconnectorhq.com");
-  next();
-});
-app.use(cors({ origin: '*' }));
-app.use(express.static(path.join(__dirname, '../public')));
-
-const LOC_ID  = process.env.GHL_LOCATION_ID;
-const API_KEY = process.env.GHL_API_KEY;
-const V2      = 'https://services.leadconnectorhq.com';
-const HDRS    = {
-  'Authorization': `Bearer ${API_KEY}`,
-  'Content-Type':  'application/json',
-  'Version':       '2021-07-28',
-};
-
-async function ghl(method, url, body = null) {
-  const res = await fetch(url, {
-    method, headers: HDRS,
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch(e) { data = { raw: text }; }
-  if (!res.ok) {
-    console.error(`✗ ${res.status} ${url}:`, JSON.stringify(data).slice(0,200));
-    throw { status: res.status, message: data.message||data.msg||`HTTP ${res.status}`, data };
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ATS — Admin Truck Solutions | Compliance Portal</title>
+<meta name="description" content="Admin Truck Solutions internal compliance portal — manage FMCSA, IRP, IFTA, UCR, and permit filings for carrier clients.">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:title" content="ATS Compliance Portal">
+<meta property="og:description" content="Internal compliance dashboard for Admin Truck Solutions.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link rel="stylesheet" href="css/dashboard.css">
+<style>
+  /* Accessibility: skip navigation link */
+  .skip-link {
+    position: absolute;
+    top: -48px;
+    left: 0;
+    background: #000;
+    color: #fff;
+    padding: 10px 16px;
+    z-index: 99999;
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 0 0 8px 0;
+    text-decoration: none;
+    transition: top .15s;
   }
-  return data;
-}
-
-// Fetch ALL pages of contacts (handles 1000+ contacts)
-async function getAllContacts() {
-  const contacts = [];
-  let url = `${V2}/contacts/?locationId=${LOC_ID}&limit=100`;
-  let page = 1;
-  while (url) {
-    console.log(`  Fetching contacts page ${page}...`);
-    const data = await ghl('GET', url);
-    const batch = data.contacts || [];
-    contacts.push(...batch);
-    // Get next page URL from meta
-    url = data.meta?.nextPageUrl || null;
-    page++;
-    if (page > 20) break; // safety cap at 2000 contacts
+  .skip-link:focus { top: 0; }
+  /* Screen-reader only utility */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
   }
-  console.log(`  Total contacts fetched: ${contacts.length}`);
-  return contacts;
-}
+</style>
+</head>
+<body>
 
-// Fetch ALL pages of opportunities
-async function getAllOpportunities() {
-  const opps = [];
-  let url = `${V2}/opportunities/search?location_id=${LOC_ID}&limit=100`;
-  let page = 1;
-  while (url) {
-    console.log(`  Fetching opportunities page ${page}...`);
-    const data = await ghl('GET', url);
-    const batch = data.opportunities || [];
-    opps.push(...batch);
-    url = data.meta?.nextPageUrl || null;
-    page++;
-    if (page > 50) break; // safety cap
-  }
-  console.log(`  Total opportunities fetched: ${opps.length}`);
-  return opps;
-}
+<!-- Skip to main content (accessibility) -->
+<a href="#main-content" class="skip-link">Skip to main content</a>
 
-// ── Pipeline map ──────────────────────────────────────────────────────────────
-const PIPELINE_MAP = {
-  filing_2290:          { name: '1. 2026 2290 Form Filing (06-30-26)' },
-  filing_ucr:           { name: '2. 2026 UCR Filing' },
-  filing_ifta_license:  { name: '3. 2026 IFTA License Renewal' },
-  filing_business_name: { name: '4. 2026 Business Name Renewal' },
-  filing_clearinghouse: { name: '5. 2026 Clearinghouse Driver Annual Query' },
-  filing_nm_permit:     { name: '6. 2026 NM Permit Renewal' },
-  filing_irp_cab_card:  { name: '7. 2026 IRP Cab Card (Plate) Renewal' },
-  filing_mcs150:        { name: '8. 2026 MCS-150 Mileage Update for 2025' },
-  filing_ky_vehicle:    { name: '9. 2026 KY Annual Vehicle Update' },
-  ifta_q1_2026:         { name: 'Q1 2026 IFTA Filing' },
-  ifta_q2_2026:         { name: 'Q2 2026 IFTA Filing' },
-  ifta_q4_2025:         { name: 'Q4 2025 IFTA Filing' },
-  ifta_q3_2025:         { name: 'Q3 2025 IFTA Filing' },
-  ifta_q2_2025:         { name: 'Q2 2025 IFTA Filing' },
-  ifta_q1_2025:         { name: 'Q1 2025 IFTA Filing' },
-  ifta_q4_2024:         { name: 'Q4 2024 IFTA Filing' },
-  new_company_setup:    { name: 'Step #1: New Company Setup' },
-  prorate_account:      { name: 'Step #2: Prorate Account Setup (IRP/IFTA)' },
-  clearinghouse_setup:  { name: 'Step #3: Clearinghouse Account Setup' },
-  boi_filing:           { name: 'BOI Filing' },
-  new_prorate_account:  { name: 'New Prorate Account Setup' },
-  ifta_audit:           { name: 'IFTA Audit Support' },
-};
+<div class="shell">
+  <!-- ── Sidebar ─────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="logo">
+      <img src="ats-logo.jpg" alt="ATS" style="width:42px;height:42px;border-radius:10px;object-fit:cover;flex-shrink:0">
+      <div>
+        <div class="logo-text">Admin Truck Solutions</div>
+        <div class="logo-sub">Compliance Portal</div>
+      </div>
+    </div>
+    <nav role="navigation" aria-label="Primary navigation">
+      <div class="nav-section">
+        <div class="nav-label">Overview</div>
+        <button class="nav-item active" data-page="dashboard"><i class="ti ti-dashboard"></i>Dashboard</button>
+        <button class="nav-item" data-page="compliance"><i class="ti ti-table"></i>Compliance Grid<span class="nav-badge" id="nb-urgent">0</span></button>
+        <button class="nav-item" data-page="deadlines"><i class="ti ti-calendar-event"></i>Deadlines</button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Services</div>
+        <button class="nav-item" onclick="quickFilter('ifta')"><i class="ti ti-map-2"></i>IRP / IFTA</button>
+        <button class="nav-item" onclick="quickFilter('fmcsa')"><i class="ti ti-shield-check"></i>FMCSA</button>
+        <button class="nav-item" onclick="quickFilter('permits')"><i class="ti ti-license"></i>Permits</button>
+        <button class="nav-item" onclick="quickFilter('annual')"><i class="ti ti-refresh"></i>Annual Support</button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Tools</div>
+        <button class="nav-item" data-page="dot-lookup"><i class="ti ti-search"></i>DOT Lookup</button>
+        <button class="nav-item" data-page="tasks-board"><i class="ti ti-users-group"></i>Tasks Board</button>
+        <button class="nav-item" data-page="fmcsa-form"><i class="ti ti-shield-check"></i>FMCSA Support</button>
+        <button class="nav-item" data-page="skills-setup"><i class="ti ti-certificate"></i>Skills Setup</button>
 
-const STAGE_MAP = { done:'Won', pending:'Open', urgent:'In Progress' };
-let pipelineCache = {};
-let clientCache   = { data: null, ts: 0, error: null };
-const CACHE_TTL   = 60 * 1000; // 1 minute — so GHL changes show up quickly
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Quick Submit</div>
+        <a class="nav-item" href="https://api.leadconnectorhq.com/widget/form/9bANcS1TsxWsu6eJIYyj?notrack=true" target="_blank"><i class="ti ti-building-store"></i>New Business</a>
+        <a class="nav-item" href="https://api.leadconnectorhq.com/widget/form/Bh5Wp9dGkQmsxCArFEBA" target="_blank"><i class="ti ti-shield-check"></i>FMCSA Form</a>
+        <a class="nav-item" href="https://api.leadconnectorhq.com/widget/form/LnNnl1zgoLB69aRt3XRu?notrack=true" target="_blank"><i class="ti ti-map-pin"></i>IFTA Form</a>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div id="ghl-status" class="ghl-badge disconnected">
+        <i class="ti ti-plug"></i><span>Checking GHL...</span>
+      </div>
+      <div class="profile-pill">
+        <div class="avatar">TC</div>
+        <div class="profile-info">
+          <div class="profile-name">ATS Admin</div>
+          <div class="profile-role">Compliance Specialist</div>
+        </div>
+      </div>
+    </div>
+  </aside>
 
-// ── Load pipelines ────────────────────────────────────────────────────────────
-async function loadPipelines() {
-  console.log('\n🔄 Loading pipelines...');
-  try {
-    const d = await ghl('GET', `${V2}/opportunities/pipelines?locationId=${LOC_ID}`);
-    (d.pipelines||[]).forEach(p => {
-      const stages = {};
-      const pid = p.id || p._id || p.pipelineId;
-      (p.stages||[]).forEach(s => { stages[s.name] = s.id || s._id || s.stageId; });
-      pipelineCache[p.name] = { id: pid, stages };
-    });
-    console.log(`✅ ${Object.keys(pipelineCache).length} pipelines loaded`);
-  } catch(e) {
-    console.log('⚠️  Pipeline load failed:', e.message);
-  }
-}
+  <!-- ── Main ───────────────────────────────────── -->
+  <main class="main" id="main-content" role="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title" id="page-title">Dashboard</div>
+        <div class="topbar-sub" id="page-sub">2026 Compliance Overview</div>
+      </div>
+      <div class="search-box">
+        <i class="ti ti-search"></i>
+        <input id="global-search" placeholder="Search clients..." aria-label="Search clients" oninput="handleSearch(this.value)">
+      </div>
+      <button class="topbar-btn btn-ghost" onclick="refreshData()" aria-label="Sync with GoHighLevel"><i class="ti ti-refresh"></i>Sync GHL</button>
+      <button class="topbar-btn btn-primary" onclick="openAddClient()" aria-label="Add new client"><i class="ti ti-plus"></i>Add Client</button>
+    </div>
 
-// ── Fetch and cache all clients ───────────────────────────────────────────────
-async function fetchAllClients(force = false) {
-  const now = Date.now();
-  if (!force && clientCache.data && (now - clientCache.ts) < CACHE_TTL) {
-    console.log(`⚡ Serving ${clientCache.data.length} clients from cache`);
-    return clientCache.data;
-  }
+    <!-- ── Loading state ── -->
+    <div id="loading-screen" class="loading-screen">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loading-text">Syncing with GoHighLevel...</div>
+      <button onclick="loadClients()" style="margin-top:16px;background:var(--primary);color:#030A06;border:none;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer">Click if stuck → Force Load</button>
+    </div>
 
-  console.log('\n📡 Fetching ALL contacts + opportunities from GHL...');
-  console.log('   (You have 1000+ contacts — this takes ~30s the first time, then cached for 5 min)');
-  const t = Date.now();
+    <!-- ── Error banner ── -->
+    <div id="error-banner" class="error-banner" style="display:none">
+      <i class="ti ti-alert-circle"></i>
+      <span id="error-msg">Could not connect to GHL.</span>
+      <button onclick="document.getElementById('error-banner').style.display='none'"><i class="ti ti-x"></i></button>
+    </div>
 
-  try {
-    // Fetch contacts and opportunities in parallel
-    const [contacts, opps] = await Promise.all([
-      getAllContacts(),
-      getAllOpportunities(),
-    ]);
+    <!-- ── Pages ── -->
+    <div id="page-content" class="page-content" style="display:none">
 
-    // Group opps by contactId for fast lookup
-    const oppsByContact = {};
-    opps.forEach(opp => {
-      const cid = opp.contactId || opp.contact?.id;
-      if (!cid) return;
-      if (!oppsByContact[cid]) oppsByContact[cid] = [];
-      oppsByContact[cid].push(opp);
-    });
+      <!-- DASHBOARD PAGE -->
+      <div id="page-dashboard" class="page active">
 
-    const clients = contacts.map(c => mapContact(c, oppsByContact[c.id] || []));
-    clientCache = { data: clients, ts: Date.now(), error: null };
-    console.log(`✅ ${clients.length} clients ready in ${((Date.now()-t)/1000).toFixed(1)}s\n`);
-    return clients;
+        <!-- ─── ATS Marquee Banner ─────────────────────────────────────── -->
+        <div style="overflow:hidden;background:linear-gradient(90deg,#0a1f0f,#0d2e14,#0a1f0f);border:1px solid rgba(0,196,106,.25);border-radius:10px;margin-bottom:18px;padding:0;position:relative;height:38px;display:flex;align-items:center">
+          <!-- shimmer edge left -->
+          <div style="position:absolute;left:0;top:0;bottom:0;width:60px;background:linear-gradient(90deg,#0a1f0f,transparent);z-index:2;pointer-events:none"></div>
+          <!-- shimmer edge right -->
+          <div style="position:absolute;right:0;top:0;bottom:0;width:60px;background:linear-gradient(270deg,#0a1f0f,transparent);z-index:2;pointer-events:none"></div>
+          <!-- scrolling track -->
+          <div id="ats-banner-track" style="display:flex;align-items:center;white-space:nowrap;will-change:transform">
+            <!-- content duplicated for seamless loop -->
+          </div>
+        </div>
+        <!-- ──────────────────────────────────────────────────────────────── -->
 
-  } catch(err) {
-    clientCache.error = err.message;
-    throw err;
-  }
-}
+        <div class="stats-grid">
+          <div class="stat-card s-blue">
+            <div class="stat-icon blue"><i class="ti ti-users"></i></div>
+            <div class="stat-val blue" id="stat-clients">—</div>
+            <div class="stat-label">Active Clients</div>
+            <div class="stat-sub">Synced from GHL</div>
+          </div>
+          <div class="stat-card s-green">
+            <div class="stat-icon green"><i class="ti ti-circle-check"></i></div>
+            <div class="stat-val green" id="stat-done">—</div>
+            <div class="stat-label">Completed Items</div>
+            <div class="stat-sub">Filed & confirmed</div>
+          </div>
+          <div class="stat-card s-yellow">
+            <div class="stat-icon yellow"><i class="ti ti-clock"></i></div>
+            <div class="stat-val yellow" id="stat-pending">—</div>
+            <div class="stat-label">Pending</div>
+            <div class="stat-sub">In progress</div>
+          </div>
+          <div class="stat-card s-red">
+            <div class="stat-icon red"><i class="ti ti-alert-triangle"></i></div>
+            <div class="stat-val red" id="stat-urgent">—</div>
+            <div class="stat-label">Urgent Items</div>
+            <div class="stat-sub">Action needed</div>
+          </div>
+        </div>
 
-// ── ROUTES ────────────────────────────────────────────────────────────────────
-app.get('/api/health', (req, res) => res.json({
-  status:              'ok',
-  ghl_configured:      !!API_KEY,
-  location_configured: !!LOC_ID,
-  api_key_prefix:      API_KEY ? API_KEY.slice(0,20)+'...' : 'NOT SET',
-  location_id:         LOC_ID || 'NOT SET',
-  pipelines_loaded:    Object.keys(pipelineCache).length,
-  clients_cached:      clientCache.data?.length ?? 'none',
-  cache_age_seconds:   Math.round((Date.now()-clientCache.ts)/1000),
-  last_error:          clientCache.error || null,
-  timestamp:           new Date().toISOString(),
-}));
+        <div class="two-col">
+          <div class="section-card">
+            <div class="section-header">
+              <div class="section-title"><i class="ti ti-chart-donut"></i>Services distribution</div>
+            </div>
+            <div class="donut-wrap">
+              <canvas id="donut-canvas" role="img" aria-label="Distribution of completed compliance services"></canvas>
+              <div class="donut-center">
+                <div class="donut-total" id="donut-total">—</div>
+                <div class="donut-lbl">services</div>
+              </div>
+            </div>
+            <div id="donut-legend" class="donut-legend"></div>
+          </div>
 
-app.get('/api/debug', async (req, res) => {
-  try {
-    const data = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&limit=1`);
-    res.json({ success:true, api:'v2 LeadConnector', total_contacts: data.meta?.total, sample: data.contacts?.[0] });
-  } catch(err) {
-    res.status(500).json({ success:false, error: err.message, detail: err.data });
-  }
-});
+          <div class="section-card">
+            <div class="section-header">
+              <div class="section-title"><i class="ti ti-list-check"></i>Service count</div>
+            </div>
+            <div id="svc-bars"></div>
+          </div>
+        </div>
 
-app.get('/api/pipelines', async (req, res) => {
-  const list = Object.entries(pipelineCache).map(([name,p]) => ({
-    id: p.id, name,
-    stages: Object.entries(p.stages).map(([n,id]) => ({ id, name: n })),
-  }));
-  res.json({ pipelines_loaded: list.length, pipelines: list });
-});
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title"><i class="ti ti-activity"></i>Recent GHL activity</div>
+            <button class="section-btn" onclick="refreshData()"><i class="ti ti-refresh"></i>Refresh</button>
+          </div>
+          <div id="activity-feed" class="activity-list">
+            <div style="color:var(--text3);font-size:13px;padding:12px 0">Loading activity...</div>
+          </div>
+        </div>
+      </div>
 
-app.get('/api/contacts', async (req, res) => {
-  try {
-    const { query='' } = req.query;
+      <!-- COMPLIANCE GRID PAGE -->
+      <div id="page-compliance" class="page" style="padding:24px;max-width:1200px;margin:0 auto">
 
-    // If cache is empty and still loading, wait up to 60s
-    if (!clientCache.data) {
-      console.log('  Browser requested contacts — waiting for cache to fill...');
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        if (clientCache.data) break;
-        if (clientCache.error) throw new Error(clientCache.error);
-      }
+        <!-- ── Header ───────────────────────────────────────────────────────── -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+          <div>
+            <div style="font-size:24px;font-weight:800;color:var(--text);letter-spacing:-.5px">
+              Compliance <span style="color:var(--primary)">overview</span>
+            </div>
+            <div id="comp-subtitle" style="font-size:13px;color:var(--text3);margin-top:3px">2026 Filing Season</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button onclick="exportCSV()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px"><i class="ti ti-download"></i> Export</button>
+            <button onclick="openAddClient()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px"><i class="ti ti-plus"></i> Add Client</button>
+          </div>
+        </div>
+
+        <!-- ── Stats bar ─────────────────────────────────────────────────────── -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+          <div id="comp-stat-carriers" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(0,196,106,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-truck" style="color:var(--green);font-size:18px"></i>
+            </div>
+            <div><div id="stat-carriers-num" style="font-size:28px;font-weight:800;color:var(--text);line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">TRACKED CARRIERS</div></div>
+          </div>
+          <div id="comp-stat-urgent" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-alert-triangle" style="color:#ef4444;font-size:18px"></i>
+            </div>
+            <div><div id="stat-urgent-num" style="font-size:28px;font-weight:800;color:#ef4444;line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">URGENT / DUE</div></div>
+          </div>
+          <div id="comp-stat-ontrack" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-shield-check" style="color:#3b82f6;font-size:18px"></i>
+            </div>
+            <div><div id="stat-ontrack-pct" style="font-size:28px;font-weight:800;color:#3b82f6;line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">ON-TRACK</div></div>
+          </div>
+        </div>
+
+        <!-- ── Segment tabs ──────────────────────────────────────────────────── -->
+        <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-right:4px">SEGMENT</span>
+          <button onclick="setSegmentFilter(this,'all')" id="seg-btn-all"
+            style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">
+            Customers <span id="seg-count-all">—</span>
+          </button>
+          <button onclick="setSegmentFilter(this,'advance')" id="seg-btn-advance"
+            style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">
+            ATS Advance <span id="seg-count-advance">—</span>
+          </button>
+          <button onclick="setSegmentFilter(this,'recurring')" id="seg-btn-recurring"
+            style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">
+            ATS Recurring <span id="seg-count-recurring">—</span>
+          </button>
+        </div>
+
+        <!-- ── List toolbar ──────────────────────────────────────────────────── -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <div id="comp-count" style="font-size:12px;color:var(--text3);white-space:nowrap">— contacts</div>
+          <div style="position:relative;flex:1;min-width:200px">
+            <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px;pointer-events:none"></i>
+            <input id="comp-search" type="text" autocomplete="off" placeholder="Search name, DOT#..."
+              oninput="compSearch(this.value)"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 12px 7px 32px;font-size:12px;box-sizing:border-box">
+          </div>
+          <select id="tag-filter" onchange="setTagFilter(this.value)"
+            style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:12px;cursor:pointer;max-width:160px"></select>
+          <div style="display:flex;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px">
+            <button onclick="setFilter(this,'all')" id="comp-filt-all"
+              style="background:var(--primary);color:#0a1a0f;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">All</button>
+            <button onclick="setFilter(this,'urgent')" id="comp-filt-urgent"
+              style="background:transparent;color:var(--text3);border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer">Urgent</button>
+            <button onclick="setFilter(this,'done')" id="comp-filt-done"
+              style="background:transparent;color:var(--text3);border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer">On-track</button>
+          </div>
+          <!-- hidden group-chips kept for JS compatibility -->
+          <div id="group-chips" style="display:none">
+            <button class="chip active" onclick="setGroup(this,'all')">All columns</button>
+            <button class="chip" onclick="setGroup(this,'annual')">2026 Annual</button>
+            <button class="chip" onclick="setGroup(this,'ifta')">IFTA</button>
+            <button class="chip" onclick="setGroup(this,'onboard')">Onboarding</button>
+            <button class="chip" onclick="setGroup(this,'other')">Other</button>
+          </div>
+          <div id="filter-chips" style="display:none">
+            <button class="chip active" onclick="setFilter(this,'all')">All</button>
+          </div>
+        </div>
+
+        <!-- ── Client list ───────────────────────────────────────────────────── -->
+        <div id="compliance-list" style="display:flex;flex-direction:column;gap:6px"></div>
+
+        <!-- kept for CSV export compatibility -->
+        <table id="compliance-table" style="display:none"><thead><tr></tr></thead><tbody id="compliance-tbody"></tbody></table>
+
+        <div style="margin-top:12px">
+          <button onclick="openAddClient()" style="width:100%;background:var(--bg2);border:1px dashed var(--border);color:var(--text3);border-radius:10px;padding:12px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+            <i class="ti ti-plus"></i> Add a client
+          </button>
+        </div>
+      </div>
+
+      <!-- DEADLINES PAGE -->
+      <div id="page-deadlines" class="page">
+        <div class="deadline-grid" id="deadline-cards"></div>
+      </div>
+
+
+    <!-- ── DOT Lookup Page ──────────────────────────────── -->
+    <div id="page-dot-lookup" class="page">
+      <div style="max-width:900px;margin:0 auto">
+
+        <!-- Search bar -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:20px">
+          <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px">
+            <i class="ti ti-search" style="color:var(--primary)"></i> FMCSA DOT Number Lookup
+          </div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:16px">
+            Search any DOT number to pull live carrier data from FMCSA — then push it directly to your GHL contact.
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input id="dot-search-input" type="text" placeholder="Enter DOT number (e.g. 3483950)"
+              style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:14px;font-family:inherit"
+              onkeydown="if(event.key==='Enter') dotLookup()">
+            <button onclick="dotLookup()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-search"></i> Search FMCSA
+            </button>
+          </div>
+          <div id="dot-search-status" style="font-size:11px;color:var(--text3);margin-top:8px"></div>
+        </div>
+
+        <!-- Result card -->
+        <div id="dot-result" style="display:none">
+          <!-- FMCSA info card -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:14px">Carrier Information</div>
+              <div id="dot-info-left"></div>
+            </div>
+            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:14px">Compliance Details</div>
+              <div id="dot-info-right"></div>
+            </div>
+          </div>
+
+          <!-- Match to GHL contact + push -->
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px">
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">
+              <i class="ti ti-upload" style="color:var(--primary)"></i> Push to GHL Contact
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <input id="dot-ghl-search" type="text" placeholder="Search client by name or DOT..."
+                oninput="dotSearchGHL(this.value)"
+                style="flex:1;min-width:200px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;font-family:inherit">
+              <button id="dot-push-btn" onclick="dotPushToGHL()" disabled
+                style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;opacity:.5">
+                <i class="ti ti-cloud-upload"></i> Update GHL Contact
+              </button>
+            </div>
+            <div id="dot-ghl-matches" style="margin-top:10px"></div>
+
+            <!-- Create new contact — always visible once DOT result is loaded -->
+            <div id="dot-create-section" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+              <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">── OR CREATE AS NEW CONTACT ──</div>
+              <button onclick="dotCreateContact()" style="width:100%;background:rgba(0,196,106,.12);color:var(--primary);border:1px solid rgba(0,196,106,.4);border-radius:8px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+                <i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities
+              </button>
+              <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Creates the contact + 7 compliance opportunities from FMCSA data</div>
+              <div id="dot-create-preview" style="font-size:12px;font-weight:700;color:var(--green);text-align:center;margin-top:4px"></div>
+            </div>
+
+            <div id="dot-push-status" style="font-size:12px;margin-top:8px"></div>
+          </div>
+        </div>
+
+        <!-- No key warning -->
+        <div id="dot-no-key" style="display:none;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:20px;text-align:center">
+          <i class="ti ti-key" style="font-size:24px;color:var(--yellow);display:block;margin-bottom:8px"></i>
+          <div style="font-size:14px;font-weight:700;color:var(--yellow);margin-bottom:6px">FMCSA API Key Required</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Get your free key at <a href="https://ai.fmcsa.dot.gov/" target="_blank" style="color:var(--primary)">ai.fmcsa.dot.gov</a> — it only takes 2 minutes.</div>
+          <div style="font-size:12px;color:var(--text3)">Once you have it, add this line to your <code style="background:var(--bg3);padding:2px 6px;border-radius:4px">.env</code> file:<br>
+          <code style="background:var(--bg3);padding:4px 10px;border-radius:4px;display:inline-block;margin-top:6px;color:var(--green)">FMCSA_WEB_KEY=your_key_here</code></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Tasks Board Page ─────────────────────────────────────────────── -->
+    <div id="page-tasks-board" class="page" style="padding:24px;max-width:1400px;margin:0 auto">
+
+      <!-- ── View Toggle ───────────────────────────────────────────────────── -->
+      <div style="display:flex;gap:6px;margin-bottom:24px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:4px;width:fit-content">
+        <button id="tb-view-btn-operator" onclick="tbSwitchView('operator')"
+          style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .15s">
+          <i class="ti ti-users-group"></i> Operator Tasks
+        </button>
+        <button id="tb-view-btn-cs" onclick="tbSwitchView('cs')"
+          style="background:transparent;color:var(--text3);border:none;border-radius:9px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .15s">
+          <i class="ti ti-headset"></i> CS Board
+        </button>
+      </div>
+
+      <!-- ══ OPERATOR VIEW ══════════════════════════════════════════════════ -->
+      <div id="tb-operator-view">
+
+        <!-- Supervisor dropdown -->
+        <div style="margin-bottom:24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">SELECT SUPERVISOR</div>
+          <div id="tb-supervisor-tabs" style="position:relative;min-width:220px"></div>
+          <div style="font-size:11px;color:var(--text3)" id="tb-sup-info"></div>
+        </div>
+
+        <!-- Stats bar -->
+        <div id="tb-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+
+        <!-- Search + Add Task -->
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <div style="position:relative;flex:1;min-width:220px">
+            <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px"></i>
+            <input id="tb-search" type="text" placeholder="Search tasks & opportunities..." aria-label="Search tasks and opportunities"
+              autocomplete="off" oninput="tbApplyFilters()"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px 8px 34px;font-size:13px;box-sizing:border-box">
+          </div>
+          <button onclick="tbOpenAddItem()" style="background:rgba(0,196,106,.15);color:var(--primary);
+            border:1px solid var(--primary);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;
+            cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-plus"></i> Add Task
+          </button>
+        </div>
+
+        <!-- Staff cards controls -->
+        <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em" id="tb-team-label">TEAM</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button id="tb-auto-assign-btn" onclick="tbAutoAssign()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px"><i class="ti ti-wand"></i> Auto-Assign All</button>
+            <select id="tb-filter-type" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
+              <option value="all">All Items</option>
+              <option value="tasks">Tasks Only</option>
+              <option value="opps">Opportunities Only</option>
+            </select>
+            <select id="tb-filter-status" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
+              <option value="all">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="overdue">Overdue</option>
+              <option value="completed">Completed</option>
+            </select>
+            <button onclick="tbRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-refresh"></i> Refresh
+            </button>
+          </div>
+        </div>
+
+        <div id="tb-loading" style="display:none;text-align:center;padding:60px;color:var(--text3)">
+          <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
+          <div>Loading tasks from GHL...</div>
+          <div id="tb-loading-sub" style="font-size:12px;margin-top:6px;color:var(--text3)">This can take up to a minute on first load</div>
+        </div>
+        <div id="tb-staff-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px"></div>
+
+      </div><!-- /tb-operator-view -->
+
+      <!-- ══ CS BOARD VIEW ══════════════════════════════════════════════════ -->
+      <div id="tb-cs-view" style="display:none">
+
+        <!-- CS header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+          <div>
+            <div style="font-size:16px;font-weight:800;color:var(--text)">CS Task Board</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Customer service · info gathering & GHL updates</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="csOpenAddTask()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-plus"></i> Add CS Task
+            </button>
+            <button onclick="csTool('audit');document.getElementById('cs-tool-panel-audit')?.scrollIntoView({behavior:'smooth',block:'start'})"
+              style="background:rgba(124,58,237,.12);color:#a78bfa;border:1px solid rgba(124,58,237,.35);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-zoom-scan"></i> Run Audit
+            </button>
+            <button onclick="csRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-refresh"></i> Refresh
+            </button>
+            <button onclick="csOpenStaffModal()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-users-group"></i> CS Staff
+            </button>
+          </div>
+        </div>
+
+        <!-- CS Stats -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(99,102,241,.15);display:flex;align-items:center;justify-content:center"><i class="ti ti-list-check" style="color:#818cf8;font-size:16px"></i></div>
+            <div><div style="font-size:20px;font-weight:800;color:var(--text);line-height:1" id="cs-stat-total">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Total Tasks</div></div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-alert-circle" style="color:#ef4444;font-size:16px"></i></div>
+            <div><div style="font-size:20px;font-weight:800;color:#ef4444;line-height:1" id="cs-stat-overdue">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Overdue</div></div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-clock" style="color:#f59e0b;font-size:16px"></i></div>
+            <div><div style="font-size:20px;font-weight:800;color:#f59e0b;line-height:1" id="cs-stat-open">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Open</div></div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(0,196,106,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-circle-check" style="color:var(--green);font-size:16px"></i></div>
+            <div><div style="font-size:20px;font-weight:800;color:var(--green);line-height:1" id="cs-stat-done">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Completed</div></div>
+          </div>
+        </div>
+
+        <!-- No staff warning -->
+        <div id="cs-no-staff-warning" style="display:none;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
+          <i class="ti ti-alert-triangle" style="color:#f59e0b;font-size:16px;flex-shrink:0"></i>
+          <div style="flex:1;font-size:12px;color:var(--text2)">No CS staff configured. Tasks fall back to Mahad.</div>
+          <button onclick="csOpenStaffModal()" style="background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.35);border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Set Up →</button>
+        </div>
+
+        <!-- Filter + Search -->
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">FILTER BY STAFF</div>
+          <div id="cs-staff-tabs" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <div style="position:relative">
+              <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px"></i>
+              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..." aria-label="Search CS tasks"
+                oninput="csApplyFilter()"
+                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px 8px 32px;font-size:13px;width:200px">
+            </div>
+            <select id="cs-filter-status" onchange="csApplyFilter()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-size:12px">
+              <option value="all">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="overdue">Overdue</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- CS Debug -->
+        <div id="cs-debug-info" style="font-size:10px;color:var(--text3);padding:2px 0;font-family:monospace;opacity:.5;margin-bottom:8px"></div>
+
+        <!-- CS Loading -->
+        <div id="cs-loading" style="display:none;text-align:center;padding:40px;color:var(--text3)">
+          <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
+          <div>Loading CS tasks from GHL...</div>
+          <div style="font-size:12px;margin-top:6px;opacity:.6">This may take 1–2 minutes on first load</div>
+        </div>
+
+        <!-- CS not loaded -->
+        <div id="cs-not-loaded" style="display:none;flex-direction:column;align-items:center;justify-content:center;
+             padding:40px 20px;text-align:center;background:var(--bg2);border:1px solid var(--border);border-radius:16px;margin-bottom:20px">
+          <i class="ti ti-clipboard-list" style="font-size:40px;color:var(--text3);opacity:.3;display:block;margin-bottom:14px"></i>
+          <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px">CS tasks not loaded yet</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:18px;max-width:360px">CS tasks load automatically from the same data as Operator Tasks. Click below if needed.</div>
+          <button onclick="csLoad(true)" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px">
+            <i class="ti ti-download"></i> Load CS Tasks Now
+          </button>
+        </div>
+
+        <!-- CS Task list -->
+        <div id="cs-task-list"></div>
+
+        <!-- ── CS Tools Toolbar ───────────────────────────────────────────── -->
+        <div style="margin-top:20px">
+          <!-- Tool buttons row -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="csTool('dot')"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
+              id="cs-tool-btn-dot">
+              <i class="ti ti-search" style="color:var(--primary)"></i> DOT Lookup
+            </button>
+            <button onclick="csTool('vehicles')"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
+              id="cs-tool-btn-vehicles">
+              <i class="ti ti-truck" style="color:#f59e0b"></i> Vehicle Manager
+            </button>
+            <button onclick="csTool('drivers')"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
+              id="cs-tool-btn-drivers">
+              <i class="ti ti-id-badge" style="color:#60a5fa"></i> Driver Manager
+            </button>
+            <button onclick="csTool('audit')"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
+              id="cs-tool-btn-audit">
+              <i class="ti ti-zoom-scan" style="color:#a78bfa"></i> Contact Audit
+            </button>
+          </div>
+
+          <!-- DOT Lookup Panel -->
+          <div id="cs-tool-panel-dot" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">DOT QUICK UPDATE</div>
+            <div style="display:flex;gap:8px">
+              <input id="cs-dot-input" type="text" placeholder="Enter DOT number..." onkeydown="if(event.key==='Enter')csDotLookup()"
+                style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px">
+              <button onclick="csDotLookup()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+                <i class="ti ti-search"></i> Search
+              </button>
+            </div>
+            <div id="cs-dot-result" style="margin-top:12px"></div>
+          </div>
+
+          <!-- Vehicle Manager Panel -->
+          <div id="cs-tool-panel-vehicles" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">VEHICLE MANAGER</div>
+            <input id="vm-contact-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
+              oninput="vmSearchContact(this.value)"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
+            <div id="vm-contact-results"></div>
+            <div id="vm-selected-contact" style="display:none;padding:8px 12px;background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:8px;margin-bottom:10px;align-items:center;justify-content:space-between">
+              <span id="vm-selected-name" style="font-size:12px;font-weight:700;color:var(--green)"></span>
+              <button onclick="vmClearContact()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">×</button>
+            </div>
+            <div id="vm-vehicles-area"></div>
+          </div>
+
+          <!-- Driver Manager Panel -->
+          <div id="cs-tool-panel-drivers" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">DRIVER MANAGER</div>
+            <input id="dm-contact-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
+              oninput="dmSearchContact(this.value)"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
+            <div id="dm-contact-results"></div>
+            <div id="dm-selected-contact" style="display:none;padding:8px 12px;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:8px;margin-bottom:10px;align-items:center;justify-content:space-between">
+              <span id="dm-selected-name" style="font-size:12px;font-weight:700;color:#60a5fa"></span>
+              <button onclick="dmClearContact()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">×</button>
+            </div>
+            <div id="dm-drivers-area"></div>
+          </div>
+
+          <!-- Contact Audit Panel -->
+          <div id="cs-tool-panel-audit" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em">CONTACT AUDIT — Advanced &amp; Recurring only</div>
+              <button id="cs-audit-btn" onclick="csRunAudit()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:7px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px">
+                <i class="ti ti-zoom-scan"></i> Run Audit
+              </button>
+            </div>
+            <div id="cs-audit-results"></div>
+          </div>
+        </div>
+
+        <!-- CS Staff Settings panel (hidden) -->
+        <div id="cs-settings-panel" style="display:none;margin-top:16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px">
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">CS Staff (legacy panel)</div>
+          <div id="cs-staff-settings-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
+        </div>
+
+      </div><!-- /tb-cs-view -->
+
+    </div><!-- /page-tasks-board -->
+
+    <!-- ── FMCSA Support Form Page ──────────────────────────────────────── -->
+    <div id="page-fmcsa-form" class="page" style="padding:24px;max-width:800px;margin:0 auto">
+
+      <div style="margin-bottom:24px">
+        <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:4px">FMCSA Support Request</div>
+        <div style="font-size:13px;color:var(--text3)">Complete on the call — creates a task in GHL automatically</div>
+      </div>
+
+      <!-- Contact lookup -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">CLIENT LOOKUP</div>
+        <div style="display:flex;gap:10px">
+          <input id="ff-contact-search" type="text" placeholder="Search by name or DOT number..."
+            oninput="ffSearchContact(this.value)"
+            style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                   border-radius:10px;padding:10px 14px;font-size:14px">
+          <button onclick="ffSearchContact(document.getElementById('ff-contact-search').value)"
+            style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
+                   padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer">Search</button>
+        </div>
+        <div id="ff-contact-results" style="margin-top:10px"></div>
+        <div id="ff-selected-contact" style="display:none;margin-top:10px;padding:10px 14px;
+             background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:10px">
+          <div style="font-size:12px;color:var(--green);font-weight:700">✓ Selected Contact</div>
+          <div id="ff-selected-name" style="font-size:14px;font-weight:700;color:var(--text);margin-top:2px"></div>
+        </div>
+      </div>
+
+      <!-- Form fields -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:16px">CONTACT INFO</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:11px;color:var(--text3);font-weight:600">Email</label>
+            <input id="ff-email" type="email" placeholder="carrier@email.com"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3);font-weight:600">Phone</label>
+            <input id="ff-phone" type="tel" placeholder="(612) 555-0000"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
+          </div>
+        </div>
+      </div>
+
+      <!-- MCS-150 -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">MCS-150 UPDATE REQUEST</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="ff-mcs150-options">
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="Mileage Year Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Mileage Year Update</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="Address Change Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Address Change Update</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="Unit/Driver Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Unit/Driver Update</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="Email/Phone Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Email/Phone Update</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Clearinghouse -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">CLEARINGHOUSE</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="ff-ch-setup" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Clearinghouse Account Setup Request</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="ff-ch-new-driver" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">New Driver Query Request</span>
+          </label>
+          <div id="ff-new-driver-info" style="display:none;margin-left:24px;margin-top:4px">
+            <input id="ff-new-driver-name" type="text" placeholder="New driver name / CDL info..."
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                     border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box">
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="ff-ch-annual" style="accent-color:var(--primary);width:16px;height:16px">
+            <span style="font-size:13px;color:var(--text)">Annual Query Request</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Assign to staff -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">ASSIGN TO STAFF</div>
+        <select id="ff-assignee"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:10px;padding:10px 14px;font-size:14px">
+          <option value="">-- Select staff member --</option>
+        </select>
+      </div>
+
+      <!-- Notes -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:20px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:8px">ADDITIONAL NOTES</div>
+        <textarea id="ff-notes" placeholder="Any additional details..."
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+                 border-radius:10px;padding:10px 14px;font-size:13px;min-height:80px;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+
+      <!-- Submit -->
+      <button onclick="ffSubmit()"
+        style="width:100%;background:var(--primary);color:#0a1a0f;border:none;border-radius:12px;
+               padding:14px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:12px">
+        <i class="ti ti-send"></i> Submit & Create GHL Task
+      </button>
+      <div id="ff-status" style="text-align:center;font-size:13px"></div>
+
+    </div><!-- /page-fmcsa-form -->
+
+    <!-- ── Skills Setup Page ─────────────────────────────────────────────── -->
+    <div id="page-skills-setup" class="page" style="padding:24px;max-width:900px;margin:0 auto">
+      <div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:4px">Skills Setup</div>
+          <div style="font-size:13px;color:var(--text3)">Mark which ATS services each staff member is trained on. Used for smart auto-assignment and skill-mismatch warnings.</div>
+        </div>
+        <button onclick="skSave()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
+          padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+          <i class="ti ti-device-floppy"></i> Save Skills
+        </button>
+      </div>
+      <div id="sk-status" style="margin-bottom:12px;font-size:13px;text-align:center"></div>
+      <div id="sk-grid" style="display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:16px;align-items:start">
+        <div style="color:var(--text3);padding:40px;text-align:center">Loading staff...</div>
+      </div>
+    </div><!-- /page-skills-setup -->
+
+    <!-- ── CS Task Board Page ────────────────────────────────────────────────── -->
+    <div id="page-cs-board" class="page" style="padding:0;background:var(--bg1)">
+
+      <!-- Top hero bar -->
+      <div style="padding:28px 32px 20px;border-bottom:1px solid var(--border);background:var(--bg2)">
+        <div style="max-width:1300px;margin:0 auto">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px">
+            <div>
+              <div style="font-size:22px;font-weight:800;color:var(--text);letter-spacing:-.3px">CS Task Board</div>
+              <div style="font-size:13px;color:var(--text3);margin-top:3px">Customer service · info gathering & GHL updates</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button onclick="csOpenAddTask()"
+                style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;padding:9px 18px;
+                       font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px">
+                <i class="ti ti-plus"></i> Add CS Task
+              </button>
+              <button onclick="csRefresh()"
+                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:10px;
+                       padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
+                <i class="ti ti-refresh"></i> Refresh
+              </button>
+              <button onclick="csOpenStaffModal()"
+                style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);
+                       border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;
+                       display:flex;align-items:center;gap:6px">
+                <i class="ti ti-users-group"></i> CS Staff
+              </button>
+            </div>
+          </div>
+
+          <!-- No CS staff warning -->
+          <div id="cs-no-staff-warning" style="display:none;margin-top:16px;background:rgba(245,158,11,.08);
+               border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:12px 16px;
+               display:flex;align-items:center;gap:10px">
+            <i class="ti ti-alert-triangle" style="color:#f59e0b;font-size:18px;flex-shrink:0"></i>
+            <div style="flex:1;font-size:12px;color:var(--text2)">
+              No CS staff configured. Tasks fall back to Mahad until you designate your CS team.
+            </div>
+            <button onclick="csOpenStaffModal()"
+              style="background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.35);
+                     border-radius:7px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
+              Set Up →
+            </button>
+          </div>
+
+          <!-- Stats row -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px">
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+              <div style="width:38px;height:38px;border-radius:10px;background:rgba(99,102,241,.15);display:flex;align-items:center;justify-content:center">
+                <i class="ti ti-list-check" style="color:#818cf8;font-size:18px"></i>
+              </div>
+              <div>
+                <div style="font-size:22px;font-weight:800;color:var(--text);line-height:1" id="cs-stat-total">—</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Total Tasks</div>
+              </div>
+            </div>
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+              <div style="width:38px;height:38px;border-radius:10px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center">
+                <i class="ti ti-alert-circle" style="color:#ef4444;font-size:18px"></i>
+              </div>
+              <div>
+                <div style="font-size:22px;font-weight:800;color:#ef4444;line-height:1" id="cs-stat-overdue">—</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Overdue</div>
+              </div>
+            </div>
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+              <div style="width:38px;height:38px;border-radius:10px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center">
+                <i class="ti ti-clock" style="color:#f59e0b;font-size:18px"></i>
+              </div>
+              <div>
+                <div style="font-size:22px;font-weight:800;color:#f59e0b;line-height:1" id="cs-stat-open">—</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Open</div>
+              </div>
+            </div>
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+              <div style="width:38px;height:38px;border-radius:10px;background:rgba(0,196,106,.12);display:flex;align-items:center;justify-content:center">
+                <i class="ti ti-circle-check" style="color:var(--green);font-size:18px"></i>
+              </div>
+              <div>
+                <div style="font-size:22px;font-weight:800;color:var(--green);line-height:1" id="cs-stat-done">—</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Completed</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div style="max-width:1300px;margin:0 auto;padding:24px 32px">
+
+        <!-- Not loaded prompt -->
+        <div id="cs-not-loaded" style="display:none;flex-direction:column;align-items:center;justify-content:center;
+             padding:60px 20px;text-align:center;background:var(--bg2);border:1px solid var(--border);border-radius:16px;margin-bottom:20px">
+          <i class="ti ti-clipboard-list" style="font-size:48px;color:var(--text3);opacity:.4;display:block;margin-bottom:16px"></i>
+          <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">CS tasks not loaded yet</div>
+          <div style="font-size:13px;color:var(--text3);margin-bottom:20px;max-width:380px">
+            Visit <strong style="color:var(--text)">Tasks Board</strong> first to load all task data,
+            then come back here for instant CS task view. Or click below to load directly (takes 1–2 min).
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+            <button onclick="csLoad(true)"
+              style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;padding:10px 22px;
+                     font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px">
+              <i class="ti ti-download"></i> Load CS Tasks Now
+            </button>
+            <button onclick="navigateTo('tasks-board');setTimeout(()=>navigateTo('cs-board'),200)"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:10px;
+                     padding:10px 18px;font-size:13px;cursor:pointer">
+              Go to Tasks Board first
+            </button>
+          </div>
+        </div>
+
+        <!-- Debug info (shows tbState status) -->
+        <div id="cs-debug-info" style="font-size:10px;color:var(--text3);padding:4px 0;font-family:monospace;opacity:.6"></div>
+
+        <!-- Filter row -->
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">FILTER BY STAFF</div>
+          <div id="cs-staff-tabs" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <div style="position:relative">
+              <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px"></i>
+              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..." aria-label="Search CS tasks"
+                oninput="csApplyFilter()"
+                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                       padding:8px 12px 8px 32px;font-size:13px;width:200px">
+            </div>
+            <select id="cs-filter-status" onchange="csApplyFilter()"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-size:12px">
+              <option value="all">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="overdue">Overdue</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="cs-loading" style="display:none;text-align:center;padding:60px;color:var(--text3)">
+          <i class="ti ti-loader" style="font-size:32px;animation:spin 1s linear infinite;display:block;margin-bottom:12px"></i>
+          <div style="font-size:14px;font-weight:600">Loading CS tasks from GHL...</div>
+          <div style="font-size:12px;margin-top:6px;opacity:.6">This may take 1–2 minutes on first load</div>
+        </div>
+
+        <!-- Task list -->
+        <div id="cs-task-list"></div>
+
+        <!-- Contact Audit -->
+        <div style="margin-top:32px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden">
+          <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div>
+              <div style="font-size:14px;font-weight:800;color:var(--text)">
+                <i class="ti ti-zoom-scan" style="color:var(--primary);margin-right:6px"></i>Contact Audit
+              </div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Scan all GHL contacts for missing fields — instant, uses loaded data</div>
+            </div>
+            <button id="cs-audit-btn" onclick="csRunAudit()"
+              style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 18px;
+                     font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <i class="ti ti-zoom-scan"></i> Run Audit
+            </button>
+          </div>
+          <div id="cs-audit-results" style="padding:16px 22px"></div>
+        </div>
+
+        <!-- CS Staff Settings (hidden panel) -->
+        <div id="cs-settings-panel" style="display:none;margin-top:20px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:20px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">CS Staff (legacy settings)</div>
+          <div id="cs-staff-settings-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px"></div>
+        </div>
+
+      </div>
+    </div><!-- /page-cs-board -->
+
+    </div><!-- /page-content -->
+  </main>
+</div>
+
+<!-- ── Add Client Modal ────────────────────────────────────────────────────── -->
+<div id="modal-overlay" class="modal-overlay" style="display:none" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-user-plus"></i>Add new client to GHL</div>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <form id="add-client-form" onsubmit="submitAddClient(event)">
+      <div class="form-group">
+        <label>Contact name <span class="req">*</span></label>
+        <input type="text" id="f-name" placeholder="e.g. Abdishakur Abdi" required>
+      </div>
+      <div class="form-group">
+        <label>Business name</label>
+        <input type="text" id="f-biz" placeholder="e.g. BARAF EXPRESS LLC">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>MC Number</label>
+          <input type="text" id="f-mc" placeholder="MC-49281">
+        </div>
+        <div class="form-group">
+          <label>DOT Number</label>
+          <input type="text" id="f-dot" placeholder="3674974">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="tel" id="f-phone" placeholder="+1 555 000 0000">
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="f-email" placeholder="dispatch@company.com">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn-submit" id="submit-btn">
+          <i class="ti ti-brand-hipchat"></i>Create in GoHighLevel
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Status update modal (click a cell) ─────────────────────────────────── -->
+<div id="cell-modal-overlay" class="modal-overlay" style="display:none" onclick="closeCellModal(event)">
+  <div class="modal" style="max-width:340px">
+    <div class="modal-header">
+      <div class="modal-title" id="cell-modal-title">Update status</div>
+      <button class="modal-close" onclick="closeCellModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="cell-modal-body" style="padding:0 24px 24px;display:flex;flex-direction:column;gap:10px"></div>
+  </div>
+</div>
+
+<!-- ── Toast ── -->
+<div id="toast" class="toast"><i class="ti ti-circle-check"></i><span id="toast-msg"></span></div>
+
+
+<!-- ── Service Count Modal ─────────────────────────────────────────────────── -->
+<div id="svc-modal-overlay" class="modal-overlay" style="display:none" onclick="closeSvcModal(event)">
+  <div class="modal" style="max-width:480px;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-header" style="flex-shrink:0">
+      <div>
+        <div class="modal-title" id="svc-modal-title"></div>
+        <div id="svc-modal-stats" style="display:flex;gap:14px;font-size:11px;margin-top:4px"></div>
+      </div>
+      <button class="modal-close" onclick="document.getElementById('svc-modal-overlay').style.display='none'"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="svc-modal-body" style="padding:0 20px 20px;overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── Company Detail Panel ───────────────────────────────────────────────── -->
+<div id="company-panel-overlay">
+  <div id="company-panel"></div>
+</div>
+
+<script src="js/api-client.js?v=2.7"></script>
+<script src="js/dashboard.js?v=2.7"></script>
+  <!-- ATS Banner Animation -->
+  <style>
+    @keyframes ats-scroll {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
     }
-
-    let clients = await fetchAllClients();
-    if (query) {
-      const q = query.toLowerCase();
-      clients = clients.filter(c =>
-        c.name.toLowerCase().includes(q) ||
-        (c.mc_number||'').toLowerCase().includes(q) ||
-        (c.dot_number||'').toLowerCase().includes(q) ||
-        (c.business_name||'').toLowerCase().includes(q)
-      );
+    #ats-banner-track { animation: ats-scroll 38s linear infinite; }
+    #ats-banner-track:hover { animation-play-state: paused; }
+    .ats-banner-sep {
+      display:inline-flex;align-items:center;margin:0 18px;
+      color:rgba(0,196,106,.4);font-size:14px;flex-shrink:0
     }
-    res.json({ clients, total: clients.length });
-  } catch(err) {
-    console.error('GET /api/contacts:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/contacts', async (req, res) => {
-  try {
-    const { name, business_name, mc_number, dot_number, phone, email } = req.body;
-    if (!name) return res.status(400).json({ error: 'name required' });
-    const parts = name.trim().split(' ');
-    const data = await ghl('POST', `${V2}/contacts/`, {
-      locationId:  LOC_ID,
-      firstName:   parts[0],
-      lastName:    parts.slice(1).join(' ')||'',
-      companyName: business_name||name,
-      phone: phone||'', email: email||'',
-      tags: ['ats-dashboard','ats advance service'],
-    });
-    clientCache.data = null; // bust cache
-    res.status(201).json(mapContact(data.contact||data, []));
-  } catch(err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/opportunities', async (req, res) => {
-  try {
-    const { contactId, serviceKey, contactName, businessName, dotNumber } = req.body;
-    const pInfo = getPipelineInfo(serviceKey);
-    if (!pInfo) return res.status(400).json({ error:`Pipeline not found for "${serviceKey}"` });
-    const stageId = pInfo.stages['Open']||Object.values(pInfo.stages)[0];
-    const data = await ghl('POST', `${V2}/opportunities/`, {
-      pipelineId: pInfo.pipelineId, locationId: LOC_ID,
-      name: `${contactName||'Client'}${businessName?' | '+businessName:dotNumber?' DOT# '+dotNumber:''}`,
-      pipelineStageId: stageId, status:'open', contactId, monetaryValue:0,
-    });
-    clientCache.data = null;
-    res.status(201).json(data);
-  } catch(err) { res.status(500).json({ error: err.message }); }
-});
-
-app.patch('/api/opportunities/:id/status', async (req, res) => {
-  try {
-    const { status, serviceKey, notes } = req.body;
-    const pInfo   = serviceKey ? getPipelineInfo(serviceKey) : null;
-    const stageId = pInfo?.stages[STAGE_MAP[status]||'Open']||null;
-    const payload = {
-      status: status==='done'?'won':'open',
-      ...(stageId?{pipelineStageId:stageId}:{}),
-    };
-    if (notes&&serviceKey) payload.customFields = buildCustomFields(serviceKey,{notes});
-    const data = await ghl('PUT', `${V2}/opportunities/${req.params.id}`, payload);
-    clientCache.data = null;
-    res.json({ success:true, opportunity: data.opportunity||data });
-  } catch(err) { res.status(500).json({ error: err.message }); }
-});
-
-app.patch('/api/opportunities/:id/fields', async (req, res) => {
-  try {
-    const { fields, serviceKey } = req.body;
-    const data = await ghl('PUT', `${V2}/opportunities/${req.params.id}`, {
-      customFields: buildCustomFields(serviceKey, fields)
-    });
-    res.json({ success:true, opportunity: data.opportunity||data });
-  } catch(err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/opportunities/:id/notes', async (req, res) => {
-  try {
-    const data = await ghl('POST', `${V2}/opportunities/${req.params.id}/notes/`, {
-      body:`[ATS] ${req.body.body}`
-    });
-    res.status(201).json(data);
-  } catch(err) { res.status(500).json({ error: err.message }); }
-});
-
-// NOTE: task creation endpoint is defined below near line 924 — single source of truth
-
-app.post('/api/refresh', async (req, res) => {
-  clientCache.data = null;
-  try {
-    const clients = await fetchAllClients(true);
-    res.json({ success:true, clients_loaded: clients.length });
-  } catch(err) { res.status(500).json({ success:false, error: err.message }); }
-});
-
-
-
-// ── Debug: list all GHL custom fields ────────────────────────────────────────
-app.get('/api/debug/custom-fields', async (req, res) => {
-  try {
-    const data = await ghl('GET', `${V2}/locations/${process.env.GHL_LOCATION_ID}/customFields`);
-    res.json(data);
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Debug: get one contact's raw custom fields ────────────────────────────────
-app.get('/api/debug/contact/:id', async (req, res) => {
-  try {
-    const data = await ghl('GET', `${V2}/contacts/${req.params.id}`);
-    res.json(data?.contact?.customFields || data?.customFields || data);
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// ── Scrape SAFER website for full carrier data including mileage ──────────────
-async function scrapeSAFER(dotNumber) {
-  const result = { mc_number:'', mcs150_date:'', mcs150_mileage:'', mcs150_year:'', owner_name:'', phone:'', email:'', mailing_address:'' };
-  try {
-    // Use SAFER registration page which has MCS-150 form date
-    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
-    const regUrl = `https://safer.fmcsa.dot.gov/query.asp?query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}&action=Register`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Referer': 'https://safer.fmcsa.dot.gov/',
-        'Accept-Language': 'en-US,en;q=0.9',
-      }
-    });
-    if (!res.ok) { console.log('SAFER returned:', res.status); return result; }
-    const html = await res.text();
-
-    // Log a section around MCS-150 so we can see the exact HTML structure
-    // MC number
-    const mcMatch = html.match(/MC-(\d+)/);
-    if (mcMatch) result.mc_number = `MC-${mcMatch[1]}`;
-
-    // Collect all dates MM/DD/YYYY with their positions
-    const allDateMatches = [];
-    const dateRx = /(\d{2}\/\d{2}\/\d{4})/g;
-    let dm;
-    while ((dm = dateRx.exec(html)) !== null) {
-      allDateMatches.push({ date: dm[1], index: dm.index });
+    .ats-banner-item {
+      display:inline-flex;align-items:center;gap:7px;flex-shrink:0;
+      font-size:12px;font-weight:700;letter-spacing:.02em
     }
-    console.log('All dates in SAFER HTML:', allDateMatches.map(d => d.date));
-
-    // Today's date to exclude
-    const now = new Date();
-    const todayStr = String(now.getMonth()+1).padStart(2,'0') + '/' +
-                     String(now.getDate()).padStart(2,'0') + '/' + now.getFullYear();
-
-    // Mileage position
-    const mileageMatch = html.match(/(\d[\d,]+)\s*\((\d{4})\)/);
-    if (mileageMatch) {
-      result.mcs150_mileage = mileageMatch[1].replace(/,/g,'');
-      result.mcs150_year    = mileageMatch[2];
-    }
-
-    // MCS-150 date = any date that is NOT today, preferring ones near "Form Date" label
-    // First try: find date after "Form Date" text
-    const formDateIdx = html.search(/Form\s*Date/i);
-    if (formDateIdx >= 0) {
-      const chunk = html.slice(formDateIdx, formDateIdx + 150);
-      const fd = chunk.match(/(\d{2}\/\d{2}\/\d{4})/);
-      if (fd && fd[1] !== todayStr) {
-        result.mcs150_date = fd[1];
-      }
-    }
-
-    // Second try: any date that isn't today
-    if (!result.mcs150_date) {
-      const notToday = allDateMatches.filter(d => d.date !== todayStr);
-      if (notToday.length > 0) result.mcs150_date = notToday[0].date;
-    }
-
-    // Owner/contact name from FMCSA SMS Census API (data.transportation.gov Socrata API)
-    // This is the official free public dataset with contact names — no auth required
-    try {
-      const socrataUrl = `https://data.transportation.gov/resource/kjg3-diqy.json?dot_number=${dotNumber}&$limit=1`;
-      const socrataRes = await fetch(socrataUrl, { headers: { 'Accept': 'application/json' } });
-      console.log('Socrata census API status:', socrataRes.status);
-      if (socrataRes.ok) {
-        const records = await socrataRes.json();
-        console.log('Socrata record:', JSON.stringify(records[0] || {}).slice(0, 400));
-        if (records.length > 0) {
-          const r = records[0];
-          // Contact name field in SMS census data
-          // No contact name in this dataset — but grab phone, email, mileage
-          result.owner_name = ''; // not available in public census data
-          if (!result.mcs150_mileage && r.mcs150_mileage) result.mcs150_mileage = r.mcs150_mileage;
-          if (!result.mcs150_year && r.mcs150_mileage_year) result.mcs150_year = r.mcs150_mileage_year;
-          if (!result.phone && r.telephone) result.phone = r.telephone;
-          if (!result.email && r.email_address) result.email = r.email_address;
-          if (!result.mailing_address && r.mailing_street) {
-            result.mailing_address = [r.mailing_street, r.mailing_city, r.mailing_state, r.mailing_zip].filter(Boolean).join(', ');
-          }
-          // Store individual address parts
-          if (!result.mailing_street && r.mailing_street) result.mailing_street = r.mailing_street;
-          if (!result.mailing_city   && r.mailing_city)   result.mailing_city   = r.mailing_city;
-          if (!result.mailing_state  && r.mailing_state)  result.mailing_state  = r.mailing_state;
-          if (!result.mailing_zip    && r.mailing_zip)    result.mailing_zip    = r.mailing_zip;
-          console.log('Socrata phone:', result.phone, 'email:', result.email, 'mileage:', result.mcs150_mileage, 'year:', result.mcs150_year);
-        }
-      }
-    } catch(e) { console.log('Socrata census error:', e.message); }
-
-    console.log('SAFER scrape result:', result);
-  } catch(e) {
-    console.log('SAFER scrape error:', e.message);
-  }
-  return result;
-}
-
-// ── FMCSA DOT Lookup ──────────────────────────────────────────────────────────
-app.get('/api/dot/:dotNumber', async (req, res) => {
-  const { dotNumber } = req.params;
-  const webKey = process.env.FMCSA_WEB_KEY;
-
-  if (!webKey) {
-    return res.status(400).json({
-      error: 'FMCSA_WEB_KEY not configured',
-      help: 'Get your free key at https://ai.fmcsa.dot.gov/ and add FMCSA_WEB_KEY=yourkey to your .env file'
-    });
-  }
-
-  try {
-    // Fetch carrier info
-    const carrierUrl = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dotNumber}?webKey=${webKey}`;
-    const carrierRes = await fetch(carrierUrl, { headers: { 'Accept': 'application/json' } });
-
-    if (!carrierRes.ok) {
-      const errText = await carrierRes.text();
-      return res.status(carrierRes.status).json({ error: `FMCSA returned ${carrierRes.status}`, detail: errText.slice(0,200) });
-    }
-
-    const carrierData = await carrierRes.json();
-    const carrier = carrierData.content?.carrier || carrierData.carrier || carrierData;
-
-    if (!carrier || (!carrier.dotNumber && !carrier.legalName)) {
-      return res.status(404).json({ error: 'DOT number not found in FMCSA database' });
-    }
-
-    // Normalize the response
-    // Scrape SAFER website for MC number, mileage, and MCS-150 date
-    const safer = await scrapeSAFER(dotNumber);
-    let mcNumber    = safer.mc_number;
-    let mcs150Date  = safer.mcs150_date;
-    let mcs150Mileage = safer.mcs150_mileage;
-    let mcs150Year  = safer.mcs150_year;
-
-    // Fallback: try the docket-numbers API endpoint for MC number
-    if (!mcNumber) {
-      try {
-        const docketUrl = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dotNumber}/docket-numbers?webKey=${webKey}`;
-        const docketRes = await fetch(docketUrl, { headers: { 'Accept': 'application/json' } });
-        if (docketRes.ok) {
-          const docketData = await docketRes.json();
-          const dockets = docketData.content?.carrierDocketNumbers || docketData.content || [];
-          const mcEntry = Array.isArray(dockets)
-            ? dockets.find(d => d.docketNumberPrefix === 'MC' || d.prefix === 'MC')
-            : null;
-          if (mcEntry) mcNumber = `MC-${mcEntry.docketNumber || mcEntry.number || ''}`;
-        }
-      } catch(e) { console.log('Docket fallback error:', e.message); }
-    }
-
-    // Operating status from confirmed fields
-    const opStatus = carrier.allowedToOperate === 'Y' ? 'A'
-      : carrier.allowedToOperate === 'N' ? 'N'
-      : carrier.statusCode || 'A';
-
-    const info = {
-      dot_number:        String(carrier.dotNumber || dotNumber),
-      legal_name:        carrier.legalName || '',
-      dba_name:          carrier.dbaName || '',
-      entity_type:       carrier.carrierOperation?.carrierOperationDesc || carrier.censusTypeId?.censusTypeDesc || '',
-      mc_number:         mcNumber,
-      physical_address:  [carrier.phyStreet, carrier.phyCity, carrier.phyState, carrier.phyZipcode].filter(Boolean).join(', '),
-      mailing_address:   safer.mailing_address || '',
-      mailing_street:    safer.mailing_street  || carrier.phyStreet   || '',
-      mailing_city:      safer.mailing_city    || carrier.phyCity     || '',
-      mailing_state:     safer.mailing_state   || carrier.phyState    || '',
-      mailing_zip:       safer.mailing_zip     || carrier.phyZipcode  || '',
-      phone:             safer.phone || '',
-      email:             safer.email || '',
-      ein:               carrier.ein || '',
-      power_units:       String(carrier.totalPowerUnits || ''),
-      drivers:           String(carrier.totalDrivers || ''),
-      mcs150_date:       mcs150Date,
-      mcs150_mileage:    mcs150Mileage,
-      mcs150_year:       mcs150Year,
-      mcs150_outdated:   carrier.mcs150Outdated === 'Y',
-      oos_date:          carrier.oosDate || '',
-      operating_status:  opStatus,
-      safety_rating:     carrier.safetyRating || 'Not Rated',
-      owner_name:        safer.owner_name || '',
-      crash_total:       String(carrier.crashTotal || '0'),
-      iss_score:         String(carrier.issScore || ''),
-      raw:               carrier,
-    };
-
-    res.json({ success: true, info });
-  } catch (err) {
-    console.error('FMCSA lookup error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Push FMCSA data to GHL contact ───────────────────────────────────────────
-app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
-  const { contactId, info } = req.body;
-  if (!contactId || !info) return res.status(400).json({ error: 'contactId and info required' });
-
-  try {
-    // Update contact in GHL with FMCSA data
-    // Map FMCSA data to real GHL custom field IDs
-    // Operating status must match GHL picklist options exactly
-    const osMap = { 'A':'AUTHORIZED', 'N':'NOT AUTHORIZED', 'I':'INACTIVE', 'S':'OUT-OF-SERVICE' };
-    const osVal = osMap[info.operating_status] || (info.operating_status ? 'AUTHORIZED' : undefined);
-
-    // Number of units → map power_units to GHL radio options
-    let unitVal = undefined;
-    const pu = parseInt(info.power_units) || 0;
-    if (pu === 1) unitVal = '1 Unit (Owner Ops)';
-    else if (pu >= 2 && pu <= 3) unitVal = '2-3 Units';
-    else if (pu >= 4) unitVal = '4-10 Units';
-
-    // Strip MC- prefix for numerical field
-    const mcNum  = info.mc_number ? String(info.mc_number).replace(/^MC-/i,'') : '';
-    const einNum = info.ein       ? String(info.ein).replace(/-/g,'')        : '';
-
-    const cleanName = (info.legal_name || '').replace(/\s+DOT#?\s*\d+/i,'').trim();
-
-    // Fetch custom field schema to find Task Name field ID
-    let taskNameFieldId = null;
-    try {
-      const schema = await ghl('GET', `${V2}/locations/${LOC_ID}/customFields`);
-      const taskField = (schema.customFields || []).find(f =>
-        /task.?name/i.test(f.name || f.fieldKey || '')
-      );
-      taskNameFieldId = taskField?.id || null;
-      if (taskNameFieldId) console.log(`Task Name field ID: ${taskNameFieldId}`);
-      else console.log('Task Name field not found. Fields:', (schema.customFields||[]).map(f=>f.name).slice(0,15));
-    } catch(e) { console.log('Could not fetch custom fields schema:', e.message); }
-
-    const customFields = [
-      info.dot_number  && { id: 'E5MJr7vstJWSi59CxAbK', field_value: parseInt(info.dot_number) || info.dot_number },
-      mcNum            && { id: 'twbBzamze4MVgetPLoSA',  field_value: parseInt(mcNum) || mcNum },
-      einNum           && { id: 'fr4t6AA1aM8dRhb7Pj3R',  field_value: einNum },
-      info.mcs150_year && { id: 'kmBR6gFRCxd0ZPFEXGz7',  field_value: parseInt(info.mcs150_year) },
-      info.mcs150_mileage && { id: 'jzsQ29O684sLc2i5YE3e', field_value: parseInt(String(info.mcs150_mileage).replace(/,/g,'')) || 0 },
-      info.mcs150_year && { id: 'u9LKMEGxjlhZGsUuhSRE',  field_value: parseInt(info.mcs150_year) },
-      unitVal          && { id: 'ZK43DBIa2Nwqt8Wr7Fw3',  field_value: unitVal },
-      info.power_units && { id: '0ckZ9VuFRCMao83FJKUQ',   field_value: String(info.power_units) },
-      info.drivers     && { id: '6CvAenSFl04oBvhmbeEW',   field_value: String(info.drivers) },
-      (info.mailing_address || info.physical_address) && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address || info.physical_address },
-      osVal            && { id: 'Tx9uGn4hrVwJKv6EheCJ',  field_value: osVal },
-      taskNameFieldId  && cleanName && { id: taskNameFieldId, field_value: cleanName },
-    ].filter(Boolean);
-    const payload = {
-      firstName: cleanName || undefined,
-      lastName:  '',
-      companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
-      phone:    info.phone    || undefined,
-      email:    info.email    || undefined,
-      address1: info.mailing_street || undefined,
-      city:     info.mailing_city   || undefined,
-      state:    info.mailing_state  || undefined,
-      postalCode: info.mailing_zip  || undefined,
-      country:  info.mailing_street ? 'US' : undefined,
-      customFields,
-    };
-
-    const updated = await ghl('PUT', `${V2}/contacts/${contactId}`, payload);
-    // Bust cache so dashboard reflects changes
-    clientCache.data = null;
-    res.json({ success: true, contact: updated });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// ── Create new GHL contact + opportunities from DOT lookup ───────────────────
-app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
-  const { info } = req.body;
-  if (!info) return res.status(400).json({ error: 'info required' });
-  try {
-    // 0. Duplicate check — search GHL by DOT number first
-    const dotStr = String(info.dot_number || '').trim();
-    const nameStr = (info.legal_name || '').trim();
-    if (dotStr || nameStr) {
-      const query = dotStr || nameStr;
-      const existing = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&query=${encodeURIComponent(query)}&limit=5`);
-      const contacts = existing?.contacts || [];
-      const dupe = contacts.find(c => {
-        const cDot = c.customFields?.find(f => f.id === 'E5MJr7vstJWSi59CxAbK')?.fieldValue;
-        return String(cDot || '') === dotStr ||
-          (c.companyName || c.firstName || '').toLowerCase() === nameStr.toLowerCase();
-      });
-      if (dupe) {
-        return res.status(409).json({
-          error: `Contact already exists in GHL: ${dupe.companyName || dupe.firstName}`,
-          existingId: dupe.id,
-          duplicate: true,
-        });
-      }
-    }
-
-    // 1. Create the contact
-    const mcNum = info.mc_number ? String(info.mc_number).replace(/^MC-/i,'') : '';
-    const einStr = info.ein ? String(info.ein) : '';
-    const cleanName = (info.legal_name || '').replace(/\s+DOT#?\s*\d+/i,'').trim();
-
-    // Find Task Name custom field ID
-    let taskNameFieldId = null;
-    try {
-      const schema = await ghl('GET', `${V2}/locations/${LOC_ID}/customFields`);
-      const taskField = (schema.customFields || []).find(f =>
-        /task.?name/i.test(f.name || f.fieldKey || '')
-      );
-      taskNameFieldId = taskField?.id || null;
-      if (taskNameFieldId) console.log(`Task Name field ID: ${taskNameFieldId}`);
-      else console.log('Task Name field not found. Available fields:', (schema.customFields||[]).map(f=>f.name).slice(0,10));
-    } catch(e) { console.log('Custom field schema error:', e.message); }
-
-    const contactPayload = {
-      firstName: cleanName || info.dba_name || `DOT#${info.dot_number}`,
-      lastName: '',
-      companyName: info.legal_name
-        ? `${info.legal_name} DOT# ${info.dot_number}`
-        : `DOT# ${info.dot_number}`,
-      phone: info.phone || '',
-      email: info.email || '',
-      address1: info.mailing_street || '',
-      city:     info.mailing_city   || '',
-      state:    info.mailing_state  || '',
-      postalCode: info.mailing_zip  || '',
-      country:  'US',
-      tags: ['ats-dashboard'],
-      customFields: [
-        info.dot_number && { id: 'E5MJr7vstJWSi59CxAbK', field_value: parseInt(info.dot_number) },
-        mcNum          && { id: 'twbBzamze4MVgetPLoSA', field_value: parseInt(mcNum) || mcNum },
-        einStr         && { id: 'fr4t6AA1aM8dRhb7Pj3R', field_value: einStr },
-        info.mcs150_year && { id: 'kmBR6gFRCxd0ZPFEXGz7', field_value: parseInt(info.mcs150_year) },
-        info.mcs150_mileage && { id: 'jzsQ29O684sLc2i5YE3e', field_value: parseInt(String(info.mcs150_mileage).replace(/,/g,'')) },
-        (info.mailing_address || info.physical_address) && { id: 'gmZAkRDtnsOhsiCYUrxp', field_value: info.mailing_address || info.physical_address },
-        taskNameFieldId && cleanName && { id: taskNameFieldId, field_value: cleanName },
-      ].filter(Boolean),
-      locationId: process.env.GHL_LOCATION_ID,
-    };
-
-    const contactResult = await ghl('POST', `${V2}/contacts/`, contactPayload);
-    const contactId = contactResult?.contact?.id;
-    if (!contactId) throw new Error('Contact creation failed — no ID returned');
-
-    // 2. Create default opportunities for annual compliance services
-    const defaultServices = [
-      'filing_2290', 'filing_ucr', 'filing_ifta_license', 'filing_mcs150',
-      'new_company_setup', 'prorate_account', 'clearinghouse_setup'
-    ];
-    const oppResults = [];
-    for (const serviceKey of defaultServices) {
-      try {
-        const pipeline = pipelineCache[PIPELINE_MAP[serviceKey]?.name];
-        if (!pipeline) continue;
-        const oppPayload = {
-          name: cleanName || `DOT#${info.dot_number}`,
-          pipelineId: pipeline.id,
-          pipelineStageId: pipeline.stages?.[0]?.id,
-          status: 'open',
-          contactId,
-          monetaryValue: 0,
-          locationId: process.env.GHL_LOCATION_ID,
-        };
-        const oppResult = await ghl('POST', `${V2}/opportunities/`, oppPayload);
-        if (oppResult?.opportunity?.id) oppResults.push(serviceKey);
-      } catch(e) { console.log(`Opp creation failed for ${serviceKey}:`, e.message); }
-    }
-
-    // Bust cache
-    clientCache.data = null;
-    res.json({ success: true, contactId, contact: contactResult.contact, opportunitiesCreated: oppResults });
-  } catch(err) {
-    console.error('Create contact error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Tasks Board — fetch tasks + opportunities for supervisor view ──────────────
-let tasksBoardCache = { data: null, ts: 0 };
-let tasksBoardRefreshing = false;
-const TASKS_BOARD_TTL   = 10 * 60 * 1000;  // serve fresh cache for 10 min without background refresh
-const TASKS_BOARD_STALE = 4 * 60 * 60 * 1000; // serve stale cache up to 4 hours while refreshing in bg
-// Key: once loaded, ALWAYS serve from cache (even if stale) and refresh in background.
-// Only blocks waiting for fresh data on very first load or manual force-refresh.
-
-async function buildTasksBoardData() {
-  // GHL Users
-  let usersData = [];
-  try {
-    const ud = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}`);
-    usersData = ud.users || ud.data || ud.members || [];
-    console.log(`Users found: ${usersData.length}`);
-  } catch(e) { console.log('Users err:', e.message); }
-
-  // Fetch Opportunities and full Contact list IN PARALLEL (was sequential before)
-  const fetchOpps = async () => {
-    const oppsData = [];
-    let oppsPage = 1, oppsHasMore = true;
-    while (oppsHasMore && oppsPage <= 30) {
-      try {
-        const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=100&page=${oppsPage}`);
-        const batch = od.opportunities || [];
-        oppsData.push(...batch);
-        oppsHasMore = batch.length === 100;
-        oppsPage++;
-      } catch(e) { oppsHasMore = false; }
-    }
-    return oppsData;
-  };
-
-  const fetchAllContacts = async () => {
-    const contacts = [];
-    let cPage = 1, cHasMore = true;
-    while (cHasMore && cPage <= 15) { // cap ~1500 contacts
-      try {
-        const cd = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&limit=100&page=${cPage}`);
-        const batch = cd.contacts || [];
-        contacts.push(...batch);
-        cHasMore = batch.length === 100;
-        cPage++;
-      } catch(e) { cHasMore = false; }
-    }
-    return contacts;
-  };
-
-  const [oppsData, allContacts] = await Promise.all([fetchOpps(), fetchAllContacts()]);
-  const allContactIds = allContacts.map(c => c.id);
-  console.log(`Opps: ${oppsData.length}, Contacts: ${allContacts.length}`);
-
-  // Build contactId -> { name, companyName, tags, phone, email, dotNumber } map for Tasks Board display
-  const contactInfoMap = {};
-  const extractDot = (text) => {
-    const m = (text||'').match(/DOT#?\s*(\d{4,9})/i);
-    return m ? m[1] : '';
-  };
-  allContacts.forEach(c => {
-    const name = c.name || `${c.firstName||''} ${c.lastName||''}`.trim() || c.companyName || 'Unknown';
-    contactInfoMap[c.id] = {
-      name,
-      companyName: c.companyName || '',
-      tags: (c.tags || []).map(t => String(t).toLowerCase()),
-      phone: c.phone || '',
-      email: c.email || '',
-      dotNumber: extractDot(name) || extractDot(c.companyName),
-    };
-  });
-  // Also capture contact info embedded directly in opportunities (covers contacts not in the bulk list, e.g. if pagination cap was hit)
-  oppsData.forEach(o => {
-    const cid = o.contactId || o.contact?.id;
-    if (cid && !contactInfoMap[cid] && o.contact) {
-      contactInfoMap[cid] = {
-        name: o.contact.name || `${o.contact.firstName||''} ${o.contact.lastName||''}`.trim() || 'Unknown',
-        companyName: o.contact.companyName || '',
-        tags: (o.contact.tags || []).map(t => String(t).toLowerCase()),
-        phone: o.contact.phone || '',
-        email: o.contact.email || '',
-        dotNumber: '',
-      };
-    }
-  });
-
-  // Build userId→name map
-  const userMap = {};
-  usersData.forEach(u => { userMap[u.id] = u.name || `${u.firstName||''} ${u.lastName||''}`.trim(); });
-  oppsData.forEach(o => { if (o.assignedTo && o.ownerName) userMap[o.assignedTo] = o.ownerName; });
-  oppsData.forEach(o => { if (o.assignedTo && userMap[o.assignedTo]) o.ownerName = userMap[o.assignedTo]; });
-
-  // Ensure pipeline cache is populated (re-fetch if empty)
-  if (Object.keys(pipelineCache).length === 0) {
-    console.log('⚠ pipelineCache empty — fetching pipelines now...');
-    try {
-      const d = await ghl('GET', `${V2}/opportunities/pipelines?locationId=${LOC_ID}`);
-      (d.pipelines||[]).forEach(p => {
-        const stages = {};
-        const pid = p.id || p._id || p.pipelineId;
-        (p.stages||[]).forEach(s => { stages[s.name] = s.id || s._id || s.stageId; });
-        pipelineCache[p.name] = { id: pid, stages };
-      });
-      console.log(`✅ Pipelines loaded on-demand: ${Object.keys(pipelineCache).length}`);
-    } catch(e) {
-      console.error('Pipeline fetch failed:', e.message);
-    }
-  }
-
-  // Build reverse lookup: pipelineId -> pipelineName, stageId -> stageName
-  const pipelineIdToName = {};
-  const stageIdToName = {};
-  Object.entries(pipelineCache).forEach(([pName, p]) => {
-    pipelineIdToName[p.id] = pName;
-    Object.entries(p.stages).forEach(([sName, sId]) => {
-      stageIdToName[sId] = sName;
-    });
-  });
-
-  // Log first opp to verify pipelineId fields exist
-  if (oppsData.length > 0) {
-    const sample = oppsData[0];
-    console.log(`🔍 Sample opp: pipelineId="${sample.pipelineId}" pipelineStageId="${sample.pipelineStageId}" name="${sample.name}"`);
-    console.log(`🔍 pipelineIdToName keys: ${Object.keys(pipelineIdToName).slice(0,3).join(', ')}`);
-    console.log(`🔍 Resolved: pipelineName="${pipelineIdToName[sample.pipelineId]||'NOT FOUND'}" stageName="${stageIdToName[sample.pipelineStageId]||'NOT FOUND'}"`);
-  }
-
-  // Enrich opportunities with contact info (name, company, tags, phone, email, DOT#)
-  oppsData.forEach(o => {
-    const cid = o.contactId || o.contact?.id;
-    const info = cid ? contactInfoMap[cid] : null;
-    if (info) {
-      o.contactName    = o.contactName || info.name;
-      o.companyName    = info.companyName;
-      o.customerTags   = info.tags;
-      o.contactPhone   = info.phone;
-      o.contactEmail   = info.email;
-      o.dotNumber      = info.dotNumber || extractDot(o.name);
-    } else {
-      o.dotNumber = extractDot(o.name);
-    }
-    // Attach human-readable pipeline and stage names
-    o.pipelineName = pipelineIdToName[o.pipelineId] || '';
-    o.stageName    = stageIdToName[o.pipelineStageId] || '';
-  });
-
-  // Tasks — per contact, high concurrency batches
-  const tasksData = [];
-  const oppContactIds = oppsData.map(o => o.contactId || o.contact?.id).filter(Boolean);
-  const contactIds = [...new Set([...oppContactIds, ...allContactIds])];
-  console.log(`Fetching tasks for ${contactIds.length} unique contacts...`);
-
-  const CONCURRENCY = 10;
-  let firstTaskLogged = false;
-  for (let i = 0; i < contactIds.length; i += CONCURRENCY) {
-    const batch = contactIds.slice(i, i + CONCURRENCY);
-    await Promise.all(batch.map(async cid => {
-      try {
-        const td = await ghl('GET', `${V2}/contacts/${cid}/tasks`);
-        const tasks = td.tasks || td.data || [];
-        const info = contactInfoMap[cid];
-        tasks.forEach(t => {
-          // Log first task to see exact field names GHL uses
-          if (!firstTaskLogged) {
-            console.log('GHL task fields:', Object.keys(t));
-            console.log('GHL task sample:', JSON.stringify(t).slice(0,500));
-            firstTaskLogged = true;
-          }
-          // GHL may use assignedTo, assignedUserId, or userId for the staff member
-          const assigneeId = t.assignedTo || t.assignedUserId || t.userId || '';
-          tasksData.push({
-            ...t, contactId: cid, assigneeId, assigneeName: userMap[assigneeId] || '',
-            contactName:  info?.name || '',
-            companyName:  info?.companyName || '',
-            customerTags: info?.tags || [],
-            contactPhone: info?.phone || '',
-            contactEmail: info?.email || '',
-            dotNumber:    info?.dotNumber || extractDot(t.title),
-          });
-        });
-      } catch(e) {
-        if (e.message && (e.message.includes('429') || e.message.includes('rate')))
-          console.log(`Rate limit hit fetching tasks for ${cid}`);
-      }
-    }));
-    // 200ms delay every 5 batches to respect GHL rate limits (100 req/10s)
-    if (Math.floor(i / CONCURRENCY) % 5 === 0 && i > 0) {
-      await new Promise(r => setTimeout(r, 200));
-    }
-  }
-
-  // Log how many tasks each user has for debugging
-  const tasksByUser = {};
-  tasksData.forEach(t => { tasksByUser[t.assigneeId] = (tasksByUser[t.assigneeId]||0)+1; });
-  console.log('Tasks by user:', JSON.stringify(tasksByUser));
-
-  const mahadOpps = oppsData.filter(o => o.assignedTo === 'yri669q8Ymx22zdFDPLK');
-  console.log(`FINAL: ${tasksData.length} tasks, ${oppsData.length} opps, Mahad opps: ${mahadOpps.length}`);
-  if (mahadOpps.length) console.log('Sample Mahad opp:', JSON.stringify(mahadOpps[0]).slice(0,200));
-  return { tasks: tasksData, opportunities: oppsData, users: usersData, userMap };
-}
-
-app.get('/api/tasks-board', async (req, res) => {
-  const force = req.query.refresh === '1';
-  const now = Date.now();
-  const age = now - tasksBoardCache.ts;
-
-  // Fresh cache — serve instantly
-  if (!force && tasksBoardCache.data && age < TASKS_BOARD_TTL) {
-    console.log(`⚡ Serving tasks-board from cache (${Math.round(age/1000)}s old)`);
-    return res.json(tasksBoardCache.data);
-  }
-
-  // Stale-but-usable cache — serve immediately, refresh in background for next time
-  if (!force && tasksBoardCache.data && age < TASKS_BOARD_STALE) {
-    console.log(`⚡ Serving STALE tasks-board (${Math.round(age/1000)}s old), refreshing in background`);
-    res.json(tasksBoardCache.data);
-    if (!tasksBoardRefreshing) {
-      tasksBoardRefreshing = true;
-      buildTasksBoardData()
-        .then(data => { tasksBoardCache = { data, ts: Date.now() }; })
-        .catch(e => console.log('Background refresh failed:', e.message))
-        .finally(() => { tasksBoardRefreshing = false; });
-    }
-    return;
-  }
-
-  // No usable cache (first load, or forced refresh) — must wait for fresh fetch
-  try {
-    const data = await buildTasksBoardData();
-    tasksBoardCache = { data, ts: Date.now() };
-    res.json(data);
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// Debug: get raw user data to find correct IDs
-// Debug: find opps assigned to Mahad and check their field structure
-app.get('/api/debug/mahad-opps', async (req, res) => {
-  try {
-    const mahadId = 'yri669q8Ymx22zdFDPLK';
-    const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=20&page=1`);
-    const all = od.opportunities || [];
-    const sample = all.slice(0,3).map(o => ({
-      id: o.id, name: o.name, assignedTo: o.assignedTo, ownerName: o.ownerName,
-      status: o.status, contactId: o.contactId,
-    }));
-    const mahadOpps = all.filter(o => o.assignedTo === mahadId).slice(0,5).map(o => ({
-      id: o.id, name: o.name, assignedTo: o.assignedTo, status: o.status,
-    }));
-    res.json({ mahadId, totalOpps: all.length, mahadOpps, sample });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-app.get('/api/debug/users', async (req, res) => {
-  const results = {};
-  try { results.v2_no_limit = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}`); } catch(e) { results.v2_no_limit_err = e.message; }
-  try { results.v2_with_limit = await ghl('GET', `${V2}/users/?locationId=${LOC_ID}&limit=100`); } catch(e) { results.v2_with_limit_err = e.message; }
-  try {
-    const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=10&page=1`);
-    results.sample_opps = (od.opportunities||[]).map(o => ({
-      assignedTo: o.assignedTo, ownerName: o.ownerName, name: o.name?.slice(0,30)
-    }));
-  } catch(e) { results.opps_err = e.message; }
-  res.json(results);
-});
-
-// ── Assign opportunity to user ────────────────────────────────────────────
-app.post('/api/opportunities/:id/assign', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { assignedTo } = req.body;
-    if (!assignedTo) return res.status(400).json({ error: 'assignedTo required' });
-    const data = await ghl('PUT', `${V2}/opportunities/${id}`, { assignedTo });
-    console.log(`✓ Opp ${id} reassigned to ${assignedTo}`);
-    res.json({ success: true, opportunity: data });
-  } catch(err) {
-    console.log(`✗ Opp assign failed for ${req.params.id}:`, err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Assign task to user ───────────────────────────────────────────────────
-app.post('/api/contacts/:contactId/tasks/:taskId/assign', async (req, res) => {
-  try {
-    const { contactId, taskId } = req.params;
-    const { assignedTo } = req.body;
-    if (!assignedTo) return res.status(400).json({ error: 'assignedTo required' });
-    const data = await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, { assignedTo });
-    console.log(`✓ Task ${taskId} reassigned to ${assignedTo}`);
-    res.json({ success: true, task: data });
-  } catch(err) {
-    console.log(`✗ Task assign failed for ${req.params.taskId}:`, err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Mark task as completed ─────────────────────────────────────────────────
-app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => {
-  try {
-    const { contactId, taskId } = req.params;
-    const data = await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, { completed: true });
-    console.log(`✓ Task ${taskId} marked complete`);
-    res.json({ success: true, task: data });
-  } catch(err) {
-    console.log(`✗ Task complete failed for ${req.params.taskId}:`, err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Mark opportunity as Won ────────────────────────────────────────────────
-app.post('/api/opportunities/:id/win', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const data = await ghl('PUT', `${V2}/opportunities/${id}`, { status: 'won' });
-    console.log(`✓ Opp ${id} marked won`);
-    res.json({ success: true, opportunity: data });
-  } catch(err) {
-    console.log(`✗ Opp win failed for ${req.params.id}:`, err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Create task for a contact (Tasks Board + FMCSA Support Form) ─────────
-app.post('/api/contacts/:id/tasks', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { title, body, assignedTo, dueDate } = req.body;
-    if (!title) return res.status(400).json({ error: 'title is required' });
-
-    // ── Server-side duplicate guard for [CS] tasks ─────────────────────────
-    // Fetches GHL directly — catches duplicates even across browser sessions
-    if (title.startsWith('[CS]')) {
-      try {
-        const existing = await ghl('GET', `${V2}/contacts/${id}/tasks`);
-        const openCS = (existing.tasks || []).find(t =>
-          t.title && t.title.startsWith('[CS]') && !t.completed
-        );
-        if (openCS) {
-          console.log(`⚠ Duplicate CS task blocked for contact ${id}: "${openCS.title}"`);
-          return res.status(409).json({
-            error: 'DUPLICATE',
-            message: 'Contact already has an open CS task',
-            existingTask: { ...openCS, contactId: id },
-          });
-        }
-      } catch(dupErr) {
-        // Non-fatal — if duplicate check fails, allow creation to proceed
-        console.log('Duplicate check skipped:', dupErr.message);
-      }
-    }
-
-    const payload = {
-      title,
-      body:       body || '',
-      assignedTo: assignedTo || undefined,
-      dueDate:    dueDate || new Date(Date.now()+86400000).toISOString(),
-      completed:  false,
-    };
-    const data = await ghl('POST', `${V2}/contacts/${id}/tasks`, payload);
-    tasksBoardCache = { data: null, ts: 0 };
-    console.log(`✓ Task created for contact ${id}`);
-    res.json({ success: true, task: data });
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Debug tasks API
-app.get('/api/debug/tasks', async (req, res) => {
-  const results = {};
-  try {
-    // Get a contact that we know has tasks (Shucayb's contacts)
-    const od = await ghl('GET', `${V2}/opportunities/search?location_id=${LOC_ID}&limit=5&page=1`);
-    const sampleContactId = od.opportunities?.[0]?.contactId || od.opportunities?.[0]?.contact?.id;
-    results.sampleContactId = sampleContactId;
-    if (sampleContactId) {
-      const td = await ghl('GET', `${V2}/contacts/${sampleContactId}/tasks`);
-      results.contact_tasks = td;
-    }
-    // Also show full opp structure to see all fields
-    results.sample_opp_fields = Object.keys(od.opportunities?.[0] || {});
-    results.sample_opp = od.opportunities?.[0];
-  } catch(e) { results.error = e.message; }
-  res.json(results);
-});
-
-
-// ── Get notes for a contact (used by NY Permit task detail) ──────────────────
-// ── Raw vehicle debug — see exactly what GHL returns for a contact's vehicles ──
-app.get('/api/debug/vehicles/:id', async (req, res) => {
-  const contactId = req.params.id;
-  const results = { schemaKey: null };
-  const schemaKey = await getVehicleSchemaKey() || 'custom_objects.vehicles';
-  results.schemaKey = schemaKey;
-
-  // Try search with different field names to find the right one
-  for (const fieldName of ['contact', 'contact_id', 'contactId', 'owner', 'associations.contact']) {
-    try {
-      const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
-        locationId: LOC_ID, page: 1, pageLimit: 3,
-        filters: [{ field: fieldName, operator: 'eq', value: contactId }],
-      });
-      results[`field_${fieldName}`] = { count: (r?.records||r?.data||[]).length, sample: (r?.records||r?.data||[])[0] || null };
-    } catch(e) { results[`field_${fieldName}`] = { error: e.message }; }
-  }
-
-  // Fetch a few records with no filter to see their structure
-  try {
-    const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
-      locationId: LOC_ID, page: 1, pageLimit: 2,
-    });
-    const recs = r?.records || r?.data || [];
-    results.recordStructure = recs.map(rec => ({
-      id: rec.id,
-      topLevelKeys: Object.keys(rec),
-      properties: rec.properties ? Object.keys(rec.properties) : [],
-      relations: rec.relations,
-      owners: rec.owners,
-      followers: rec.followers,
-    }));
-  } catch(e) { results.recordStructure = { error: e.message }; }
-
-  // Try associations endpoint variations
-  for (const [label, path] of [
-    ['assoc_v2', `${V2}/contacts/${contactId}/associations`],
-    ['assoc_typed', `${V2}/contacts/${contactId}/associations/${schemaKey}`],
-    ['assoc_api', `/associations?contactId=${contactId}&locationId=${LOC_ID}`],
-  ]) {
-    try {
-      results[label] = await ghl('GET', path);
-    } catch(e) { results[label] = { error: e.message }; }
-  }
-
-  res.json(results);
-});
-
-app.get('/api/contacts/:id/notes', async (req, res) => {
-  try {
-    const data = await ghl('GET', `${V2}/contacts/${req.params.id}/notes/`);
-    // GHL may return notes under different keys
-    const notes = data.notes || data.data || data.list || data.results || [];
-    console.log(`Notes for contact ${req.params.id}: ${notes.length} notes`);
-    if (notes.length > 0) console.log('Note fields:', Object.keys(notes[0]));
-    res.json({ notes });
-  } catch(err) {
-    console.error('Notes fetch error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// ── Update a task (title, dueDate, body, assignedTo) ─────────────────────────
-app.put('/api/contacts/:contactId/tasks/:taskId', async (req, res) => {
-  const { contactId, taskId } = req.params;
-  const { title, body, dueDate, assignedTo, completed } = req.body;
-  try {
-    // Fetch current task to merge fields — GHL requires title + dueDate in all updates
-    let current = {};
-    try {
-      const td = await ghl('GET', `${V2}/contacts/${contactId}/tasks/${taskId}`);
-      current = td.task || td || {};
-    } catch(e) { console.log('Could not pre-fetch task for update:', e.message); }
-
-    // Build payload merging current fields with requested changes
-    const payload = {
-      title:      title      !== undefined ? title      : (current.title || 'CS Task'),
-      body:       body       !== undefined ? body       : (current.body || current.description || ''),
-      dueDate:    dueDate    !== undefined ? dueDate    : (current.dueDate || new Date(Date.now()+86400000).toISOString()),
-      assignedTo: assignedTo !== undefined ? assignedTo : (current.assignedTo || undefined),
-    };
-    if (completed !== undefined) payload.completed = completed;
-
-    const data = await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, payload);
-    tasksBoardCache = { data: null, ts: 0 };
-    res.json({ success: true, task: data });
-  } catch(err) {
-    console.error('Task update error:', err.message, err.data || '');
-    res.status(500).json({ error: err.data?.message || err.message });
-  }
-});
-
-
-// ── Permit login info from GHL custom fields ──────────────────────────────────
-let customFieldsSchemaCache = null;
-let customFieldsSchemaTTL  = 0;
-
-async function getCustomFieldsSchema() {
-  const now = Date.now();
-  if (customFieldsSchemaCache && now - customFieldsSchemaTTL < 60 * 60 * 1000) {
-    return customFieldsSchemaCache;
-  }
-  try {
-    const data = await ghl('GET', `${V2}/locations/${LOC_ID}/customFields`);
-    customFieldsSchemaCache = (data.customFields || []).reduce((acc, f) => {
-      acc[f.id] = f.name || f.label || '';
-      return acc;
-    }, {});
-    customFieldsSchemaTTL = now;
-    return customFieldsSchemaCache;
-  } catch(e) {
-    console.error('Custom fields schema fetch failed:', e.message);
-    return {};
-  }
-}
-
-app.get('/api/contacts/:id/permit-info', async (req, res) => {
-  try {
-    const [contactData, schema] = await Promise.all([
-      ghl('GET', `${V2}/contacts/${req.params.id}`),
-      getCustomFieldsSchema(),
-    ]);
-    const contact = contactData.contact || contactData;
-    const cf = contact.customFields || [];
-
-    // Build label→value map (case-insensitive label matching)
-    const fields = {};
-    cf.forEach(f => {
-      const label = (schema[f.id] || '').toLowerCase().trim();
-      const val   = f.value || f.fieldValue || '';
-      if (val) fields[label] = val;
-    });
-
-    // Extract permit sections by label keywords
-    const findField = (...keywords) => {
-      for (const kw of keywords) {
-        const match = Object.entries(fields).find(([k]) => k.includes(kw.toLowerCase()));
-        if (match) return match[1];
-      }
-      return null;
-    };
-
-    const parseCredBlock = (text) => {
-      if (!text) return null;
-      const clean = String(text).replace(/<[^>]+>/g, ' ');
-      const dotM  = clean.match(/DOT#?\s*[:\-]?\s*(\d+)/i);
-      const einM  = clean.match(/EIN#?\s*[:\-]?\s*(\d+)/i);
-      const pinM  = clean.match(/Password\s*(?:PIN|PIN#?)?\s*[:\-]?\s*(\S+)/i);
-      const userM = clean.match(/Username\s*[:\-]?\s*(\S+)/i);
-      const passM = clean.match(/Password\s*[:\-]?\s*(\S+)/i);
-      const typeM = clean.match(/Account\s*Type\s*[-:]\s*(.+)/i);
-      const emailM= clean.match(/([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/);
-      return {
-        raw:      clean,
-        dot:      dotM?.[1]  || null,
-        ein:      einM?.[1]  || null,
-        pin:      pinM?.[1]  || null,
-        username: userM?.[1] || null,
-        password: passM?.[1] || null,
-        type:     typeM?.[1]?.trim() || null,
-        email:    emailM?.[1] || null,
-      };
-    };
-
-    res.json({
-      nyPermit:  parseCredBlock(findField('ny permit login', 'ny permit')),
-      nyFiling:  parseCredBlock(findField('ny filing login', 'ny filing')),
-      nmPermit:  parseCredBlock(findField('nm permit login', 'nm permit')),
-      ctPermit:  parseCredBlock(findField('ct permit login', 'ct permit')),
-      kyuLogin:  parseCredBlock(findField('kyu login', 'kyu account')),
-      allFields: fields, // raw for debugging
-    });
-  } catch(err) {
-    console.error('permit-info error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// ── Fetch vehicles associated with a contact ──────────────────────────────────
-let vehicleSchemaKey = null; // cached object key
-
-async function getVehicleSchemaKey() {
-  if (vehicleSchemaKey) return vehicleSchemaKey;
-  try {
-    // Fetch all custom object schemas for this location
-    const data = await ghl('GET', `${V2}/objects/?locationId=${LOC_ID}`);
-    const objects = data.customObjects || data.objects || [];
-    // Find vehicle/tractor object
-    const vehicleObj = objects.find(o =>
-      /vehicle|tractor|truck/i.test(o.key || '') ||
-      /vehicle|tractor|truck/i.test(o.name || o.label || '')
-    );
-    vehicleSchemaKey = vehicleObj?.key || null;
-    if (vehicleSchemaKey) console.log('Vehicle schema key found:', vehicleSchemaKey);
-    return vehicleSchemaKey;
-  } catch(e) {
-    console.error('Vehicle schema fetch error:', e.message);
-    return null;
-  }
-}
-
-app.get('/api/contacts/:id/vehicles', async (req, res) => {
-  const contactId = req.params.id;
-
-  // Normalize a vehicle record using the confirmed GHL field names from debug
-  function normalizeVehicle(v, source) {
-    const p = v.properties || {};
-    const rel = v.relations || [];
-    // Check if this vehicle is related to the contact
-    const isRelated = rel.some(r => r.id === contactId || r.value === contactId);
-    return {
-      id:         v.id || v.recordId || null,
-      vin:        p['vin_'] || p['vin'] || null,
-      make:       p['make'] || null,
-      model:      p['model'] || p['model_year'] || null,
-      year:       p['model_year'] || null,
-      plate:      p['license_plate'] || null,
-      unit:       p['unit_'] || p['unit'] || null,
-      state:      p['state'] || null,
-      type:       p['vehicle_type'] || null,
-      status:     p['status'] || null,
-      owner:      p['registration_info.owner'] || null,
-      source,
-      _isRelated: isRelated,
-    };
-  }
-
-  try {
-    const schemaKey = await getVehicleSchemaKey() || 'custom_objects.vehicles';
-    let vehicles = [];
-
-    // Fetch vehicle records page by page, filter by relations.recordId === contactId
-    let page = 1;
-    while (page <= 20) {
-      const body = { locationId: LOC_ID, page, pageLimit: 100 };
-
-      const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, body);
-      const recs = r?.records || r?.data || [];
-      if (!recs.length) break;
-
-      // Log first page to diagnose matching
-      if (page === 1) {
-        console.log(`Vehicle search: contactId="${contactId}", total records page1=${recs.length}`);
-        if (recs[0]) console.log(`First record relations:`, JSON.stringify(recs[0].relations));
-      }
-
-      const matched = recs.filter(rec =>
-        (rec.relations || []).some(rel => rel.recordId === contactId)
-      );
-      vehicles.push(...matched.map(v => normalizeVehicle(v, 'relations')));
-
-      if (recs.length < 100) break; // last page
-      page++;
-    }
-
-    const normalized = vehicles.filter(v => v.vin || v.unit || v.plate);
-    console.log(`Vehicles for ${contactId}: ${normalized.length} found across ${page} pages`);
-    res.json({ vehicles: normalized, pages_searched: page });
-  } catch(err) {
-    console.error('Vehicles fetch error:', err.message);
-    res.status(500).json({ error: err.message, vehicles: [] });
-  }
-});
-
-
-// ── Vehicle CRUD ──────────────────────────────────────────────────────────────
-// Helper: map our field names → GHL custom object field keys
-function buildVehicleProperties(data) {
-  // These keys match GHL's custom object field schema — adjust if needed
-  const props = {};
-  if (data.vin    !== undefined) props.vin_number   = data.vin;
-  if (data.unit   !== undefined) props.unit_number  = data.unit;
-  if (data.status !== undefined) props.status       = data.status;
-  if (data.type   !== undefined) props.vehicle_type = data.type;
-  if (data.make   !== undefined) props.make         = data.make;
-  if (data.model  !== undefined) props.model        = data.model;
-  if (data.year   !== undefined) props.year         = String(data.year);
-  if (data.plate  !== undefined) props.plate_number = data.plate;
-  if (data.state  !== undefined) props.state        = data.state;
-  return props;
-}
-
-// Create vehicle record in GHL
-app.post('/api/contacts/:contactId/vehicles', async (req, res) => {
-  const { contactId } = req.params;
-  try {
-    const schemaKey = await getVehicleSchemaKey() || 'vehicles';
-    const props = buildVehicleProperties(req.body);
-
-    const payload = {
-      locationId:  LOC_ID,
-      properties:  props,
-      // Associate with contact
-      associations: [{ objectType: 'contact', id: contactId }],
-    };
-
-    const data = await ghl('POST', `${V2}/objects/${schemaKey}/records`, payload);
-    console.log(`✓ Vehicle created for contact ${contactId}`);
-    res.json({ success: true, record: data });
-  } catch(err) {
-    console.error('Vehicle create error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Update vehicle record in GHL
-app.put('/api/vehicles/:recordId', async (req, res) => {
-  const { recordId } = req.params;
-  try {
-    const schemaKey = await getVehicleSchemaKey() || 'vehicles';
-    const props = buildVehicleProperties(req.body);
-
-    const data = await ghl('PUT', `${V2}/objects/${schemaKey}/records/${recordId}`, {
-      properties: props,
-    });
-    console.log(`✓ Vehicle ${recordId} updated`);
-    res.json({ success: true, record: data });
-  } catch(err) {
-    console.error('Vehicle update error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Driver Manager ────────────────────────────────────────────────────────────
-let driverSchemaKey = null;
-
-async function getDriverSchemaKey() {
-  if (driverSchemaKey) return driverSchemaKey;
-  try {
-    const data = await ghl('GET', `${V2}/objects/?locationId=${LOC_ID}`);
-    const objects = data.customObjects || data.objects || [];
-    const driverObj = objects.find(o =>
-      /driver/i.test(o.key || '') ||
-      /driver/i.test(o.name || o.label || '')
-    );
-    driverSchemaKey = driverObj?.key || null;
-    if (driverSchemaKey) console.log('Driver schema key found:', driverSchemaKey);
-    return driverSchemaKey;
-  } catch(e) {
-    console.error('Driver schema fetch error:', e.message);
-    return null;
-  }
-}
-
-// GET all drivers for a contact (via relations.recordId)
-app.get('/api/contacts/:id/drivers', async (req, res) => {
-  const contactId = req.params.id;
-  function normalizeDriver(v) {
-    const p = v.properties || {};
-    return {
-      id:         v.id || v.recordId || null,
-      license:    p['driver_license'] || p['license'] || p['license_number'] || null,
-      fullName:   p['full_name'] || p['name'] || p['driver_name'] || null,
-      dob:        p['dob'] || p['date_of_birth'] || p['dateOfBirth'] || null,
-      cdlExp:     p['cdl_exp'] || p['cdl_expiration'] || p['cdl_expiry'] || p['cdl_exp_date'] || null,
-      cdlUpload:  p['cdl_upload'] || p['cdl_file'] || null,
-    };
-  }
-  try {
-    const schemaKey = await getDriverSchemaKey();
-    if (!schemaKey) return res.json({ vehicles: [], drivers: [], error: 'Driver schema not found' });
-    let drivers = [];
-    let page = 1;
-    while (page <= 20) {
-      const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
-        locationId: LOC_ID, page, pageLimit: 100,
-      });
-      const recs = r?.records || r?.data || [];
-      if (!recs.length) break;
-      if (page === 1) {
-        console.log(`Driver search: contactId="${contactId}", page1 count=${recs.length}`);
-        if (recs[0]) console.log('Driver sample properties:', Object.keys(recs[0].properties || {}));
-      }
-      const matched = recs.filter(rec =>
-        (rec.relations || []).some(rel => rel.recordId === contactId)
-      );
-      drivers.push(...matched.map(v => normalizeDriver(v)));
-      if (recs.length < 100) break;
-      page++;
-    }
-    console.log(`Drivers for ${contactId}: ${drivers.length}`);
-    res.json({ drivers });
-  } catch(err) {
-    console.error('Drivers fetch error:', err.message);
-    res.status(500).json({ error: err.message, drivers: [] });
-  }
-});
-
-// POST create driver record
-app.post('/api/contacts/:contactId/drivers', async (req, res) => {
-  const { contactId } = req.params;
-  try {
-    const schemaKey = await getDriverSchemaKey();
-    if (!schemaKey) throw new Error('Driver schema not found');
-    const d = req.body;
-    const props = {};
-    if (d.license)  props.driver_license = d.license;
-    if (d.fullName) props.full_name      = d.fullName;
-    if (d.dob)      props.dob            = d.dob;
-    if (d.cdlExp)   props.cdl_exp        = d.cdlExp;
-    const payload = {
-      locationId:   LOC_ID,
-      properties:   props,
-      associations: [{ objectType: 'contact', id: contactId }],
-    };
-    const data = await ghl('POST', `${V2}/objects/${schemaKey}/records`, payload);
-    console.log(`✓ Driver created for contact ${contactId}`);
-    res.json({ success: true, record: data });
-  } catch(err) {
-    console.error('Driver create error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUT update driver record
-app.put('/api/drivers/:recordId', async (req, res) => {
-  const { recordId } = req.params;
-  try {
-    const schemaKey = await getDriverSchemaKey();
-    if (!schemaKey) throw new Error('Driver schema not found');
-    const d = req.body;
-    const props = {};
-    if (d.license  !== undefined) props.driver_license = d.license;
-    if (d.fullName !== undefined) props.full_name      = d.fullName;
-    if (d.dob      !== undefined) props.dob            = d.dob;
-    if (d.cdlExp   !== undefined) props.cdl_exp        = d.cdlExp;
-    const data = await ghl('PUT', `${V2}/objects/${schemaKey}/records/${recordId}`, { properties: props });
-    console.log(`✓ Driver ${recordId} updated`);
-    res.json({ success: true, record: data });
-  } catch(err) {
-    console.error('Driver update error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Debug: expose raw driver record structure
-app.get('/api/debug/drivers/:id', async (req, res) => {
-  const contactId = req.params.id;
-  const schemaKey = await getDriverSchemaKey();
-  const result = { schemaKey };
-  try {
-    const r = await ghl('POST', `${V2}/objects/${schemaKey}/records/search`, {
-      locationId: LOC_ID, page: 1, pageLimit: 3,
-    });
-    const recs = r?.records || r?.data || [];
-    result.sample = recs.map(rec => ({
-      id: rec.id,
-      properties: Object.keys(rec.properties || {}),
-      propertyValues: rec.properties,
-      relations: rec.relations,
-    }));
-  } catch(e) { result.error = e.message; }
-  res.json(result);
-});
-
-app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function getPipelineInfo(key) {
-  const e = PIPELINE_MAP[key];
-  if (!e) return null;
-  const c = pipelineCache[e.name];
-  if (!c) return null;
-  return { name: e.name, pipelineId: c.id, stages: c.stages };
-}
-
-// Known GHL custom field IDs for contact-level fields (verified from /api/debug/custom-fields)
-const CF_IDS = {
-  dot_number:      'E5MJr7vstJWSi59CxAbK',  // DOT# (NUMERICAL)
-  ein:             'fr4t6AA1aM8dRhb7Pj3R',  // EIN# (TEXT)
-  mc_number:       'twbBzamze4MVgetPLoSA',  // MC# (NUMERICAL)
-  mcs150_year:     'kmBR6gFRCxd0ZPFEXGz7',  // MCS-150 Mileage (Year) ← CORRECT ID
-  current_miles:   'jzsQ29O684sLc2i5YE3e',  // Current Miles (NUMERICAL)
-  last_updated_yr: 'u9LKMEGxjlhZGsUuhSRE',  // Last Updated Year (NUMERICAL)
-  prev_miles:      'Gb8VM9OKEvJgkG5kuIibB',  // Previous Miles (NUMERICAL)
-  mailing_address: 'gmZAkRDtnsOhsiCYUrxp',  // Mailing Address (TEXT)
-  op_status:       'Tx9uGn4hrVwJKv6EheCJ',  // Operating Status (SINGLE_OPTIONS)
-  num_units:       'ZK43DBIa2Nwqt8Wr7Fw3',  // Number of Units (RADIO)
-};
-
-function getContactCF(cf, id) {
-  const f = cf.find(f => f.id === id);
-  if (!f) return null;
-  return f.value ?? f.fieldValueNumber ?? f.fieldValueString ?? null;
-}
-
-function mapContact(contact, opps) {
-  if (!contact) return null;
-  const cells={}, oppIndex={};
-  // Collect all opp-level tags across all pipelines for this contact
-  const allOppTags = new Set();
-
-  opps.forEach(opp => {
-    const key = Object.keys(PIPELINE_MAP).find(k => {
-      const c = pipelineCache[PIPELINE_MAP[k]?.name];
-      return c && c.id === opp.pipelineId;
-    });
-    if (!key) return;
-    const stage = opp.pipelineStage?.name || opp.stage?.name || '';
-    let status = 'pending';
-    if (opp.status==='won'||opp.status==='Won'||/won|complet|filing.completed/i.test(stage)) status='done';
-    else if (opp.status==='lost'||opp.status==='abandoned') status='pending';
-    else if (/progress|urgent|asap/i.test(stage)) status='urgent';
-
-    // Collect opp tags (these are the colored tags like "Mileage Year Outdate")
-    (opp.tags || []).forEach(t => { if (t) allOppTags.add(t); });
-
-    // Also extract fieldValueArray tags from customFields (e.g. MCS-150 issue tags)
-    (opp.customFields || []).forEach(cf => {
-      if (cf.fieldValueArray) cf.fieldValueArray.forEach(v => { if (v) allOppTags.add(v); });
-    });
-
-    cells[key]    = status;
-    oppIndex[key] = { id:opp.id, stage, status:opp.status, tags:opp.tags||[], customFields:opp.customFields||[] };
-  });
-
-  // Contact-level custom fields (v2 API returns {id, value} or {id, fieldValueNumber} etc)
-  const cf = contact.customFields || contact.customField || [];
-  const name = contact.companyName ||
-    `${contact.firstName||''} ${contact.lastName||''}`.trim() || 'Unknown';
-
-  // Detect MCS-150 urgency from:
-  // 1. Opp tags containing "Mileage Year Outdated"
-  // 2. Parsing the MCS-150 notes string for the mileage year
-  const currentYear = new Date().getFullYear();
-  let mcs150MileageYear = '';
-  let mcs150Urgent = false;
-
-  if (cells['filing_mcs150'] !== 'done') {
-    // Check opp-level tags for mileage outdated flag
-    if (allOppTags.has('Mileage Year Outdated')) {
-      mcs150Urgent = true;
-    }
-    // Check the MCS-150 opportunity's custom field string for the mileage year
-    const mcsOpp = opps.find(opp => {
-      const key = Object.keys(PIPELINE_MAP).find(k => {
-        const c = pipelineCache[PIPELINE_MAP[k]?.name];
-        return c && c.id === opp.pipelineId && k === 'filing_mcs150';
-      });
-      return !!key;
-    });
-    if (mcsOpp) {
-      const notesField = (mcsOpp.customFields||[]).find(f => f.id === 'p5w3zK561UlUMvXiruFT');
-      if (notesField?.fieldValueString) {
-        const match = notesField.fieldValueString.match(/Mileage \(Year\)[:\s]+[\d,]+\s*\((\d{4})\)/i)
-          || notesField.fieldValueString.match(/Mileage.*?(\d{4})/i);
-        if (match) {
-          mcs150MileageYear = match[1];
-          if ((currentYear - parseInt(match[1])) >= 2) mcs150Urgent = true;
-        }
-      }
-    }
-    // Also check contact-level custom fields for mileage year
-    const contactMileage = getContactCF(cf, CF_IDS.mcs150_year);
-    if (contactMileage) mcs150MileageYear = mcs150MileageYear || String(contactMileage);
-
-    if (mcs150Urgent) cells['filing_mcs150'] = 'urgent';
-  }
-
-  return {
-    id:              contact.id,
-    name,
-    business_name:   contact.companyName || '',
-    initials:        name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
-    dot_number:      String(getContactCF(cf, CF_IDS.dot_number) || ''),
-    mc_number:       String(getContactCF(cf, CF_IDS.mc_number) || ''),
-    ein:             String(getContactCF(cf, CF_IDS.ein) || ''),
-    mailing_address: String(getContactCF(cf, CF_IDS.mailing_address) || ''),
-    phone:           contact.phone || '',
-    email:           contact.email || '',
-    tags:            contact.tags  || [],
-    oppTags:         [...allOppTags],
-    mcs150MileageYear: mcs150MileageYear ? String(mcs150MileageYear) : '',
-    cells,
-    oppIndex,
-  };
-}
-
-function buildCustomFields(serviceKey, data) {
-  const f=[];
-  if (serviceKey==='filing_mcs150') {
-    if (data.mileage_year_outdated!==undefined) f.push({key:'asap_priority_mileage_year_outdated',field_value:String(data.mileage_year_outdated)});
-    if (data.mcs150_form_date_outdated!==undefined) f.push({key:'asap_priority_mcs150_form_date_outdated',field_value:String(data.mcs150_form_date_outdated)});
-    if (data.issues) f.push({key:'issues_updating_mcs_150',field_value:data.issues});
-    if (data.notes)  f.push({key:'mcs_150_update_latest_notes',field_value:data.notes});
-  }
-  const nk={filing_ifta_license:'ifta_filing_notes',filing_2290:'2290_filing_notes',filing_ucr:'ucr_filing_notes',filing_irp_cab_card:'irp_cab_card_renewal',filing_clearinghouse:'clearinghouse_notes'};
-  if (data.notes&&nk[serviceKey]) f.push({key:nk[serviceKey],field_value:data.notes});
-  return f;
-}
-
-
-// ── Add / remove tag on a contact ─────────────────────────────────────────────
-app.post('/api/contacts/:id/tags', async (req, res) => {
-  const { id } = req.params;
-  const { addTags = [], removeTags = [] } = req.body;
-  try {
-    // Fetch current tags
-    const contact = await ghl('GET', `${V2}/contacts/${id}`);
-    const current = contact?.contact?.tags || contact?.tags || [];
-    const updated = [...new Set([
-      ...current.filter(t => !removeTags.includes(t)),
-      ...addTags,
-    ])];
-    const result = await ghl('PUT', `${V2}/contacts/${id}`, { tags: updated });
-    clientCache.data = null; // bust so next load reflects new tag
-    res.json({ success: true, tags: updated });
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Start ─────────────────────────────────────────────────────────────────────
-(async () => {
-  console.log('\n🚛 ATS — Admin Truck Solutions Dashboard');
-  console.log('─────────────────────────────────────────');
-  console.log(`   API Key:  ${API_KEY?API_KEY.slice(0,20)+'...':'❌ NOT SET'}`);
-  console.log(`   Location: ${LOC_ID||'❌ NOT SET'}`);
-  console.log(`   API:      v2 LeadConnector (sub-account)\n`);
-
-  await loadPipelines();
-
-  // Pre-load in background — don't block server startup
-  console.log('⚡ Pre-loading clients in background...');
-  fetchAllClients().catch(e => console.log('⚠️  Pre-load failed:', e.message));
-
-  app.listen(PORT, () => {
-    console.log(`\n✅ Server ready on port ${PORT}`);
-
-    // ── Startup cache warm-up ─────────────────────────────────────────────
-    // Immediately begin building the tasks board cache in the background.
-    // This mirrors how the Compliance Grid works — data is ready before the
-    // first user arrives, so the Tasks Board loads instantly like the grid.
-    console.log('🔄 Starting background cache warm-up...');
-    Promise.all([
-      // Warm contacts cache (used by Dashboard + Compliance Grid)
-      fetchAllClients().catch(e => console.log('Contact warm-up error:', e.message)),
-      // Warm tasks board cache (used by Tasks Board + CS Board) — starts 8s
-      // after contacts to avoid competing for GHL rate limits
-      new Promise(resolve => setTimeout(() => {
-        buildTasksBoardData()
-          .then(data => {
-            tasksBoardCache = { data, ts: Date.now() };
-            console.log(`✅ Tasks board cache warm — ${data.tasks?.length || 0} tasks, ${data.users?.length || 0} staff`);
-          })
-          .catch(e => console.log('Tasks warm-up error:', e.message))
-          .finally(resolve);
-      }, 8000)),
-    ]);
-
-    // ── Keep-alive ping — prevents Render free tier from spinning down ──────
-    if (process.env.RENDER_EXTERNAL_URL) {
-      const pingUrl = process.env.RENDER_EXTERNAL_URL + '/api/health';
-      setInterval(() => {
-        fetch(pingUrl).then(() => console.log('⚡ Keep-alive ping sent'))
-                      .catch(e => console.log('Keep-alive ping failed:', e.message));
-      }, 14 * 60 * 1000);
-      console.log(`🔔 Keep-alive active → pinging ${pingUrl} every 14 min`);
-    }
-  });
-})();
-
-// ── Complete a CS task + add note to contact ──────────────────────────────────
-app.post('/api/contacts/:contactId/tasks/:taskId/complete', async (req, res) => {
-  const { contactId, taskId } = req.params;
-  const { completedBy, taskTitle } = req.body;
-  
-  // Step 1: Fetch the current task so we can preserve its fields
-  let currentTask = {};
-  try {
-    const td = await ghl('GET', `${V2}/contacts/${contactId}/tasks/${taskId}`);
-    currentTask = td.task || td || {};
-  } catch(e) { console.log('Could not fetch task for completion:', e.message); }
-
-  // Step 2: Mark task complete — try multiple payload formats
-  // GHL v2 is picky about which fields are required
-  let completeErr = null;
-
-  // Attempt A: full payload with all fetched fields
-  const dueDate = currentTask.dueDate
-    ? (currentTask.dueDate.includes('T') ? currentTask.dueDate : new Date(currentTask.dueDate).toISOString())
-    : new Date(Date.now() + 86400000).toISOString();
-
-  const payloads = [
-    // Most complete — preserves all existing fields
-    { title: currentTask.title || taskTitle || 'CS Task',
-      body:  currentTask.body || currentTask.description || '',
-      dueDate,
-      assignedTo: currentTask.assignedTo || undefined,
-      completed: true },
-    // Minimal with status string (some GHL versions use this)
-    { title: currentTask.title || taskTitle || 'CS Task',
-      dueDate,
-      completed: true,
-      status: 'completed' },
-    // Absolute minimum
-    { completed: true },
-  ];
-
-  for (const payload of payloads) {
-    try {
-      await ghl('PUT', `${V2}/contacts/${contactId}/tasks/${taskId}`, payload);
-      console.log(`✓ CS task ${taskId} marked complete`);
-      completeErr = null;
-      break;
-    } catch(err) {
-      console.log(`Task complete attempt failed: ${err.message} | GHL: ${JSON.stringify(err.data||'').slice(0,200)}`);
-      completeErr = err;
-    }
-  }
-
-  if (completeErr) {
-    console.error('All complete attempts failed:', completeErr.message);
-    const ghlDetail = completeErr.data?.message || completeErr.data?.msg || completeErr.message;
-    return res.status(500).json({ error: ghlDetail });
-  }
-
-  // Step 3: Add note — best-effort, never blocks the response
-  const noteText = `✓ CS Task Completed: "${taskTitle || currentTask.title}" — by ${completedBy || 'CS Staff'}`;
-  ghl('POST', `${V2}/contacts/${contactId}/notes`, { body: noteText })
-    .catch(e => console.log('Note post failed (non-critical):', e.message));
-
-  // Step 4: Bust cache
-  tasksBoardCache = { data: null, ts: 0 };
-  res.json({ success: true });
-});
+    .ats-banner-item.gold  { color:#f59e0b }
+    .ats-banner-item.green { color:#00c46a }
+    .ats-banner-item.white { color:#e2e8f0 }
+    .ats-banner-item.blue  { color:#60a5fa }
+  </style>
+  <script>
+    (function initBanner() {
+      const items = [
+        { icon:'🏆', text:'Admin Truck Solutions — The Smarter Choice for Carrier Compliance', cls:'gold' },
+        { icon:'📞', text:'Unlike Motive, we actually pick up the phone.', cls:'green' },
+        { icon:'✅', text:'Compliance Done Right — Every Mile, Every Filing', cls:'white' },
+        { icon:'📋', text:'No hidden fees. No upsells. Just compliance that works.', cls:'green' },
+        { icon:'🚛', text:'Motive tracks your trucks. We protect your authority.', cls:'blue' },
+        { icon:'⚡', text:'Faster filings. Fewer rejections. Zero runaround.', cls:'gold' },
+        { icon:'💪', text:'Real humans. Real filings. Real results — not just dashboards.', cls:'white' },
+      ];
+      const sep = '<span class="ats-banner-sep">✦</span>';
+      const html = items.map(i =>
+        `<span class="ats-banner-item ${i.cls}">${i.icon} ${i.text}</span>${sep}`
+      ).join('');
+      // Double the content for seamless infinite scroll
+      const track = document.getElementById('ats-banner-track');
+      if (track) track.innerHTML = html + html;
+    })();
+  </script>
+</body>
+</html>
