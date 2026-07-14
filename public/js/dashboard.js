@@ -5630,16 +5630,12 @@ function tbRenderSwimlane() {
   if (!byPipeline[selectedPipe]) selectedPipe = pipes[0];
   container.dataset.pipeline = selectedPipe;
 
-  const pipeSelector = `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-    <span style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em">PIPELINE:</span>
-    ${pipes.map(p => `
-      <button onclick="document.getElementById('tb-swimlane-grid').dataset.pipeline='${p.replace(/'/g,"\\'")}';tbRenderSwimlane()"
-        style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid;
-               background:${p===selectedPipe?'rgba(0,196,106,.15)':'var(--bg3)'};
-               color:${p===selectedPipe?'var(--primary)':'var(--text3)'};
-               border-color:${p===selectedPipe?'rgba(0,196,106,.4)':'var(--border)'}">
-        ${p} <span style="opacity:.7">(${Object.values(byPipeline[p]).flat().length})</span>
-      </button>`).join('')}
+  const pipeSelector = `<div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
+    <span style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;white-space:nowrap">PIPELINE:</span>
+    <select onchange="document.getElementById('tb-swimlane-grid').dataset.pipeline=this.value;tbRenderSwimlane()"
+      style="background:var(--bg3);border:1px solid var(--primary);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;flex:1;max-width:420px">
+      ${pipes.map(p => `<option value="${p}" ${p===selectedPipe?'selected':''}>${p} (${Object.values(byPipeline[p]).flat().length})</option>`).join('')}
+    </select>
   </div>`;
 
   // Build columns — dynamically use actual stage names from data, mapped to our display order
@@ -5721,22 +5717,32 @@ function tbSwimlaneCard(opp, stageColor) {
     onclick="tbShowItemDetail({contactId:'${opp.contactId||''}',contactName:'${name.replace(/'/g,"\\'")}',companyName:'${company.replace(/'/g,"\\'")}',tags:[],dotNumber:'${opp.dotNumber||''}',phone:'${opp.contactPhone||''}',email:'${opp.contactEmail||''}',title:'${(opp.pipelineName||'').replace(/'/g,"\\'")}',sub2:'Stage: ${(opp.stageName||'').replace(/'/g,"\\'")}',type:'opp',status:'${opp._status||'open'}'})"
     style="background:var(--bg2);border:1px solid ${isOverdue?'rgba(239,68,68,.4)':'var(--border)'};border-left:3px solid ${stageColor};border-radius:8px;padding:10px;cursor:grab;transition:box-shadow .15s;position:relative"
     onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.4)'" onmouseout="this.style.boxShadow=''">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
+
+    <!-- TOP: Company + tier + assignee -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:5px">
       <div style="flex:1;min-width:0">
-        <div style="font-size:11px;font-weight:700;color:var(--text);line-height:1.3">${name}</div>
-        ${company ? `<div style="font-size:10px;color:var(--text3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company.replace(/\s+DOT#.*$/,'')}</div>` : ''}
+        <div style="font-size:12px;font-weight:800;color:var(--text);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${company ? company.replace(/\s+DOT#.*$/,'') : name}
+        </div>
         ${dot ? `<div style="font-size:9px;color:var(--text3);margin-top:1px">${dot}</div>` : ''}
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
         ${tierTag}
         <div style="width:22px;height:22px;border-radius:50%;background:var(--primary);color:#000;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center" title="${assignee?.name||'Unassigned'}">${initials}</div>
       </div>
     </div>
+
+    <!-- LABELS -->
     ${labelBadges}
-    <div style="margin-top:7px;display:flex;align-items:center;justify-content:space-between">
-      ${isOverdue ? '<span style="font-size:9px;color:#ef4444;font-weight:700">⚠ Overdue</span>' : '<span></span>'}
+
+    <!-- BOTTOM: Contact name + overdue + label button -->
+    <div style="margin-top:7px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:6px">
+      <div style="font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+        ${company ? `<i class="ti ti-user" style="font-size:9px;margin-right:3px"></i>${name}` : ''}
+        ${isOverdue ? '<span style="color:#ef4444;font-weight:700;margin-left:4px">⚠ Overdue</span>' : ''}
+      </div>
       <button onclick="event.stopPropagation();tbSwimlaneAddLabel('${opp.id}','${opp.contactId||''}')"
-        style="background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.2);color:var(--text3);border-radius:4px;padding:1px 6px;font-size:9px;cursor:pointer;font-weight:700">
+        style="background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.2);color:var(--text3);border-radius:4px;padding:1px 7px;font-size:9px;cursor:pointer;font-weight:700;white-space:nowrap;flex-shrink:0">
         + Label
       </button>
     </div>
