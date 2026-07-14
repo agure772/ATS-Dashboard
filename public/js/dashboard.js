@@ -5642,21 +5642,35 @@ function tbRenderSwimlane() {
       </button>`).join('')}
   </div>`;
 
-  // Build columns
+  // Build columns — dynamically use actual stage names from data, mapped to our display order
   const stageData = byPipeline[selectedPipe] || {};
-  const columns = SWIMLANE_STAGES.map(s => ({
-    ...s,
-    cards: stageData[s.key] || [],
-    // Also match partial stage names
-    ...Object.entries(stageData).reduce((acc, [k, v]) => {
-      if (k !== s.key && k.toLowerCase().includes(s.key.toLowerCase())) acc.cards = [...acc.cards, ...v];
-      return acc;
-    }, {}),
-  }));
+  const actualStages = Object.keys(stageData);
+
+  // Log actual stage names to console for debugging
+  if (actualStages.length) console.log('Actual GHL stages in this pipeline:', actualStages);
+
+  // Map each SWIMLANE_STAGES entry to actual GHL stage names (fuzzy match)
+  const columns = SWIMLANE_STAGES.map(s => {
+    // Exact match first
+    let matchedKey = actualStages.find(k => k === s.key);
+    // Fuzzy: actual stage contains our key words OR our key contains actual stage words
+    if (!matchedKey) matchedKey = actualStages.find(k =>
+      k.toLowerCase().includes(s.key.toLowerCase().split(' ')[0]) ||
+      s.key.toLowerCase().includes(k.toLowerCase().split(' ')[0])
+    );
+    const cards = matchedKey ? stageData[matchedKey] : [];
+    return { ...s, cards, actualKey: matchedKey || s.key };
+  });
+
+  // Append any stages from GHL not covered by our SWIMLANE_STAGES list
+  const coveredStages = new Set(columns.map(c => c.actualKey));
+  actualStages.filter(s => !coveredStages.has(s)).forEach(s => {
+    columns.push({ key: s, actualKey: s, color: '#94a3b8', icon: 'ti-circle-dashed', cards: stageData[s] || [] });
+  });
 
   const columnsHtml = `<div style="display:flex;gap:12px;min-width:max-content;align-items:flex-start">
     ${columns.map(col => `
-      <div style="width:240px;flex-shrink:0" ondragover="event.preventDefault()" ondrop="tbSwimlaneDropStage(event,'${col.key.replace(/'/g,"\\'")}')">
+      <div style="width:240px;flex-shrink:0" ondragover="event.preventDefault()" ondrop="tbSwimlaneDropStage(event,'${col.actualKey.replace(/'/g,"\\'")}')">
         <!-- Column header -->
         <div style="background:var(--bg2);border:1px solid var(--border);border-top:3px solid ${col.color};border-radius:10px 10px 0 0;padding:10px 12px;display:flex;align-items:center;justify-content:space-between">
           <div style="display:flex;align-items:center;gap:6px">
@@ -5666,7 +5680,7 @@ function tbRenderSwimlane() {
           <span style="font-size:11px;font-weight:700;color:${col.color};background:${col.color}22;border-radius:10px;padding:1px 8px">${col.cards.length}</span>
         </div>
         <!-- Cards -->
-        <div id="sl-col-${col.key.replace(/\s+/g,'-')}" style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;min-height:120px;padding:8px;display:flex;flex-direction:column;gap:6px">
+        <div id="sl-col-${col.actualKey.replace(/\s+/g,'-')}" style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;min-height:120px;padding:8px;display:flex;flex-direction:column;gap:6px">
           ${col.cards.length ? col.cards.map(opp => tbSwimlaneCard(opp, col.color)).join('') :
             `<div style="text-align:center;padding:20px 10px;color:var(--text3);font-size:11px;opacity:.5">Drop cards here</div>`}
         </div>
@@ -5680,10 +5694,12 @@ function tbSwimlaneCard(opp, stageColor) {
   const name    = (opp.contactName || opp.name || 'Unknown').split(' ').slice(0,4).join(' ');
   const company = opp.companyName || '';
   const dot     = opp.dotNumber ? `DOT# ${opp.dotNumber}` : '';
-  const tags    = opp.tags || [];
+  const tags    = [...new Set([...(opp.tags || []), ...(opp.oppTags || [])])];
   const assignee = tbState.users.find(u => u.id === opp.assignedTo);
   const initials = assignee ? assignee.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase() : '?';
   const isOverdue = opp._status === 'overdue' || (opp.dueDate && new Date(opp.dueDate) < new Date());
+  // Debug: log first card tags
+  if (tags.length) console.log(`Card tags for ${name}:`, tags);
 
   const labelBadges = tags.length ? `
     <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">
