@@ -1695,6 +1695,9 @@ function tbRender() {
   const label = document.getElementById('tb-team-label');
   if (!grid) return;
 
+  // If swimlane view active, render that instead
+  if (tbViewMode === 'swimlane') { tbRenderSwimlane(); return; }
+
   // Special unassigned view
   if (tbState.selectedSup === '__unassigned__') { tbRenderUnassigned(); return; }
 
@@ -5529,6 +5532,271 @@ async function dmSaveDriver(recordId, contactId) {
   } catch(e) {
     if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SWIMLANE VIEW
+// ═════════════════════════════════════════════════════════════════════════════
+
+let tbViewMode = 'list'; // 'list' | 'swimlane'
+
+// GHL stage order for swimlane columns (matches your pipeline stages)
+const SWIMLANE_STAGES = [
+  { key: 'Open',                        color: '#60a5fa', icon: 'ti-circle' },
+  { key: 'Lost (they already did it)',  color: '#94a3b8', icon: 'ti-x' },
+  { key: 'In Progress',                 color: '#f59e0b', icon: 'ti-loader' },
+  { key: 'Waiting for Customer Approval', color: '#f97316', icon: 'ti-clock-pause' },
+  { key: 'Ready to be file',            color: '#a78bfa', icon: 'ti-file-check' },
+  { key: 'Filing Completed',            color: '#34d399', icon: 'ti-circle-check' },
+];
+
+// Label color map — matches GHL colored tags
+const LABEL_COLORS = {
+  'retry the payment now':   { bg:'rgba(239,68,68,.2)',   border:'rgba(239,68,68,.5)',   text:'#ef4444' },
+  'data entry completed':    { bg:'rgba(52,211,153,.15)', border:'rgba(52,211,153,.4)',  text:'#34d399' },
+  'missing mileage report':  { bg:'rgba(245,158,11,.2)',  border:'rgba(245,158,11,.5)',  text:'#f59e0b' },
+  'data entry':              { bg:'rgba(96,165,250,.15)', border:'rgba(96,165,250,.4)',  text:'#60a5fa' },
+  'missing information':     { bg:'rgba(239,68,68,.15)',  border:'rgba(239,68,68,.4)',   text:'#ef4444' },
+  'waiting on customer':     { bg:'rgba(249,115,22,.15)', border:'rgba(249,115,22,.4)',  text:'#f97316' },
+  'filed':                   { bg:'rgba(52,211,153,.12)', border:'rgba(52,211,153,.3)',  text:'#34d399' },
+  'rejected':                { bg:'rgba(239,68,68,.2)',   border:'rgba(239,68,68,.5)',   text:'#ef4444' },
+};
+
+function getLabelStyle(tag) {
+  const t = tag.toLowerCase().trim();
+  for (const [key, style] of Object.entries(LABEL_COLORS)) {
+    if (t.includes(key)) return style;
+  }
+  return { bg:'rgba(148,163,184,.1)', border:'rgba(148,163,184,.3)', text:'#94a3b8' };
+}
+
+function tbSetView(mode) {
+  tbViewMode = mode;
+  const listBtn = document.getElementById('tb-view-list-btn');
+  const swimBtn = document.getElementById('tb-view-swim-btn');
+  const listGrid = document.getElementById('tb-staff-grid');
+  const swimGrid = document.getElementById('tb-swimlane-grid');
+
+  if (mode === 'swimlane') {
+    if (listBtn) { listBtn.style.background = 'var(--bg3)'; listBtn.style.color = 'var(--text3)'; }
+    if (swimBtn) { swimBtn.style.background = 'var(--primary)'; swimBtn.style.color = '#000'; }
+    if (listGrid) listGrid.style.display = 'none';
+    if (swimGrid) swimGrid.style.display = 'block';
+    tbRenderSwimlane();
+  } else {
+    if (listBtn) { listBtn.style.background = 'var(--primary)'; listBtn.style.color = '#000'; }
+    if (swimBtn) { swimBtn.style.background = 'var(--bg3)'; swimBtn.style.color = 'var(--text3)'; }
+    if (listGrid) listGrid.style.display = 'grid';
+    if (swimGrid) swimGrid.style.display = 'none';
+  }
+}
+
+function tbRenderSwimlane() {
+  const container = document.getElementById('tb-swimlane-grid');
+  if (!container) return;
+
+  // Collect all opps for the selected supervisor's team
+  const staffMap  = tbGetStaffMap();
+  const supId     = tbState.selectedSup;
+  const staffIds  = supId === '__unassigned__' ? [] : (staffMap[supId] || []);
+  const memberIds = supId === '__unassigned__' ? [] : [supId, ...staffIds];
+
+  let opps = supId === '__unassigned__'
+    ? tbState.opps.filter(o => !o.assignedTo || o.assignedTo === '')
+    : tbState.opps.filter(o => memberIds.includes(o.assignedTo));
+
+  // Apply search/type filter
+  if (tbState.filterType === 'tasks') { container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Swimlane shows opportunities only. Switch filter to All Items or Opportunities Only.</div>'; return; }
+  if (tbState.searchQuery) opps = opps.filter(o => tbItemMatchesSearch(o, false));
+
+  // Group by pipeline name first, then by stage
+  const byPipeline = {};
+  opps.forEach(o => {
+    const pipe = (o.pipelineName || 'Other').replace(/^\d+\.\s*/,'').trim();
+    if (!byPipeline[pipe]) byPipeline[pipe] = {};
+    const stage = o.stageName || 'Open';
+    if (!byPipeline[pipe][stage]) byPipeline[pipe][stage] = [];
+    byPipeline[pipe][stage].push(o);
+  });
+
+  if (!Object.keys(byPipeline).length) {
+    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No opportunities found for this view.</div>';
+    return;
+  }
+
+  // Pipeline selector
+  const pipes = Object.keys(byPipeline).sort();
+  let selectedPipe = container.dataset.pipeline || pipes[0];
+  if (!byPipeline[selectedPipe]) selectedPipe = pipes[0];
+  container.dataset.pipeline = selectedPipe;
+
+  const pipeSelector = `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+    <span style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em">PIPELINE:</span>
+    ${pipes.map(p => `
+      <button onclick="document.getElementById('tb-swimlane-grid').dataset.pipeline='${p.replace(/'/g,"\\'")}';tbRenderSwimlane()"
+        style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid;
+               background:${p===selectedPipe?'rgba(0,196,106,.15)':'var(--bg3)'};
+               color:${p===selectedPipe?'var(--primary)':'var(--text3)'};
+               border-color:${p===selectedPipe?'rgba(0,196,106,.4)':'var(--border)'}">
+        ${p} <span style="opacity:.7">(${Object.values(byPipeline[p]).flat().length})</span>
+      </button>`).join('')}
+  </div>`;
+
+  // Build columns
+  const stageData = byPipeline[selectedPipe] || {};
+  const columns = SWIMLANE_STAGES.map(s => ({
+    ...s,
+    cards: stageData[s.key] || [],
+    // Also match partial stage names
+    ...Object.entries(stageData).reduce((acc, [k, v]) => {
+      if (k !== s.key && k.toLowerCase().includes(s.key.toLowerCase())) acc.cards = [...acc.cards, ...v];
+      return acc;
+    }, {}),
+  }));
+
+  const columnsHtml = `<div style="display:flex;gap:12px;min-width:max-content;align-items:flex-start">
+    ${columns.map(col => `
+      <div style="width:240px;flex-shrink:0" ondragover="event.preventDefault()" ondrop="tbSwimlaneDropStage(event,'${col.key.replace(/'/g,"\\'")}')">
+        <!-- Column header -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-top:3px solid ${col.color};border-radius:10px 10px 0 0;padding:10px 12px;display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:6px">
+            <i class="ti ${col.icon}" style="color:${col.color};font-size:13px"></i>
+            <span style="font-size:11px;font-weight:800;color:var(--text)">${col.key}</span>
+          </div>
+          <span style="font-size:11px;font-weight:700;color:${col.color};background:${col.color}22;border-radius:10px;padding:1px 8px">${col.cards.length}</span>
+        </div>
+        <!-- Cards -->
+        <div id="sl-col-${col.key.replace(/\s+/g,'-')}" style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;min-height:120px;padding:8px;display:flex;flex-direction:column;gap:6px">
+          ${col.cards.length ? col.cards.map(opp => tbSwimlaneCard(opp, col.color)).join('') :
+            `<div style="text-align:center;padding:20px 10px;color:var(--text3);font-size:11px;opacity:.5">Drop cards here</div>`}
+        </div>
+      </div>`).join('')}
+  </div>`;
+
+  container.innerHTML = pipeSelector + columnsHtml;
+}
+
+function tbSwimlaneCard(opp, stageColor) {
+  const name    = (opp.contactName || opp.name || 'Unknown').split(' ').slice(0,4).join(' ');
+  const company = opp.companyName || '';
+  const dot     = opp.dotNumber ? `DOT# ${opp.dotNumber}` : '';
+  const tags    = opp.tags || [];
+  const assignee = tbState.users.find(u => u.id === opp.assignedTo);
+  const initials = assignee ? assignee.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase() : '?';
+  const isOverdue = opp._status === 'overdue' || (opp.dueDate && new Date(opp.dueDate) < new Date());
+
+  const labelBadges = tags.length ? `
+    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">
+      ${tags.slice(0,4).map(t => {
+        const s = getLabelStyle(t);
+        return `<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:${s.bg};border:1px solid ${s.border};color:${s.text}">${t}</span>`;
+      }).join('')}
+    </div>` : '';
+
+  const tierTag = (() => {
+    const ct = (opp.customerTags || []).map(t=>String(t).toLowerCase());
+    if (ct.some(t=>t.includes('advance'))) return '<span style="font-size:8px;background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);border-radius:3px;padding:1px 5px;font-weight:700">ADV</span>';
+    if (ct.some(t=>t.includes('recurring'))) return '<span style="font-size:8px;background:rgba(96,165,250,.15);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:3px;padding:1px 5px;font-weight:700">REC</span>';
+    return '';
+  })();
+
+  return `<div draggable="true"
+    ondragstart="tbSwimlaneDragStart(event,'${opp.id}')"
+    onclick="tbShowItemDetail({contactId:'${opp.contactId||''}',contactName:'${name.replace(/'/g,"\\'")}',companyName:'${company.replace(/'/g,"\\'")}',tags:[],dotNumber:'${opp.dotNumber||''}',phone:'${opp.contactPhone||''}',email:'${opp.contactEmail||''}',title:'${(opp.pipelineName||'').replace(/'/g,"\\'")}',sub2:'Stage: ${(opp.stageName||'').replace(/'/g,"\\'")}',type:'opp',status:'${opp._status||'open'}'})"
+    style="background:var(--bg2);border:1px solid ${isOverdue?'rgba(239,68,68,.4)':'var(--border)'};border-left:3px solid ${stageColor};border-radius:8px;padding:10px;cursor:grab;transition:box-shadow .15s;position:relative"
+    onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.4)'" onmouseout="this.style.boxShadow=''">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;font-weight:700;color:var(--text);line-height:1.3">${name}</div>
+        ${company ? `<div style="font-size:10px;color:var(--text3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company.replace(/\s+DOT#.*$/,'')}</div>` : ''}
+        ${dot ? `<div style="font-size:9px;color:var(--text3);margin-top:1px">${dot}</div>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+        ${tierTag}
+        <div style="width:22px;height:22px;border-radius:50%;background:var(--primary);color:#000;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center" title="${assignee?.name||'Unassigned'}">${initials}</div>
+      </div>
+    </div>
+    ${labelBadges}
+    <div style="margin-top:7px;display:flex;align-items:center;justify-content:space-between">
+      ${isOverdue ? '<span style="font-size:9px;color:#ef4444;font-weight:700">⚠ Overdue</span>' : '<span></span>'}
+      <button onclick="event.stopPropagation();tbSwimlaneAddLabel('${opp.id}','${opp.contactId||''}')"
+        style="background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.2);color:var(--text3);border-radius:4px;padding:1px 6px;font-size:9px;cursor:pointer;font-weight:700">
+        + Label
+      </button>
+    </div>
+  </div>`;
+}
+
+// Drag and drop between stages
+let tbDragOppId = null;
+function tbSwimlaneDragStart(event, oppId) {
+  tbDragOppId = oppId;
+  event.dataTransfer.effectAllowed = 'move';
+}
+
+async function tbSwimlaneDropStage(event, stageName) {
+  event.preventDefault();
+  if (!tbDragOppId) return;
+  const opp = tbState.opps.find(o => o.id === tbDragOppId);
+  if (!opp) return;
+  tbDragOppId = null;
+
+  // Update stage via GHL
+  try {
+    await fetch(`/api/opps/${opp.id}/stage`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ stageName, pipelineId: opp.pipelineId }),
+    });
+    // Update local state
+    opp.stageName = stageName;
+    if (stageName === 'Filing Completed') opp.status = 'won';
+    tbRenderSwimlane();
+    toast(`✓ Moved to "${stageName}"`);
+  } catch(e) {
+    toast(`Error: ${e.message}`);
+  }
+}
+
+// Add label to opp
+async function tbSwimlaneAddLabel(oppId, contactId) {
+  // Fetch available GHL labels for this location
+  document.getElementById('tb-label-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'tb-label-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9900;display:flex;align-items:center;justify-content:center';
+  modal.onclick = e => { if(e.target===modal) modal.remove(); };
+
+  const labels = Object.keys(LABEL_COLORS).map(k => k.replace(/\b\w/g, c=>c.toUpperCase()));
+  modal.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;width:340px;max-width:95vw">
+    <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:14px">Add Label to Opportunity</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${labels.map(label => {
+        const s = getLabelStyle(label);
+        return `<button onclick="tbApplySwimlaneLabel('${oppId}','${label}');document.getElementById('tb-label-modal').remove()"
+          style="text-align:left;padding:8px 12px;border-radius:8px;border:1px solid ${s.border};background:${s.bg};color:${s.text};font-size:12px;font-weight:700;cursor:pointer">
+          ${label}
+        </button>`;
+      }).join('')}
+    </div>
+    <button onclick="document.getElementById('tb-label-modal').remove()" style="margin-top:12px;width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text3);border-radius:8px;padding:8px;cursor:pointer;font-size:12px">Cancel</button>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+async function tbApplySwimlaneLabel(oppId, label) {
+  try {
+    await fetch(`/api/opps/${oppId}/tags`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ tag: label }),
+    });
+    // Update local opp tags
+    const opp = tbState.opps.find(o => o.id === oppId);
+    if (opp) { opp.tags = opp.tags || []; if (!opp.tags.includes(label)) opp.tags.push(label); }
+    tbRenderSwimlane();
+    toast(`✓ Label "${label}" added`);
+  } catch(e) { toast(`Error: ${e.message}`); }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
