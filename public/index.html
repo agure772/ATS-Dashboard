@@ -137,6 +137,20 @@
 
       <!-- DASHBOARD PAGE -->
       <div id="page-dashboard" class="page active">
+
+        <!-- ─── ATS Marquee Banner ─────────────────────────────────────── -->
+        <div style="overflow:hidden;background:linear-gradient(90deg,#0a1f0f,#0d2e14,#0a1f0f);border:1px solid rgba(0,196,106,.25);border-radius:10px;margin-bottom:18px;padding:0;position:relative;height:38px;display:flex;align-items:center">
+          <!-- shimmer edge left -->
+          <div style="position:absolute;left:0;top:0;bottom:0;width:60px;background:linear-gradient(90deg,#0a1f0f,transparent);z-index:2;pointer-events:none"></div>
+          <!-- shimmer edge right -->
+          <div style="position:absolute;right:0;top:0;bottom:0;width:60px;background:linear-gradient(270deg,#0a1f0f,transparent);z-index:2;pointer-events:none"></div>
+          <!-- scrolling track -->
+          <div id="ats-banner-track" style="display:flex;align-items:center;white-space:nowrap;will-change:transform">
+            <!-- content duplicated for seamless loop -->
+          </div>
+        </div>
+        <!-- ──────────────────────────────────────────────────────────────── -->
+
         <div class="stats-grid">
           <div class="stat-card s-blue">
             <div class="stat-icon blue"><i class="ti ti-users"></i></div>
@@ -1051,5 +1065,46 @@
 
 <script src="js/api-client.js?v=2.7"></script>
 <script src="js/dashboard.js?v=2.7"></script>
+  <!-- ATS Banner Animation -->
+  <style>
+    @keyframes ats-scroll {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    #ats-banner-track { animation: ats-scroll 38s linear infinite; }
+    #ats-banner-track:hover { animation-play-state: paused; }
+    .ats-banner-sep {
+      display:inline-flex;align-items:center;margin:0 18px;
+      color:rgba(0,196,106,.4);font-size:14px;flex-shrink:0
+    }
+    .ats-banner-item {
+      display:inline-flex;align-items:center;gap:7px;flex-shrink:0;
+      font-size:12px;font-weight:700;letter-spacing:.02em
+    }
+    .ats-banner-item.gold  { color:#f59e0b }
+    .ats-banner-item.green { color:#00c46a }
+    .ats-banner-item.white { color:#e2e8f0 }
+    .ats-banner-item.blue  { color:#60a5fa }
+  </style>
+  <script>
+    (function initBanner() {
+      const items = [
+        { icon:'🏆', text:'Admin Truck Solutions — The Smarter Choice for Carrier Compliance', cls:'gold' },
+        { icon:'📞', text:'Unlike Motive, we actually pick up the phone.', cls:'green' },
+        { icon:'✅', text:'Compliance Done Right — Every Mile, Every Filing', cls:'white' },
+        { icon:'📋', text:'No hidden fees. No upsells. Just compliance that works.', cls:'green' },
+        { icon:'🚛', text:'Motive tracks your trucks. We protect your authority.', cls:'blue' },
+        { icon:'⚡', text:'Faster filings. Fewer rejections. Zero runaround.', cls:'gold' },
+        { icon:'💪', text:'Real humans. Real filings. Real results — not just dashboards.', cls:'white' },
+      ];
+      const sep = '<span class="ats-banner-sep">✦</span>';
+      const html = items.map(i =>
+        `<span class="ats-banner-item ${i.cls}">${i.icon} ${i.text}</span>${sep}`
+      ).join('');
+      // Double the content for seamless infinite scroll
+      const track = document.getElementById('ats-banner-track');
+      if (track) track.innerHTML = html + html;
+    })();
+  </script>
 </body>
 </html>
