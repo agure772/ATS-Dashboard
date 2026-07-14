@@ -1607,22 +1607,27 @@ app.post('/api/opps/:oppId/tags', async (req, res) => {
     }
     if (!contactId) throw new Error('Could not find a contact linked to this opportunity');
 
-    // Step 2: get current contact tags, merge in the new one (case-insensitive
-    // dedupe — GHL and/or this app may send different casings of the same
-    // label over time, and a plain Set only catches exact string duplicates)
+    // Step 2: check for a case-insensitive existing match before adding, so we
+    // don't stack duplicate labels differing only by casing
     const contactRes = await ghl('GET', `${V2}/contacts/${contactId}`);
     const existing = contactRes?.contact?.tags || contactRes?.tags || [];
     const alreadyHasTag = existing.some(t => String(t).toLowerCase().trim() === String(tag).toLowerCase().trim());
-    const newTags = alreadyHasTag ? existing : [...existing, tag];
 
-    console.log(`Adding tag "${tag}" to contact ${contactId} (via opp ${oppId}). Existing: [${existing.join(', ')}] → New: [${newTags.join(', ')}]`);
+    if (!alreadyHasTag) {
+      // Step 3: add via the documented dedicated endpoint — the generic
+      // PUT /contacts/:id with a `tags` field silently doesn't persist it.
+      await ghl('POST', `${V2}/contacts/${contactId}/tags`, { tags: [tag] });
+      console.log(`✓ Tag "${tag}" added to contact ${contactId} (via opp ${oppId})`);
+    } else {
+      console.log(`Tag "${tag}" already present on contact ${contactId}, skipping`);
+    }
 
-    // Step 3: write tags to the CONTACT (the only place GHL allows it)
-    await ghl('PUT', `${V2}/contacts/${contactId}`, { tags: newTags });
+    // Re-fetch to confirm the actual resulting tag list
+    const confirmRes = await ghl('GET', `${V2}/contacts/${contactId}`);
+    const newTags = confirmRes?.contact?.tags || confirmRes?.tags || [];
 
     clientCache.data = null; // bust so contact tag lists reflect the update
     tasksBoardCache = { data: null, ts: 0 };
-    console.log(`✓ Tag "${tag}" added to contact ${contactId}`);
     res.json({ success: true, tags: newTags, contactId });
   } catch(err) {
     console.error('Tag add error:', err.message, err.data ? JSON.stringify(err.data).slice(0,300) : '');
@@ -1768,21 +1773,32 @@ function buildCustomFields(serviceKey, data) {
 
 
 // ── Add / remove tag on a contact ─────────────────────────────────────────────
+// NOTE: GHL's generic PUT /contacts/:id does NOT reliably persist a `tags`
+// field (it returns success but the tag never actually shows up — same class
+// of issue as the opportunities endpoint). GHL has dedicated, documented
+// endpoints for this instead: POST /contacts/:id/tags to add, DELETE
+// /contacts/:id/tags to remove. Use those.
 app.post('/api/contacts/:id/tags', async (req, res) => {
   const { id } = req.params;
   const { addTags = [], removeTags = [] } = req.body;
   try {
-    // Fetch current tags
+    if (addTags.length) {
+      const addRes = await ghl('POST', `${V2}/contacts/${id}/tags`, { tags: addTags });
+      console.log(`✓ Added tags [${addTags.join(', ')}] to contact ${id}:`, JSON.stringify(addRes).slice(0,200));
+    }
+    if (removeTags.length) {
+      const removeRes = await ghl('DELETE', `${V2}/contacts/${id}/tags`, { tags: removeTags });
+      console.log(`✓ Removed tags [${removeTags.join(', ')}] from contact ${id}:`, JSON.stringify(removeRes).slice(0,200));
+    }
+
+    // Re-fetch to confirm the actual resulting tag list (don't trust our own math)
     const contact = await ghl('GET', `${V2}/contacts/${id}`);
-    const current = contact?.contact?.tags || contact?.tags || [];
-    const updated = [...new Set([
-      ...current.filter(t => !removeTags.includes(t)),
-      ...addTags,
-    ])];
-    const result = await ghl('PUT', `${V2}/contacts/${id}`, { tags: updated });
+    const updated = contact?.contact?.tags || contact?.tags || [];
+
     clientCache.data = null; // bust so next load reflects new tag
     res.json({ success: true, tags: updated });
   } catch(err) {
+    console.error('Contact tag update error:', err.message, err.data ? JSON.stringify(err.data).slice(0,300) : '');
     res.status(500).json({ error: err.message });
   }
 });
