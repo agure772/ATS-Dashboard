@@ -5814,7 +5814,7 @@ async function tbSwimlaneAddLabel(oppId, contactId) {
     <div style="display:flex;flex-direction:column;gap:6px">
       ${labels.map(label => {
         const s = getLabelStyle(label);
-        return `<button onclick="tbApplySwimlaneLabel('${oppId}','${label}');document.getElementById('tb-label-modal').remove()"
+        return `<button onclick="tbApplySwimlaneLabel('${oppId}','${contactId}','${label}');document.getElementById('tb-label-modal').remove()"
           style="text-align:left;padding:8px 12px;border-radius:8px;border:1px solid ${s.border};background:${s.bg};color:${s.text};font-size:12px;font-weight:700;cursor:pointer">
           ${label}
         </button>`;
@@ -5825,12 +5825,12 @@ async function tbSwimlaneAddLabel(oppId, contactId) {
   document.body.appendChild(modal);
 }
 
-async function tbApplySwimlaneLabel(oppId, label) {
+async function tbApplySwimlaneLabel(oppId, contactId, label) {
   try {
     const res = await fetch(`/api/opps/${oppId}/tags`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ tag: label }),
+      body: JSON.stringify({ tag: label, contactId }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to add label');
