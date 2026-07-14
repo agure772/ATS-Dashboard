@@ -5808,15 +5808,16 @@ async function tbSwimlaneAddLabel(oppId, contactId) {
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9900;display:flex;align-items:center;justify-content:center';
   modal.onclick = e => { if(e.target===modal) modal.remove(); };
 
-  const labels = Object.keys(LABEL_COLORS).map(k => k.replace(/\b\w/g, c=>c.toUpperCase()));
+  const labelKeys = Object.keys(LABEL_COLORS);
   modal.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;width:340px;max-width:95vw">
     <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:14px">Add Label to Opportunity</div>
     <div style="display:flex;flex-direction:column;gap:6px">
-      ${labels.map(label => {
-        const s = getLabelStyle(label);
-        return `<button onclick="tbApplySwimlaneLabel('${oppId}','${contactId}','${label}');document.getElementById('tb-label-modal').remove()"
+      ${labelKeys.map(key => {
+        const display = key.replace(/\b\w/g, c=>c.toUpperCase());
+        const s = getLabelStyle(key);
+        return `<button onclick="tbApplySwimlaneLabel('${oppId}','${contactId}','${key}');document.getElementById('tb-label-modal').remove()"
           style="text-align:left;padding:8px 12px;border-radius:8px;border:1px solid ${s.border};background:${s.bg};color:${s.text};font-size:12px;font-weight:700;cursor:pointer">
-          ${label}
+          ${display}
         </button>`;
       }).join('')}
     </div>
