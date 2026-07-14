@@ -847,6 +847,10 @@ async function buildTasksBoardData() {
     // Attach human-readable pipeline and stage names
     o.pipelineName = pipelineIdToName[o.pipelineId] || '';
     o.stageName    = stageIdToName[o.pipelineStageId] || '';
+    // Preserve tags explicitly (GHL returns them as o.tags — pipeline-level labels like "Zero Filing")
+    o.tags    = o.tags    || [];
+    o.oppTags = o.oppTags || o.tags; // alias for clarity
+    if (o.tags.length) console.log(`Opp tags for ${o.name}: [${o.tags.join(', ')}]`);
   });
 
   // Tasks — per contact, high concurrency batches
