@@ -848,7 +848,9 @@ async function buildTasksBoardData() {
     o.pipelineName = pipelineIdToName[o.pipelineId] || '';
     o.stageName    = stageIdToName[o.pipelineStageId] || '';
     // Preserve tags explicitly (GHL returns them as o.tags — pipeline-level labels like "Zero Filing")
-    o.tags    = o.tags    || [];
+    // Also merge in the linked contact's tags, since workflow labels (added via
+    // the swimlane "+ Label" button) are now stored on the contact, not the opp.
+    o.tags    = [...new Set([...(o.tags || []), ...(info?.tags || [])])];
     o.oppTags = o.oppTags || o.tags; // alias for clarity
     if (o.tags.length) console.log(`Opp tags for ${o.name}: [${o.tags.join(', ')}]`);
   });
@@ -1585,32 +1587,35 @@ app.put('/api/opps/:oppId/stage', async (req, res) => {
 });
 
 // ── Swimlane: add tag/label to opp ────────────────────────────────────────────
+// NOTE: GHL removed opportunity-level tags — tags now live on the CONTACT only.
+// PUT /opportunities/:id rejects a `tags` field entirely ("property tags should
+// not exist"). So this route looks up the opportunity's linked contact and
+// tags that instead. Route/payload shape kept the same so the frontend didn't
+// need to change.
 app.post('/api/opps/:oppId/tags', async (req, res) => {
   const { oppId } = req.params;
   const { tag } = req.body;
   try {
-    // Step 1: Get current opp to find existing tags and pipelineId
+    // Step 1: look up the opp to find its linked contact
     const oppRes = await ghl('GET', `${V2}/opportunities/${oppId}`);
     const oppData = oppRes?.opportunity || oppRes || {};
-    const existing = oppData.tags || [];
+    const contactId = oppData.contactId || oppData.contact?.id;
+    if (!contactId) throw new Error('Could not find a contact linked to this opportunity');
+
+    // Step 2: get current contact tags, merge in the new one
+    const contactRes = await ghl('GET', `${V2}/contacts/${contactId}`);
+    const existing = contactRes?.contact?.tags || contactRes?.tags || [];
     const newTags  = [...new Set([...existing, tag])];
 
-    console.log(`Adding tag "${tag}" to opp ${oppId}. Existing: [${existing.join(', ')}] → New: [${newTags.join(', ')}]`);
+    console.log(`Adding tag "${tag}" to contact ${contactId} (via opp ${oppId}). Existing: [${existing.join(', ')}] → New: [${newTags.join(', ')}]`);
 
-    // Step 2: GHL opportunity update — tags go as top-level array
-    // Some GHL versions use PATCH, some PUT — try PUT with full payload
-    const updateRes = await ghl('PUT', `${V2}/opportunities/${oppId}`, {
-      name:            oppData.name,
-      pipelineId:      oppData.pipelineId,
-      pipelineStageId: oppData.pipelineStageId,
-      status:          oppData.status || 'open',
-      monetaryValue:   oppData.monetaryValue || 0,
-      tags:            newTags,
-    });
+    // Step 3: write tags to the CONTACT (the only place GHL allows it)
+    await ghl('PUT', `${V2}/contacts/${contactId}`, { tags: newTags });
 
-    console.log(`✓ Tag update response:`, JSON.stringify(updateRes).slice(0, 200));
+    clientCache.data = null; // bust so contact tag lists reflect the update
     tasksBoardCache = { data: null, ts: 0 };
-    res.json({ success: true, tags: newTags });
+    console.log(`✓ Tag "${tag}" added to contact ${contactId}`);
+    res.json({ success: true, tags: newTags, contactId });
   } catch(err) {
     console.error('Tag add error:', err.message, err.data ? JSON.stringify(err.data).slice(0,300) : '');
     res.status(500).json({ error: err.message });
