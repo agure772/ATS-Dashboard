@@ -5609,6 +5609,16 @@ function tbRenderSwimlane() {
   if (tbState.filterType === 'tasks') { container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Swimlane shows opportunities only. Switch filter to All Items or Opportunities Only.</div>'; return; }
   if (tbState.searchQuery) opps = opps.filter(o => tbItemMatchesSearch(o, false));
 
+  // Safety net: dedupe by opp id in case the same opportunity was fetched twice
+  // upstream (e.g. a record shifting pages during paginated GHL fetches).
+  const seenOppIds = new Set();
+  opps = opps.filter(o => {
+    if (!o.id) return true;
+    if (seenOppIds.has(o.id)) return false;
+    seenOppIds.add(o.id);
+    return true;
+  });
+
   // Group by pipeline name first, then by stage
   const byPipeline = {};
   opps.forEach(o => {
@@ -5645,22 +5655,26 @@ function tbRenderSwimlane() {
   // Log actual stage names to console for debugging
   if (actualStages.length) console.log('Actual GHL stages in this pipeline:', actualStages);
 
-  // Map each SWIMLANE_STAGES entry to actual GHL stage names (fuzzy match)
+  // Map each SWIMLANE_STAGES entry to actual GHL stage names.
+  // Matching is EXACT (case/whitespace-insensitive) and EXCLUSIVE — once a real
+  // GHL stage is claimed by a column it's removed from the pool, so no other
+  // column can also claim it. (The old substring-based fuzzy match let "In
+  // Progress" wrongly claim "Waiting for Customer Approval" too, because that
+  // name contains the letters "in" inside the word "waiting" — causing the
+  // same opportunity to render in two columns at once.)
+  const norm = str => String(str || '').toLowerCase().trim();
+  const unclaimedStages = new Set(actualStages);
+
   const columns = SWIMLANE_STAGES.map(s => {
-    // Exact match first
-    let matchedKey = actualStages.find(k => k === s.key);
-    // Fuzzy: actual stage contains our key words OR our key contains actual stage words
-    if (!matchedKey) matchedKey = actualStages.find(k =>
-      k.toLowerCase().includes(s.key.toLowerCase().split(' ')[0]) ||
-      s.key.toLowerCase().includes(k.toLowerCase().split(' ')[0])
-    );
+    const matchedKey = [...unclaimedStages].find(k => norm(k) === norm(s.key));
+    if (matchedKey) unclaimedStages.delete(matchedKey);
     const cards = matchedKey ? stageData[matchedKey] : [];
     return { ...s, cards, actualKey: matchedKey || s.key };
   });
 
-  // Append any stages from GHL not covered by our SWIMLANE_STAGES list
-  const coveredStages = new Set(columns.map(c => c.actualKey));
-  actualStages.filter(s => !coveredStages.has(s)).forEach(s => {
+  // Any real GHL stages left unclaimed (name doesn't match a SWIMLANE_STAGES
+  // entry) get their own column dynamically, so nothing is ever dropped.
+  [...unclaimedStages].forEach(s => {
     columns.push({ key: s, actualKey: s, color: '#94a3b8', icon: 'ti-circle-dashed', cards: stageData[s] || [] });
   });
 
