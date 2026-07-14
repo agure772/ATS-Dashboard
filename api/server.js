@@ -1551,6 +1551,54 @@ app.get('/api/debug/drivers/:id', async (req, res) => {
   res.json(result);
 });
 
+// ── Swimlane: update opp stage ────────────────────────────────────────────────
+app.put('/api/opps/:oppId/stage', async (req, res) => {
+  const { oppId } = req.params;
+  const { stageName, pipelineId } = req.body;
+  try {
+    // Find stage ID from pipelineCache
+    const pipelineName = Object.keys(pipelineCache).find(k => pipelineCache[k].id === pipelineId);
+    const stages = pipelineName ? pipelineCache[pipelineName].stages : {};
+    // Try exact match then case-insensitive
+    const stageId = stages[stageName] ||
+      Object.entries(stages).find(([k]) => k.toLowerCase() === stageName.toLowerCase())?.[1];
+    if (!stageId) {
+      console.log(`Stage "${stageName}" not found in pipeline. Available:`, Object.keys(stages));
+      return res.status(404).json({ error: `Stage "${stageName}" not found` });
+    }
+    const wonStatus = /complet|won|filed/i.test(stageName) ? 'won' : undefined;
+    await ghl('PUT', `${V2}/opportunities/${oppId}`, {
+      pipelineStageId: stageId,
+      ...(wonStatus ? { status: wonStatus } : {}),
+    });
+    tasksBoardCache = { data: null, ts: 0 };
+    console.log(`✓ Opp ${oppId} moved to stage "${stageName}"`);
+    res.json({ success: true });
+  } catch(err) {
+    console.error('Stage update error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Swimlane: add tag/label to opp ────────────────────────────────────────────
+app.post('/api/opps/:oppId/tags', async (req, res) => {
+  const { oppId } = req.params;
+  const { tag } = req.body;
+  try {
+    // GHL: get current opp then add tag
+    const opp = await ghl('GET', `${V2}/opportunities/${oppId}`);
+    const existing = opp?.opportunity?.tags || opp?.tags || [];
+    const newTags  = [...new Set([...existing, tag])];
+    await ghl('PUT', `${V2}/opportunities/${oppId}`, { tags: newTags });
+    tasksBoardCache = { data: null, ts: 0 };
+    console.log(`✓ Tag "${tag}" added to opp ${oppId}`);
+    res.json({ success: true, tags: newTags });
+  } catch(err) {
+    console.error('Tag add error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
