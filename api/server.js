@@ -1607,10 +1607,13 @@ app.post('/api/opps/:oppId/tags', async (req, res) => {
     }
     if (!contactId) throw new Error('Could not find a contact linked to this opportunity');
 
-    // Step 2: get current contact tags, merge in the new one
+    // Step 2: get current contact tags, merge in the new one (case-insensitive
+    // dedupe — GHL and/or this app may send different casings of the same
+    // label over time, and a plain Set only catches exact string duplicates)
     const contactRes = await ghl('GET', `${V2}/contacts/${contactId}`);
     const existing = contactRes?.contact?.tags || contactRes?.tags || [];
-    const newTags  = [...new Set([...existing, tag])];
+    const alreadyHasTag = existing.some(t => String(t).toLowerCase().trim() === String(tag).toLowerCase().trim());
+    const newTags = alreadyHasTag ? existing : [...existing, tag];
 
     console.log(`Adding tag "${tag}" to contact ${contactId} (via opp ${oppId}). Existing: [${existing.join(', ')}] → New: [${newTags.join(', ')}]`);
 
