@@ -5808,17 +5808,22 @@ async function tbSwimlaneAddLabel(oppId, contactId) {
 
 async function tbApplySwimlaneLabel(oppId, label) {
   try {
-    await fetch(`/api/opps/${oppId}/tags`, {
+    const res = await fetch(`/api/opps/${oppId}/tags`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ tag: label }),
     });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to add label');
     // Update local opp tags
     const opp = tbState.opps.find(o => o.id === oppId);
-    if (opp) { opp.tags = opp.tags || []; if (!opp.tags.includes(label)) opp.tags.push(label); }
+    if (opp) { opp.tags = data.tags || [...(opp.tags||[]), label]; }
     tbRenderSwimlane();
-    toast(`✓ Label "${label}" added`);
-  } catch(e) { toast(`Error: ${e.message}`); }
+    toast(`✓ Label "${label}" added in GHL`);
+  } catch(e) {
+    toast(`❌ Label error: ${e.message}`);
+    console.error('Label add failed:', e);
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
