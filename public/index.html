@@ -461,6 +461,16 @@
             <button onclick="tbRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
               <i class="ti ti-refresh"></i> Refresh
             </button>
+            <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+              <button id="tb-view-list-btn" onclick="tbSetView('list')"
+                style="background:var(--primary);color:#000;border:none;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px">
+                <i class="ti ti-layout-list"></i> List
+              </button>
+              <button id="tb-view-swim-btn" onclick="tbSetView('swimlane')"
+                style="background:var(--bg3);color:var(--text3);border:none;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;border-left:1px solid var(--border)">
+                <i class="ti ti-layout-columns"></i> Swimlane
+              </button>
+            </div>
           </div>
         </div>
 
@@ -470,6 +480,7 @@
           <div id="tb-loading-sub" style="font-size:12px;margin-top:6px;color:var(--text3)">This can take up to a minute on first load</div>
         </div>
         <div id="tb-staff-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px"></div>
+        <div id="tb-swimlane-grid" style="display:none;overflow-x:auto;padding-bottom:12px"></div>
 
       </div><!-- /tb-operator-view -->
 
