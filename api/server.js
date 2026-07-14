@@ -1589,17 +1589,22 @@ app.put('/api/opps/:oppId/stage', async (req, res) => {
 // ── Swimlane: add tag/label to opp ────────────────────────────────────────────
 // NOTE: GHL removed opportunity-level tags — tags now live on the CONTACT only.
 // PUT /opportunities/:id rejects a `tags` field entirely ("property tags should
-// not exist"). So this route looks up the opportunity's linked contact and
-// tags that instead. Route/payload shape kept the same so the frontend didn't
-// need to change.
+// not exist"). So this route tags the opp's linked contact instead. The
+// frontend already knows the correct contactId (from the bulk opportunities
+// fetch used to build the board) and sends it directly — we prefer that over
+// re-deriving it from a single-opportunity GET, whose response shape doesn't
+// reliably include contactId/contact.id the same way the bulk list does.
 app.post('/api/opps/:oppId/tags', async (req, res) => {
   const { oppId } = req.params;
-  const { tag } = req.body;
+  const { tag, contactId: passedContactId } = req.body;
   try {
-    // Step 1: look up the opp to find its linked contact
-    const oppRes = await ghl('GET', `${V2}/opportunities/${oppId}`);
-    const oppData = oppRes?.opportunity || oppRes || {};
-    const contactId = oppData.contactId || oppData.contact?.id;
+    // Step 1: resolve contactId — prefer what the frontend sent, else look it up
+    let contactId = passedContactId || null;
+    if (!contactId) {
+      const oppRes = await ghl('GET', `${V2}/opportunities/${oppId}`);
+      const oppData = oppRes?.opportunity || oppRes || {};
+      contactId = oppData.contactId || oppData.contact?.id;
+    }
     if (!contactId) throw new Error('Could not find a contact linked to this opportunity');
 
     // Step 2: get current contact tags, merge in the new one
