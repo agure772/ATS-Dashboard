@@ -5704,7 +5704,12 @@ function tbSwimlaneCard(opp, stageColor) {
   const name    = (opp.contactName || opp.name || 'Unknown').split(' ').slice(0,4).join(' ');
   const company = opp.companyName || '';
   const dot     = opp.dotNumber ? `DOT# ${opp.dotNumber}` : '';
-  const tags    = [...new Set([...(opp.tags || []), ...(opp.oppTags || [])])];
+  // Only show tags that are recognized workflow labels (LABEL_COLORS keys).
+  // Labels are now stored on the linked CONTACT (GHL removed opportunity-level
+  // tags), so opp.tags can include the contact's other tags too — this filter
+  // keeps cards from getting cluttered with unrelated tier/source tags.
+  const tags    = [...new Set([...(opp.tags || []), ...(opp.oppTags || [])])]
+    .filter(t => Object.keys(LABEL_COLORS).some(k => String(t).toLowerCase().includes(k)));
   const assignee = tbState.users.find(u => u.id === opp.assignedTo);
   const initials = assignee ? assignee.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase() : '?';
   const isOverdue = opp._status === 'overdue' || (opp.dueDate && new Date(opp.dueDate) < new Date());
