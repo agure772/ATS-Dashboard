@@ -576,8 +576,7 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
       taskNameFieldId  && cleanName && { id: taskNameFieldId, field_value: cleanName },
     ].filter(Boolean);
     const payload = {
-      firstName: cleanName || undefined,
-      lastName:  '',
+      // Do NOT set firstName/lastName — those belong to the actual person in GHL
       companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
       phone:    info.phone    || undefined,
       email:    info.email    || undefined,
@@ -643,8 +642,8 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
     } catch(e) { console.log('Custom field schema error:', e.message); }
 
     const contactPayload = {
-      firstName: cleanName || info.dba_name || `DOT#${info.dot_number}`,
-      lastName: '',
+      firstName: '',  // Leave blank — no person name from FMCSA
+      lastName:  '',
       companyName: info.legal_name
         ? `${info.legal_name} DOT# ${info.dot_number}`
         : `DOT# ${info.dot_number}`,
@@ -848,9 +847,7 @@ async function buildTasksBoardData() {
     o.pipelineName = pipelineIdToName[o.pipelineId] || '';
     o.stageName    = stageIdToName[o.pipelineStageId] || '';
     // Preserve tags explicitly (GHL returns them as o.tags — pipeline-level labels like "Zero Filing")
-    // Also merge in the linked contact's tags, since workflow labels (added via
-    // the swimlane "+ Label" button) are now stored on the contact, not the opp.
-    o.tags    = [...new Set([...(o.tags || []), ...(info?.tags || [])])];
+    o.tags    = o.tags    || [];
     o.oppTags = o.oppTags || o.tags; // alias for clarity
     if (o.tags.length) console.log(`Opp tags for ${o.name}: [${o.tags.join(', ')}]`);
   });
@@ -1587,48 +1584,32 @@ app.put('/api/opps/:oppId/stage', async (req, res) => {
 });
 
 // ── Swimlane: add tag/label to opp ────────────────────────────────────────────
-// NOTE: GHL removed opportunity-level tags — tags now live on the CONTACT only.
-// PUT /opportunities/:id rejects a `tags` field entirely ("property tags should
-// not exist"). So this route tags the opp's linked contact instead. The
-// frontend already knows the correct contactId (from the bulk opportunities
-// fetch used to build the board) and sends it directly — we prefer that over
-// re-deriving it from a single-opportunity GET, whose response shape doesn't
-// reliably include contactId/contact.id the same way the bulk list does.
 app.post('/api/opps/:oppId/tags', async (req, res) => {
   const { oppId } = req.params;
-  const { tag, contactId: passedContactId } = req.body;
+  const { tag } = req.body;
   try {
-    // Step 1: resolve contactId — prefer what the frontend sent, else look it up
-    let contactId = passedContactId || null;
-    if (!contactId) {
-      const oppRes = await ghl('GET', `${V2}/opportunities/${oppId}`);
-      const oppData = oppRes?.opportunity || oppRes || {};
-      contactId = oppData.contactId || oppData.contact?.id;
-    }
-    if (!contactId) throw new Error('Could not find a contact linked to this opportunity');
+    // Step 1: Get current opp to find existing tags and pipelineId
+    const oppRes = await ghl('GET', `${V2}/opportunities/${oppId}`);
+    const oppData = oppRes?.opportunity || oppRes || {};
+    const existing = oppData.tags || [];
+    const newTags  = [...new Set([...existing, tag])];
 
-    // Step 2: check for a case-insensitive existing match before adding, so we
-    // don't stack duplicate labels differing only by casing
-    const contactRes = await ghl('GET', `${V2}/contacts/${contactId}`);
-    const existing = contactRes?.contact?.tags || contactRes?.tags || [];
-    const alreadyHasTag = existing.some(t => String(t).toLowerCase().trim() === String(tag).toLowerCase().trim());
+    console.log(`Adding tag "${tag}" to opp ${oppId}. Existing: [${existing.join(', ')}] → New: [${newTags.join(', ')}]`);
 
-    if (!alreadyHasTag) {
-      // Step 3: add via the documented dedicated endpoint — the generic
-      // PUT /contacts/:id with a `tags` field silently doesn't persist it.
-      await ghl('POST', `${V2}/contacts/${contactId}/tags`, { tags: [tag] });
-      console.log(`✓ Tag "${tag}" added to contact ${contactId} (via opp ${oppId})`);
-    } else {
-      console.log(`Tag "${tag}" already present on contact ${contactId}, skipping`);
-    }
+    // Step 2: GHL opportunity update — tags go as top-level array
+    // Some GHL versions use PATCH, some PUT — try PUT with full payload
+    const updateRes = await ghl('PUT', `${V2}/opportunities/${oppId}`, {
+      name:            oppData.name,
+      pipelineId:      oppData.pipelineId,
+      pipelineStageId: oppData.pipelineStageId,
+      status:          oppData.status || 'open',
+      monetaryValue:   oppData.monetaryValue || 0,
+      tags:            newTags,
+    });
 
-    // Re-fetch to confirm the actual resulting tag list
-    const confirmRes = await ghl('GET', `${V2}/contacts/${contactId}`);
-    const newTags = confirmRes?.contact?.tags || confirmRes?.tags || [];
-
-    clientCache.data = null; // bust so contact tag lists reflect the update
+    console.log(`✓ Tag update response:`, JSON.stringify(updateRes).slice(0, 200));
     tasksBoardCache = { data: null, ts: 0 };
-    res.json({ success: true, tags: newTags, contactId });
+    res.json({ success: true, tags: newTags });
   } catch(err) {
     console.error('Tag add error:', err.message, err.data ? JSON.stringify(err.data).slice(0,300) : '');
     res.status(500).json({ error: err.message });
@@ -1773,32 +1754,21 @@ function buildCustomFields(serviceKey, data) {
 
 
 // ── Add / remove tag on a contact ─────────────────────────────────────────────
-// NOTE: GHL's generic PUT /contacts/:id does NOT reliably persist a `tags`
-// field (it returns success but the tag never actually shows up — same class
-// of issue as the opportunities endpoint). GHL has dedicated, documented
-// endpoints for this instead: POST /contacts/:id/tags to add, DELETE
-// /contacts/:id/tags to remove. Use those.
 app.post('/api/contacts/:id/tags', async (req, res) => {
   const { id } = req.params;
   const { addTags = [], removeTags = [] } = req.body;
   try {
-    if (addTags.length) {
-      const addRes = await ghl('POST', `${V2}/contacts/${id}/tags`, { tags: addTags });
-      console.log(`✓ Added tags [${addTags.join(', ')}] to contact ${id}:`, JSON.stringify(addRes).slice(0,200));
-    }
-    if (removeTags.length) {
-      const removeRes = await ghl('DELETE', `${V2}/contacts/${id}/tags`, { tags: removeTags });
-      console.log(`✓ Removed tags [${removeTags.join(', ')}] from contact ${id}:`, JSON.stringify(removeRes).slice(0,200));
-    }
-
-    // Re-fetch to confirm the actual resulting tag list (don't trust our own math)
+    // Fetch current tags
     const contact = await ghl('GET', `${V2}/contacts/${id}`);
-    const updated = contact?.contact?.tags || contact?.tags || [];
-
+    const current = contact?.contact?.tags || contact?.tags || [];
+    const updated = [...new Set([
+      ...current.filter(t => !removeTags.includes(t)),
+      ...addTags,
+    ])];
+    const result = await ghl('PUT', `${V2}/contacts/${id}`, { tags: updated });
     clientCache.data = null; // bust so next load reflects new tag
     res.json({ success: true, tags: updated });
   } catch(err) {
-    console.error('Contact tag update error:', err.message, err.data ? JSON.stringify(err.data).slice(0,300) : '');
     res.status(500).json({ error: err.message });
   }
 });
