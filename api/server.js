@@ -575,11 +575,13 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
       osVal            && { id: 'Tx9uGn4hrVwJKv6EheCJ',  field_value: osVal },
       taskNameFieldId  && cleanName && { id: taskNameFieldId, field_value: cleanName },
     ].filter(Boolean);
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(info.email||'') ? info.email : undefined;
+    const validPhone = (info.phone||'').replace(/\D/g,'').length >= 7 ? info.phone : undefined;
     const payload = {
       // Do NOT set firstName/lastName — those belong to the actual person in GHL
       companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
-      phone:    info.phone    || undefined,
-      email:    info.email    || undefined,
+      ...(validPhone ? { phone: validPhone } : {}),
+      ...(validEmail ? { email: validEmail } : {}),
       address1: info.mailing_street || undefined,
       city:     info.mailing_city   || undefined,
       state:    info.mailing_state  || undefined,
@@ -641,19 +643,21 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
       else console.log('Task Name field not found. Available fields:', (schema.customFields||[]).map(f=>f.name).slice(0,10));
     } catch(e) { console.log('Custom field schema error:', e.message); }
 
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(info.email||'') ? info.email : undefined;
+    const validPhone = (info.phone||'').replace(/\D/g,'').length >= 7 ? info.phone : undefined;
     const contactPayload = {
-      firstName: '',  // Leave blank — no person name from FMCSA
+      firstName: '',
       lastName:  '',
       companyName: info.legal_name
         ? `${info.legal_name} DOT# ${info.dot_number}`
         : `DOT# ${info.dot_number}`,
-      phone: info.phone || '',
-      email: info.email || '',
-      address1: info.mailing_street || '',
-      city:     info.mailing_city   || '',
-      state:    info.mailing_state  || '',
-      postalCode: info.mailing_zip  || '',
-      country:  'US',
+      ...(validPhone ? { phone: validPhone } : {}),
+      ...(validEmail ? { email: validEmail } : {}),
+      address1:   info.mailing_street || '',
+      city:       info.mailing_city   || '',
+      state:      info.mailing_state  || '',
+      postalCode: info.mailing_zip    || '',
+      country:    'US',
       tags: ['ats-dashboard'],
       customFields: [
         info.dot_number && { id: 'E5MJr7vstJWSi59CxAbK', field_value: parseInt(info.dot_number) },
