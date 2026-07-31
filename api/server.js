@@ -1896,6 +1896,48 @@ app.post('/api/contacts/:contactId/update-name', async (req, res) => {
   }
 });
 
+// ── Direct GHL contact search (fallback for DOT lookup) ───────────────────────
+app.get('/api/search-contacts', async (req, res) => {
+  const { q, dot } = req.query;
+  try {
+    const results = [];
+    // Search by DOT# first (most reliable)
+    if (dot) {
+      try {
+        const r = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&query=${encodeURIComponent(dot)}&limit=5`);
+        (r?.contacts || []).forEach(c => {
+          const cDot = c.customFields?.find(f => f.id === 'E5MJr7vstJWSi59CxAbK')?.fieldValue;
+          results.push({
+            id: c.id, name: c.companyName||c.firstName||'', dot_number: String(cDot||''),
+            business_name: c.companyName||'', phone: c.phone||'', email: c.email||'',
+            initials: (c.companyName||c.firstName||'?').slice(0,2).toUpperCase(),
+            mailing_address: c.address1||'',
+          });
+        });
+      } catch(e) {}
+    }
+    // Search by company name
+    if (!results.length && q) {
+      const r = await ghl('GET', `${V2}/contacts/?locationId=${LOC_ID}&query=${encodeURIComponent(q)}&limit=5`);
+      (r?.contacts || []).forEach(c => {
+        const cDot = c.customFields?.find(f => f.id === 'E5MJr7vstJWSi59CxAbK')?.fieldValue;
+        results.push({
+          id: c.id, name: c.companyName||c.firstName||'', dot_number: String(cDot||''),
+          business_name: c.companyName||'', phone: c.phone||'', email: c.email||'',
+          initials: (c.companyName||c.firstName||'?').slice(0,2).toUpperCase(),
+          mailing_address: c.address1||'',
+        });
+      });
+    }
+    // Dedupe
+    const seen = new Set();
+    const deduped = results.filter(c => { if(seen.has(c.id)) return false; seen.add(c.id); return true; });
+    res.json({ contacts: deduped });
+  } catch(err) {
+    res.status(500).json({ error: err.message, contacts: [] });
+  }
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
