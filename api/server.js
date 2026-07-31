@@ -1620,6 +1620,157 @@ app.post('/api/opps/:oppId/tags', async (req, res) => {
   }
 });
 
+// ── Check missing 2026 opps for a contact ─────────────────────────────────────
+app.get('/api/contacts/:contactId/missing-opps', async (req, res) => {
+  const { contactId } = req.params;
+  try {
+    // Get all existing opps for this contact
+    const data = await ghl('GET', `${V2}/contacts/${contactId}/opportunities`);
+    const existing = (data?.opportunities || []).map(o => o.pipelineId);
+
+    // The 2026 annual services every ATS contact should have
+    const annual2026 = [
+      'filing_2290','filing_ucr','filing_ifta_license','filing_mcs150',
+      'filing_irp_cab_card','filing_clearinghouse','filing_nm_permit','filing_ky_vehicle',
+      'filing_business_name','ifta_q1_2026','ifta_q2_2026',
+    ];
+
+    const missing = [];
+    const present = [];
+    for (const key of annual2026) {
+      const pipeline = pipelineCache[PIPELINE_MAP[key]?.name];
+      if (!pipeline) continue;
+      if (existing.includes(pipeline.id)) {
+        present.push({ key, name: PIPELINE_MAP[key].name });
+      } else {
+        missing.push({ key, name: PIPELINE_MAP[key].name, pipelineId: pipeline.id });
+      }
+    }
+    res.json({ missing, present, total: annual2026.length });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Add specific opps to a contact ─────────────────────────────────────────────
+app.post('/api/contacts/:contactId/add-opps', async (req, res) => {
+  const { contactId } = req.params;
+  const { serviceKeys, contactName } = req.body;
+  const results = { created: [], failed: [] };
+
+  // Get contact name if not provided
+  let oppName = contactName;
+  if (!oppName) {
+    try {
+      const c = await ghl('GET', `${V2}/contacts/${contactId}`);
+      oppName = c?.contact?.companyName || c?.contact?.firstName || 'Unknown';
+    } catch(e) { oppName = 'Unknown'; }
+  }
+  // Strip DOT# from opp name
+  oppName = oppName.replace(/\s+DOT#?\s*\d+/i,'').trim();
+
+  for (const key of (serviceKeys || [])) {
+    try {
+      const pipeline = pipelineCache[PIPELINE_MAP[key]?.name];
+      if (!pipeline) { results.failed.push({ key, reason: 'Pipeline not found' }); continue; }
+      const stageId = Object.values(pipeline.stages)[0];
+      const oppPayload = {
+        name: oppName,
+        pipelineId: pipeline.id,
+        pipelineStageId: stageId,
+        status: 'open',
+        contactId,
+        monetaryValue: 0,
+        locationId: LOC_ID,
+      };
+      const r = await ghl('POST', `${V2}/opportunities/`, oppPayload);
+      if (r?.opportunity?.id || r?.id) {
+        results.created.push({ key, name: PIPELINE_MAP[key].name });
+      } else {
+        results.failed.push({ key, reason: 'No ID returned' });
+      }
+    } catch(e) {
+      results.failed.push({ key, reason: e.message });
+    }
+  }
+
+  tasksBoardCache = { data: null, ts: 0 };
+  clientCache.data = null;
+  console.log(`Add opps for ${contactId}: created=${results.created.length} failed=${results.failed.length}`);
+  res.json(results);
+});
+
+// ── Bulk add opps to multiple contacts ────────────────────────────────────────
+app.post('/api/bulk-add-opps', async (req, res) => {
+  const { contactIds, serviceKeys } = req.body;
+  if (!contactIds?.length || !serviceKeys?.length) {
+    return res.status(400).json({ error: 'contactIds and serviceKeys required' });
+  }
+
+  const results = { contacts: [] };
+  for (const contactId of contactIds) {
+    const contactResult = { contactId, created: [], failed: [] };
+    let oppName = 'Unknown';
+    try {
+      const c = await ghl('GET', `${V2}/contacts/${contactId}`);
+      oppName = (c?.contact?.companyName || c?.contact?.firstName || 'Unknown')
+        .replace(/\s+DOT#?\s*\d+/i,'').trim();
+    } catch(e) {}
+
+    for (const key of serviceKeys) {
+      try {
+        const pipeline = pipelineCache[PIPELINE_MAP[key]?.name];
+        if (!pipeline) { contactResult.failed.push(key); continue; }
+        const stageId = Object.values(pipeline.stages)[0];
+        await ghl('POST', `${V2}/opportunities/`, {
+          name: oppName, pipelineId: pipeline.id,
+          pipelineStageId: stageId, status: 'open',
+          contactId, monetaryValue: 0, locationId: LOC_ID,
+        });
+        contactResult.created.push(key);
+      } catch(e) { contactResult.failed.push(key); }
+    }
+    results.contacts.push(contactResult);
+    // Small delay to avoid GHL rate limiting
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  tasksBoardCache = { data: null, ts: 0 };
+  clientCache.data = null;
+  res.json(results);
+});
+
+// ── Bulk create tasks for multiple contacts ───────────────────────────────────
+app.post('/api/bulk-add-tasks', async (req, res) => {
+  const { contactIds, title, body, dueDate, assignedTo } = req.body;
+  if (!contactIds?.length || !title) {
+    return res.status(400).json({ error: 'contactIds and title required' });
+  }
+  const results = { created: [], failed: [] };
+  for (const contactId of contactIds) {
+    try {
+      const payload = {
+        title,
+        body:       body || '',
+        dueDate:    dueDate ? new Date(dueDate).toISOString() : undefined,
+        assignedTo: assignedTo || undefined,
+        completed:  false,
+        contactId,
+        locationId: LOC_ID,
+      };
+      await ghl('POST', `${V2}/contacts/${contactId}/tasks`, payload);
+      results.created.push(contactId);
+    } catch(e) {
+      console.error(`Task create failed for ${contactId}:`, e.message);
+      results.failed.push({ contactId, error: e.message });
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  tasksBoardCache = { data: null, ts: 0 };
+  console.log(`Bulk tasks: created=${results.created.length} failed=${results.failed.length}`);
+  res.json(results);
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
