@@ -350,7 +350,7 @@ async function scrapeMotus(dotNumber) {
     let res;
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
+      const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
       res = await fetch(url, {
         signal: controller.signal,
         headers: {
@@ -562,38 +562,17 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
     }
 
     // Normalize the response
-    // Scrape SAFER and Motus in parallel
-    const [safer, motus] = await Promise.all([
-      scrapeSAFER(dotNumber),
-      scrapeMotus(dotNumber),
-    ]);
+    // Scrape SAFER first, then Motus sequentially for cleaner logging
+    const safer = await scrapeSAFER(dotNumber);
+    console.log('Starting Motus scrape...');
+    const motus = await scrapeMotus(dotNumber);
+    console.log(`Motus result: official_name="${motus.official_name}" title="${motus.official_title}"`);
 
-    // FMCSA officials API — runs separately since it uses the webKey
+    // officialName from Motus (FMCSA officials API returns 404 for most carriers)
     let officialName = motus.official_name || '';
     let officialTitle = motus.official_title || '';
-    if (!officialName && webKey) {
-      try {
-        const officialsUrl = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dotNumber}/officials?webKey=${webKey}`;
-        console.log(`FMCSA officials: fetching ${officialsUrl}`);
-        const officialsRes = await fetch(officialsUrl, { headers: { 'Accept': 'application/json' } });
-        console.log(`FMCSA officials status: ${officialsRes.status}`);
-        if (officialsRes.ok) {
-          const officialsData = await officialsRes.json();
-          console.log(`FMCSA officials raw:`, JSON.stringify(officialsData).slice(0,300));
-          const officials = officialsData.content || officialsData.officials || officialsData || [];
-          const list = Array.isArray(officials) ? officials : [officials];
-          const first = list.find(o => o && (o.firstName || o.first_name || o.name));
-          if (first) {
-            const fn = first.firstName || first.first_name || (first.name||'').split(' ')[0] || '';
-            const ln = first.lastName  || first.last_name  || (first.name||'').split(' ').slice(1).join(' ') || '';
-            officialName  = [fn, ln].filter(Boolean).join(' ').trim();
-            officialTitle = first.title || first.titleDescription || first.type || '';
-            console.log(`✓ FMCSA official: "${officialName}" / "${officialTitle}"`);
-          }
-        }
-      } catch(e) { console.log('FMCSA officials error:', e.message); }
-    }
-    let mcNumber    = safer.mc_number;
+
+        let mcNumber    = safer.mc_number;
     let mcs150Date  = safer.mcs150_date;
     let mcs150Mileage = safer.mcs150_mileage;
     let mcs150Year  = safer.mcs150_year;
