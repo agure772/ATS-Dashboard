@@ -371,8 +371,6 @@ async function scrapeMotus(dotNumber) {
     } else {
       console.log('Motus first 400:', html.slice(0,400).replace(/\s+/g,' '));
     }
-    console.log(`Motus HTML length: ${html.length}`);
-    console.log(`Motus officials section (500 chars): ${html.slice(Math.max(0,officialsIdx-50), officialsIdx+500).replace(/\s+/g,' ')}`);
 
     // Find official name — try multiple patterns since Motus may render differently
     let found = false;
@@ -576,20 +574,24 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
     if (!officialName && webKey) {
       try {
         const officialsUrl = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dotNumber}/officials?webKey=${webKey}`;
+        console.log(`FMCSA officials: fetching ${officialsUrl}`);
         const officialsRes = await fetch(officialsUrl, { headers: { 'Accept': 'application/json' } });
+        console.log(`FMCSA officials status: ${officialsRes.status}`);
         if (officialsRes.ok) {
           const officialsData = await officialsRes.json();
+          console.log(`FMCSA officials raw:`, JSON.stringify(officialsData).slice(0,300));
           const officials = officialsData.content || officialsData.officials || officialsData || [];
-          const first = Array.isArray(officials) ? officials[0] : null;
+          const list = Array.isArray(officials) ? officials : [officials];
+          const first = list.find(o => o && (o.firstName || o.first_name || o.name));
           if (first) {
-            const fn = first.firstName || first.first_name || '';
-            const ln = first.lastName  || first.last_name  || '';
+            const fn = first.firstName || first.first_name || (first.name||'').split(' ')[0] || '';
+            const ln = first.lastName  || first.last_name  || (first.name||'').split(' ').slice(1).join(' ') || '';
             officialName  = [fn, ln].filter(Boolean).join(' ').trim();
-            officialTitle = first.title || first.titleDescription || '';
-            console.log(`FMCSA officials API: "${officialName}" / "${officialTitle}"`);
+            officialTitle = first.title || first.titleDescription || first.type || '';
+            console.log(`✓ FMCSA official: "${officialName}" / "${officialTitle}"`);
           }
         }
-      } catch(e) { console.log('FMCSA officials API error:', e.message); }
+      } catch(e) { console.log('FMCSA officials error:', e.message); }
     }
     let mcNumber    = safer.mc_number;
     let mcs150Date  = safer.mcs150_date;
