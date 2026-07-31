@@ -1620,33 +1620,45 @@ app.post('/api/opps/:oppId/tags', async (req, res) => {
   }
 });
 
-// ── Check missing 2026 opps for a contact ─────────────────────────────────────
+// ── Check missing opps for a contact by year ──────────────────────────────────
 app.get('/api/contacts/:contactId/missing-opps', async (req, res) => {
   const { contactId } = req.params;
+  const year = parseInt(req.query.year) || new Date().getFullYear();
   try {
-    // Get all existing opps for this contact
-    const data = await ghl('GET', `${V2}/contacts/${contactId}/opportunities`);
+    const data     = await ghl('GET', `${V2}/contacts/${contactId}/opportunities`);
     const existing = (data?.opportunities || []).map(o => o.pipelineId);
 
-    // The 2026 annual services every ATS contact should have
-    const annual2026 = [
-      'filing_2290','filing_ucr','filing_ifta_license','filing_mcs150',
-      'filing_irp_cab_card','filing_clearinghouse','filing_nm_permit','filing_ky_vehicle',
-      'filing_business_name','ifta_q1_2026','ifta_q2_2026',
+    // Build year-specific service list using the same name patterns as the frontend
+    const yearServices = [
+      { key:'annual_2290',          name: `1. ${year} 2290 Form Filing (06-30-${String(year).slice(2)})` },
+      { key:'annual_ucr',           name: `2. ${year} UCR Filing` },
+      { key:'annual_ifta_license',  name: `3. ${year} IFTA License Renewal` },
+      { key:'annual_business',      name: `4. ${year} Business Name Renewal` },
+      { key:'annual_clearinghouse', name: `5. ${year} Clearinghouse Driver Annual Query` },
+      { key:'annual_nm_permit',     name: `6. ${year} NM Permit Renewal` },
+      { key:'annual_irp_cab_card',  name: `7. ${year} IRP Cab Card (Plate) Renewal` },
+      { key:'annual_mcs150',        name: `8. ${year} MCS-150 Mileage Update for ${year-1}` },
+      { key:'annual_ky_vehicle',    name: `9. ${year} KY Annual Vehicle Update` },
+      { key:'ifta_q1',              name: `Q1 ${year} IFTA Filing` },
+      { key:'ifta_q2',              name: `Q2 ${year} IFTA Filing` },
+      { key:'ifta_q3',              name: `Q3 ${year} IFTA Filing` },
+      { key:'ifta_q4',              name: `Q4 ${year} IFTA Filing` },
     ];
 
-    const missing = [];
-    const present = [];
-    for (const key of annual2026) {
-      const pipeline = pipelineCache[PIPELINE_MAP[key]?.name];
-      if (!pipeline) continue;
+    const missing = [], present = [];
+    for (const svc of yearServices) {
+      const pipeline = pipelineCache[svc.name];
+      if (!pipeline) {
+        missing.push({ key: svc.key, name: svc.name, pipelineId: null, notInGHL: true });
+        continue;
+      }
       if (existing.includes(pipeline.id)) {
-        present.push({ key, name: PIPELINE_MAP[key].name });
+        present.push({ key: svc.key, name: svc.name });
       } else {
-        missing.push({ key, name: PIPELINE_MAP[key].name, pipelineId: pipeline.id });
+        missing.push({ key: `pipeline_id:${pipeline.id}`, name: svc.name, pipelineId: pipeline.id });
       }
     }
-    res.json({ missing, present, total: annual2026.length });
+    res.json({ missing, present, year, total: yearServices.length });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
@@ -1671,21 +1683,27 @@ app.post('/api/contacts/:contactId/add-opps', async (req, res) => {
 
   for (const key of (serviceKeys || [])) {
     try {
-      const pipeline = pipelineCache[PIPELINE_MAP[key]?.name];
-      if (!pipeline) { results.failed.push({ key, reason: 'Pipeline not found' }); continue; }
-      const stageId = Object.values(pipeline.stages)[0];
-      const oppPayload = {
-        name: oppName,
-        pipelineId: pipeline.id,
-        pipelineStageId: stageId,
-        status: 'open',
-        contactId,
-        monetaryValue: 0,
-        locationId: LOC_ID,
-      };
-      const r = await ghl('POST', `${V2}/opportunities/`, oppPayload);
+      let pipelineId, stageId, pipelineName;
+      if (key.startsWith('pipeline_id:')) {
+        // Dynamic: raw pipeline ID passed from frontend
+        pipelineId = key.replace('pipeline_id:','');
+        const found = Object.entries(pipelineCache).find(([,p]) => p.id === pipelineId);
+        stageId      = found ? Object.values(found[1].stages)[0] : null;
+        pipelineName = found ? found[0] : pipelineId;
+      } else {
+        const pipeline = pipelineCache[PIPELINE_MAP[key]?.name];
+        if (!pipeline) { results.failed.push({ key, reason: 'Pipeline not found' }); continue; }
+        pipelineId   = pipeline.id;
+        stageId      = Object.values(pipeline.stages)[0];
+        pipelineName = PIPELINE_MAP[key]?.name || key;
+      }
+      if (!stageId) { results.failed.push({ key, reason: 'No stage found' }); continue; }
+      const r = await ghl('POST', `${V2}/opportunities/`, {
+        name: oppName, pipelineId, pipelineStageId: stageId,
+        status: 'open', contactId, monetaryValue: 0, locationId: LOC_ID,
+      });
       if (r?.opportunity?.id || r?.id) {
-        results.created.push({ key, name: PIPELINE_MAP[key].name });
+        results.created.push({ key, name: pipelineName });
       } else {
         results.failed.push({ key, reason: 'No ID returned' });
       }
@@ -1769,6 +1787,22 @@ app.post('/api/bulk-add-tasks', async (req, res) => {
   tasksBoardCache = { data: null, ts: 0 };
   console.log(`Bulk tasks: created=${results.created.length} failed=${results.failed.length}`);
   res.json(results);
+});
+
+// ── List all pipelines (for dynamic opp manager) ──────────────────────────────
+app.get('/api/pipelines', async (req, res) => {
+  try {
+    if (!Object.keys(pipelineCache).length) await loadPipelines();
+    const pipelines = Object.entries(pipelineCache).map(([name, p]) => ({
+      key:   name.toLowerCase().replace(/[^a-z0-9]+/g,'_'),
+      name,
+      id:    p.id,
+      stages: Object.keys(p.stages),
+    })).sort((a,b) => a.name.localeCompare(b.name));
+    res.json({ pipelines });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
