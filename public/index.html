@@ -603,6 +603,12 @@
               id="cs-tool-btn-drivers">
               <i class="ti ti-id-badge" style="color:#60a5fa"></i> Driver Manager
             </button>
+            <button onclick="csTool('opps')"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
+                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
+              id="cs-tool-btn-opps">
+              <i class="ti ti-briefcase" style="color:#f97316"></i> Opp Manager
+            </button>
             <button onclick="csTool('audit')"
               style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
                      padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
@@ -650,6 +656,98 @@
               <button onclick="dmClearContact()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">×</button>
             </div>
             <div id="dm-drivers-area"></div>
+          </div>
+
+          <!-- Opp Manager Panel -->
+          <div id="cs-tool-panel-opps" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:12px">OPP MANAGER — ADD & AUDIT 2026 OPPORTUNITIES</div>
+
+            <!-- Tabs -->
+            <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:14px">
+              <button id="om-tab-single" onclick="omSetTab('single')"
+                style="flex:1;padding:7px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:var(--primary);color:#000">
+                Single Contact
+              </button>
+              <button id="om-tab-bulk" onclick="omSetTab('bulk')"
+                style="flex:1;padding:7px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:var(--bg3);color:var(--text3);border-left:1px solid var(--border)">
+                Bulk Opps
+              </button>
+              <button id="om-tab-tasks" onclick="omSetTab('tasks')"
+                style="flex:1;padding:7px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:var(--bg3);color:var(--text3);border-left:1px solid var(--border)">
+                Bulk Tasks
+              </button>
+            </div>
+
+            <!-- Single contact tab -->
+            <div id="om-panel-single">
+              <input id="om-single-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
+                oninput="omSingleSearch(this.value)"
+                style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
+              <div id="om-single-results"></div>
+              <div id="om-single-selected" style="display:none"></div>
+              <div id="om-single-opps" style="margin-top:10px"></div>
+            </div>
+
+            <!-- Bulk tab -->
+            <div id="om-panel-bulk" style="display:none">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Select contacts and which opportunities to add to all of them at once.</div>
+              <input id="om-bulk-search" type="text" autocomplete="off" placeholder="Search and add contacts..."
+                oninput="omBulkSearch(this.value)"
+                style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
+              <div id="om-bulk-results"></div>
+              <div id="om-bulk-selected-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;min-height:10px"></div>
+              <div id="om-bulk-opp-selector" style="margin-top:4px"></div>
+              <button onclick="omRunBulk()"
+                style="display:none;width:100%;margin-top:12px;background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.4);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer"
+                id="om-bulk-run-btn">
+                <i class="ti ti-rocket"></i> Add Opportunities to All Selected Contacts
+              </button>
+              <div id="om-bulk-status" style="margin-top:10px;font-size:12px"></div>
+            </div>
+
+            <!-- Bulk tasks tab -->
+            <div id="om-panel-tasks" style="display:none">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Create the same task(s) for multiple contacts at once.</div>
+              <input id="om-task-search" type="text" autocomplete="off" placeholder="Search and add contacts..."
+                oninput="omTaskSearch(this.value)"
+                style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
+              <div id="om-task-results"></div>
+              <div id="om-task-selected-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:10px"></div>
+
+              <!-- Task definition -->
+              <div id="om-task-form" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px">
+                <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em">TASK DETAILS</div>
+                <div>
+                  <div style="font-size:10px;color:var(--text3);margin-bottom:4px">TITLE *</div>
+                  <input id="om-task-title" type="text" placeholder="e.g. Q2 2026 IFTA Filing — Missing Mileage"
+                    style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
+                </div>
+                <div>
+                  <div style="font-size:10px;color:var(--text3);margin-bottom:4px">BODY / NOTES</div>
+                  <textarea id="om-task-body" rows="2" placeholder="Optional details..."
+                    style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div>
+                    <div style="font-size:10px;color:var(--text3);margin-bottom:4px">DUE DATE</div>
+                    <input id="om-task-due" type="date"
+                      style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
+                  </div>
+                  <div>
+                    <div style="font-size:10px;color:var(--text3);margin-bottom:4px">ASSIGN TO</div>
+                    <select id="om-task-assignee"
+                      style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
+                      <option value="">Unassigned</option>
+                    </select>
+                  </div>
+                </div>
+                <button onclick="omRunBulkTasks()"
+                  style="width:100%;background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.4);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">
+                  <i class="ti ti-send"></i> Create Task for All Selected Contacts
+                </button>
+              </div>
+              <div id="om-task-status" style="margin-top:10px;font-size:12px"></div>
+            </div>
           </div>
 
           <!-- Contact Audit Panel -->
