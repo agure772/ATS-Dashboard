@@ -344,194 +344,76 @@ app.get('/api/debug/contact/:id', async (req, res) => {
 // ── Scrape Motus for company officials (operator name) ────────────────────────
 async function scrapeMotus(dotNumber) {
   const result = { official_name: '', official_title: '', official_email: '', official_phone: '' };
-  console.log(`Motus: starting fetch for DOT ${dotNumber}`);
-  const url = `https://motus.dot.gov/customer/${dotNumber}/account`;
+  console.log(`Motus: fetching API for DOT ${dotNumber}`);
   try {
+    // Motus is a React app — scraping HTML won't work (client-rendered)
+    // Use the Motus REST API that the React app calls internally
+    const apiUrl = `https://motus.dot.gov/api/customer/${dotNumber}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     let res;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
-      res = await fetch(url, {
+      res = await fetch(apiUrl, {
         signal: controller.signal,
         headers: {
+          'Accept': 'application/json',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
           'Referer': 'https://motus.dot.gov/',
         },
       });
       clearTimeout(timeout);
-    } catch(fe) { console.log('Motus fetch threw:', fe.message); return result; }
-    console.log(`Motus status: ${res.status} content-type: ${res.headers.get('content-type')}`);
-    if (!res.ok) { console.log('Motus non-OK:', res.status); return result; }
-    const html = await res.text();
-    const officialsIdx = html.toLowerCase().indexOf('official');
-    console.log(`Motus HTML length: ${html.length}, officials idx: ${officialsIdx}`);
-    if (officialsIdx >= 0) {
-      console.log('Motus officials section:', html.slice(Math.max(0,officialsIdx-20), officialsIdx+500).replace(/\s+/g,' '));
-    } else {
-      console.log('Motus first 400:', html.slice(0,400).replace(/\s+/g,' '));
-    }
+    } catch(fe) { console.log('Motus API fetch error:', fe.message); return result; }
 
-    // Find official name — try multiple patterns since Motus may render differently
-    let found = false;
+    console.log(`Motus API status: ${res.status} content-type: ${res.headers.get('content-type')}`);
 
-    // Pattern 1: Standard table tbody with rows
-    const tableMatch = html.match(/Company\s*Officials[\s\S]{0,3000}?<tbody[^>]*>([\s\S]{0,2000}?)<\/tbody>/i);
-    if (tableMatch) {
-      const tbody = tableMatch[1];
-      const rows = [...tbody.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
-      for (const row of rows) {
-        const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
-          .map(m => m[1].replace(/<[^>]+>/g,'').trim()).filter(Boolean);
-        if (cells[0] && cells[0].length > 2 && /[A-Z]/.test(cells[0])) {
-          result.official_name  = cells[0];
-          result.official_title = cells[1] || '';
-          result.official_phone = cells[2] || '';
-          result.official_email = cells[3] || '';
-          found = true;
-          break;
+    if (res.ok) {
+      const data = await res.json();
+      console.log('Motus API response:', JSON.stringify(data).slice(0, 400));
+      // Try different response shapes
+      const officials = data.officials || data.companyOfficials || data.contacts ||
+        data.customer?.officials || data.data?.officials || [];
+      const list = Array.isArray(officials) ? officials : [];
+      const first = list[0];
+      if (first) {
+        const fn = first.firstName || first.first_name || (first.name||'').split(' ')[0] || '';
+        const ln = first.lastName  || first.last_name  || (first.name||'').split(' ').slice(1).join(' ') || '';
+        result.official_name  = [fn, ln].filter(Boolean).join(' ').trim();
+        result.official_title = first.title || first.titleDescription || first.type || '';
+        console.log(`✓ Motus official: "${result.official_name}" / "${result.official_title}"`);
+      } else {
+        // Try top-level name fields
+        const name = data.name || data.legalName || data.customer?.name || '';
+        if (name) {
+          result.official_name = name;
+          console.log(`Motus top-level name: "${name}"`);
+        } else {
+          console.log('Motus API: no officials found. Keys:', Object.keys(data).join(', '));
         }
       }
-    }
-
-    // Pattern 2: JSON data embedded in script tags (React/Next.js apps)
-    if (!found) {
-      const jsonMatches = html.matchAll(/"(?:officialName|official_name|firstName|fullName)"\s*:\s*"([^"]+)"/gi);
-      for (const m of jsonMatches) {
-        if (m[1] && m[1].length > 2) {
-          result.official_name = m[1];
-          found = true;
-          break;
-        }
-      }
-    }
-
-    // Pattern 3: Name in a data attribute or aria label
-    if (!found) {
-      const ariaMatch = html.match(/aria-label="([A-Z][A-Z\s]{3,40})"\s*(?:title|role)/i);
-      if (ariaMatch) result.official_name = ariaMatch[1].trim();
-    }
-
-    // Pattern 4: Two consecutive ALL-CAPS words (typical name format) near "Official" or "Manager"
-    if (!found) {
-      const nameBlock = html.slice(Math.max(0, html.toLowerCase().indexOf('official')), html.toLowerCase().indexOf('official') + 3000);
-      const nameMatch = nameBlock.match(/\b([A-Z]{2,20})\s+([A-Z]{2,20})\b/);
-      if (nameMatch && nameMatch[0] !== 'COMPANY OFFICIALS' && nameMatch[0] !== 'OFFICIAL NAME') {
-        result.official_name = nameMatch[0];
-        found = true;
-      }
-    }
-
-    if (found) {
-      console.log(`Motus official found: "${result.official_name}" / "${result.official_title}"`);
     } else {
-      console.log('Motus: no official name found in HTML');
-    }
-  } catch(e) {
-    console.log('Motus scrape error:', e.message);
-  }
-  return result;
-}
-
-// ── Scrape SAFER website for full carrier data including mileage ──────────────
-async function scrapeSAFER(dotNumber) {
-  const result = { mc_number:'', mcs150_date:'', mcs150_mileage:'', mcs150_year:'', owner_name:'', phone:'', email:'', mailing_address:'' };
-  try {
-    // Use SAFER registration page which has MCS-150 form date
-    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
-    const regUrl = `https://safer.fmcsa.dot.gov/query.asp?query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}&action=Register`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Referer': 'https://safer.fmcsa.dot.gov/',
-        'Accept-Language': 'en-US,en;q=0.9',
-      }
-    });
-    if (!res.ok) { console.log('SAFER returned:', res.status); return result; }
-    const html = await res.text();
-
-    // Log a section around MCS-150 so we can see the exact HTML structure
-    // MC number
-    const mcMatch = html.match(/MC-(\d+)/);
-    if (mcMatch) result.mc_number = `MC-${mcMatch[1]}`;
-
-    // Collect all dates MM/DD/YYYY with their positions
-    const allDateMatches = [];
-    const dateRx = /(\d{2}\/\d{2}\/\d{4})/g;
-    let dm;
-    while ((dm = dateRx.exec(html)) !== null) {
-      allDateMatches.push({ date: dm[1], index: dm.index });
-    }
-    console.log('All dates in SAFER HTML:', allDateMatches.map(d => d.date));
-
-    // Today's date to exclude
-    const now = new Date();
-    const todayStr = String(now.getMonth()+1).padStart(2,'0') + '/' +
-                     String(now.getDate()).padStart(2,'0') + '/' + now.getFullYear();
-
-    // Mileage position
-    const mileageMatch = html.match(/(\d[\d,]+)\s*\((\d{4})\)/);
-    if (mileageMatch) {
-      result.mcs150_mileage = mileageMatch[1].replace(/,/g,'');
-      result.mcs150_year    = mileageMatch[2];
-    }
-
-    // MCS-150 date = any date that is NOT today, preferring ones near "Form Date" label
-    // First try: find date after "Form Date" text
-    const formDateIdx = html.search(/Form\s*Date/i);
-    if (formDateIdx >= 0) {
-      const chunk = html.slice(formDateIdx, formDateIdx + 150);
-      const fd = chunk.match(/(\d{2}\/\d{2}\/\d{4})/);
-      if (fd && fd[1] !== todayStr) {
-        result.mcs150_date = fd[1];
-      }
-    }
-
-    // Second try: any date that isn't today
-    if (!result.mcs150_date) {
-      const notToday = allDateMatches.filter(d => d.date !== todayStr);
-      if (notToday.length > 0) result.mcs150_date = notToday[0].date;
-    }
-
-    // Owner/contact name from FMCSA SMS Census API (data.transportation.gov Socrata API)
-    // This is the official free public dataset with contact names — no auth required
-    try {
-      const socrataUrl = `https://data.transportation.gov/resource/kjg3-diqy.json?dot_number=${dotNumber}&$limit=1`;
-      const socrataRes = await fetch(socrataUrl, { headers: { 'Accept': 'application/json' } });
-      console.log('Socrata census API status:', socrataRes.status);
-      if (socrataRes.ok) {
-        const records = await socrataRes.json();
-        console.log('Socrata record:', JSON.stringify(records[0] || {}).slice(0, 400));
-        if (records.length > 0) {
-          const r = records[0];
-          // Contact name field in SMS census data
-          // No contact name in this dataset — but grab phone, email, mileage
-          result.owner_name = ''; // not available in public census data
-          if (!result.mcs150_mileage && r.mcs150_mileage) result.mcs150_mileage = r.mcs150_mileage;
-          if (!result.mcs150_year && r.mcs150_mileage_year) result.mcs150_year = r.mcs150_mileage_year;
-          if (!result.phone && r.telephone) result.phone = r.telephone;
-          if (!result.email && r.email_address) result.email = r.email_address;
-          if (!result.mailing_address && r.mailing_street) {
-            result.mailing_address = [r.mailing_street, r.mailing_city, r.mailing_state, r.mailing_zip].filter(Boolean).join(', ');
+      // Try alternate API paths
+      const altPaths = [
+        `https://motus.dot.gov/api/v1/customer/${dotNumber}`,
+        `https://motus.dot.gov/api/carriers/${dotNumber}`,
+        `https://motus.dot.gov/api/customer/${dotNumber}/officials`,
+      ];
+      for (const path of altPaths) {
+        try {
+          const r = await fetch(path, { headers: { 'Accept': 'application/json', 'Referer': 'https://motus.dot.gov/' } });
+          console.log(`Motus alt path ${path}: status ${r.status}`);
+          if (r.ok) {
+            const d = await r.json();
+            console.log('Motus alt response:', JSON.stringify(d).slice(0,300));
+            break;
           }
-          // Store individual address parts
-          if (!result.mailing_street && r.mailing_street) result.mailing_street = r.mailing_street;
-          if (!result.mailing_city   && r.mailing_city)   result.mailing_city   = r.mailing_city;
-          if (!result.mailing_state  && r.mailing_state)  result.mailing_state  = r.mailing_state;
-          if (!result.mailing_zip    && r.mailing_zip)    result.mailing_zip    = r.mailing_zip;
-          console.log('Socrata phone:', result.phone, 'email:', result.email, 'mileage:', result.mcs150_mileage, 'year:', result.mcs150_year);
-        }
+        } catch(e) {}
       }
-    } catch(e) { console.log('Socrata census error:', e.message); }
-
-    console.log('SAFER scrape result:', result);
+    }
   } catch(e) {
-    console.log('SAFER scrape error:', e.message);
+    console.log('Motus error:', e.message);
   }
   return result;
 }
-
 // ── FMCSA DOT Lookup ──────────────────────────────────────────────────────────
 app.get('/api/dot/:dotNumber', async (req, res) => {
   const { dotNumber } = req.params;
