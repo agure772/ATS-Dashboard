@@ -1346,14 +1346,22 @@ function dotSearchGHL(query) {
           </div>
         </div>
         <button onclick="event.stopPropagation();
-          var f=document.getElementById('mis-first-${c.id}')?.value||'';
-          var l=document.getElementById('mis-last-${c.id}')?.value||'';
+          var f=document.getElementById('mis-first-${c.id}')?.value.trim()||'';
+          var l=document.getElementById('mis-last-${c.id}')?.value.trim()||'';
+          if(!f&&!l){
+            var fe=document.getElementById('mis-first-${c.id}');
+            var le=document.getElementById('mis-last-${c.id}');
+            if(fe)fe.style.borderColor='#ef4444';
+            if(le)le.style.borderColor='#ef4444';
+            if(fe)fe.placeholder='Required — enter first name';
+            return;
+          }
           document.getElementById('dot-push-first').value=f;
           document.getElementById('dot-push-last').value=l;
           dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}');
           dotPushToGHL()"
           style="margin-top:2px;width:100%;background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">
-          ↑ Update GHL with FMCSA Data
+          ↑ Update GHL with FMCSA Data (name required)
         </button>
       </div>` : '';
 
