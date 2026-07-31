@@ -1321,6 +1321,9 @@ function dotSearchGHL(query) {
       ? `<span style="font-size:9px;font-weight:800;background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:4px;padding:1px 6px;white-space:nowrap">${mismatches.length} MISMATCH${mismatches.length>1?'ES':''}</span>`
       : `<span style="font-size:9px;font-weight:800;background:rgba(0,196,106,.1);color:var(--green);border:1px solid rgba(0,196,106,.3);border-radius:4px;padding:1px 6px">✓ MATCH</span>`;
 
+    // Get Motus official name for pre-filling
+    const _motFirst = dotCurrentInfo?.official_name ? (dotCurrentInfo.official_name.split(' ')[0]||'').charAt(0).toUpperCase()+(dotCurrentInfo.official_name.split(' ')[0]||'').slice(1).toLowerCase() : '';
+    const _motLast  = dotCurrentInfo?.official_name ? dotCurrentInfo.official_name.split(' ').slice(1).join(' ').replace(/\b\w/g,l=>l.toUpperCase()) : '';
     const mismatchDetail = mismatches.length ? `
       <div style="margin-top:6px;padding:8px 10px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:6px">
         <div style="font-size:10px;font-weight:700;color:#ef4444;margin-bottom:4px">⚠ Fields that differ from FMCSA:</div>
@@ -1330,8 +1333,26 @@ function dotSearchGHL(query) {
             <span style="color:#ef4444" title="GHL value">GHL: ${m.ghl || '—'}</span>
             <span style="color:var(--green)" title="FMCSA value">FMCSA: ${m.fmcsa || '—'}</span>
           </div>`).join('')}
-        <button onclick="event.stopPropagation();dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}');dotPushToGHL()"
-          style="margin-top:6px;width:100%;background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;margin-bottom:6px">
+          <div>
+            <div style="font-size:9px;color:var(--text3);margin-bottom:2px">FIRST NAME (optional)</div>
+            <input id="mis-first-${c.id}" type="text" placeholder="e.g. Mohamud" value="${_motFirst}"
+              style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;box-sizing:border-box">
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--text3);margin-bottom:2px">LAST NAME (optional)</div>
+            <input id="mis-last-${c.id}" type="text" placeholder="e.g. Said" value="${_motLast}"
+              style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;box-sizing:border-box">
+          </div>
+        </div>
+        <button onclick="event.stopPropagation();
+          var f=document.getElementById('mis-first-${c.id}')?.value||'';
+          var l=document.getElementById('mis-last-${c.id}')?.value||'';
+          document.getElementById('dot-push-first').value=f;
+          document.getElementById('dot-push-last').value=l;
+          dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}');
+          dotPushToGHL()"
+          style="margin-top:2px;width:100%;background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">
           ↑ Update GHL with FMCSA Data
         </button>
       </div>` : '';
