@@ -330,6 +330,55 @@ app.get('/api/debug/contact/:id', async (req, res) => {
 });
 
 
+// ── Scrape Motus for company officials (operator name) ────────────────────────
+async function scrapeMotus(dotNumber) {
+  const result = { official_name: '', official_title: '', official_email: '', official_phone: '' };
+  try {
+    const url = `https://motus.dot.gov/customer/${dotNumber}/account`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Referer': 'https://motus.dot.gov/',
+      },
+      timeout: 8000,
+    });
+    if (!res.ok) { console.log('Motus returned:', res.status); return result; }
+    const html = await res.text();
+
+    // Find "COMPANY OFFICIALS" section — table row with name and title
+    // Pattern: <td>MOHAMUD SAID</td><td>MANAGER</td>
+    const tableMatch = html.match(/Company\s*Officials[\s\S]{0,2000}?<tbody>([\s\S]{0,1000}?)<\/tbody>/i);
+    if (tableMatch) {
+      const tbody = tableMatch[1];
+      // Extract all rows
+      const rowRx = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let rowMatch;
+      while ((rowMatch = rowRx.exec(tbody)) !== null) {
+        const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+          .map(m => m[1].replace(/<[^>]+>/g,'').trim());
+        if (cells[0] && cells[0].length > 1 && !/^\s*$/.test(cells[0])) {
+          result.official_name  = cells[0] || '';
+          result.official_title = cells[1] || '';
+          result.official_phone = cells[2] || '';
+          result.official_email = cells[3] || '';
+          console.log(`Motus official: name="${result.official_name}" title="${result.official_title}"`);
+          break; // take the first official
+        }
+      }
+    }
+
+    if (!result.official_name) {
+      // Fallback: simpler regex for name pattern in any row
+      const nameMatch = html.match(/<td[^>]*>\s*([A-Z][A-Z\s]{2,40})\s*<\/td>/);
+      if (nameMatch) result.official_name = nameMatch[1].trim();
+    }
+  } catch(e) {
+    console.log('Motus scrape error:', e.message);
+  }
+  return result;
+}
+
 // ── Scrape SAFER website for full carrier data including mileage ──────────────
 async function scrapeSAFER(dotNumber) {
   const result = { mc_number:'', mcs150_date:'', mcs150_mileage:'', mcs150_year:'', owner_name:'', phone:'', email:'', mailing_address:'' };
@@ -459,8 +508,11 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
     }
 
     // Normalize the response
-    // Scrape SAFER website for MC number, mileage, and MCS-150 date
-    const safer = await scrapeSAFER(dotNumber);
+    // Scrape SAFER and Motus in parallel
+    const [safer, motus] = await Promise.all([
+      scrapeSAFER(dotNumber),
+      scrapeMotus(dotNumber),
+    ]);
     let mcNumber    = safer.mc_number;
     let mcs150Date  = safer.mcs150_date;
     let mcs150Mileage = safer.mcs150_mileage;
@@ -512,6 +564,10 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
       operating_status:  opStatus,
       safety_rating:     carrier.safetyRating || 'Not Rated',
       owner_name:        safer.owner_name || '',
+      official_name:     motus.official_name  || '',
+      official_title:    motus.official_title || '',
+      official_email:    motus.official_email || '',
+      official_phone:    motus.official_phone || '',
       crash_total:       String(carrier.crashTotal || '0'),
       iss_score:         String(carrier.issScore || ''),
       raw:               carrier,
@@ -577,8 +633,13 @@ app.post('/api/dot/:dotNumber/push-to-ghl', async (req, res) => {
     ].filter(Boolean);
     const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(info.email||'') ? info.email : undefined;
     const validPhone = (info.phone||'').replace(/\D/g,'').length >= 7 ? info.phone : undefined;
+    const firstName  = req.body.firstName || undefined;
+    const lastName   = req.body.lastName  || undefined;
     const payload = {
-      // Do NOT set firstName/lastName — those belong to the actual person in GHL
+      // Only set name fields if provided by staff — never overwrite with blank
+      ...(firstName ? { firstName } : {}),
+      ...(lastName  ? { lastName  } : {}),
+      // Do NOT set firstName/lastName if not provided — those belong to the actual person in GHL
       companyName: info.legal_name ? `${info.legal_name} DOT# ${info.dot_number}` : undefined,
       ...(validPhone ? { phone: validPhone } : {}),
       ...(validEmail ? { email: validEmail } : {}),
@@ -646,8 +707,8 @@ app.post('/api/dot/:dotNumber/create-contact', async (req, res) => {
     const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(info.email||'') ? info.email : undefined;
     const validPhone = (info.phone||'').replace(/\D/g,'').length >= 7 ? info.phone : undefined;
     const contactPayload = {
-      firstName: '',
-      lastName:  '',
+      firstName: req.body.firstName || '',
+      lastName:  req.body.lastName  || '',
       companyName: info.legal_name
         ? `${info.legal_name} DOT# ${info.dot_number}`
         : `DOT# ${info.dot_number}`,
