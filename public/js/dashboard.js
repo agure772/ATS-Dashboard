@@ -5886,13 +5886,24 @@ async function omLoadPipelines() {
     const res  = await fetch('/api/pipelines');
     const data = await res.json();
     omAllPipelines = data.pipelines || [];
+    console.log('omAllPipelines loaded:', omAllPipelines.map(p => p.name));
   } catch(e) { console.error('Failed to load pipelines:', e.message); }
 }
 
 // Resolve a service + year to a live pipeline ID from the cache
 function omResolvePipeline(service, year) {
   const targetName = service.namePattern(year);
-  return omAllPipelines.find(p => p.name === targetName) || null;
+  // Try exact match first
+  let found = omAllPipelines.find(p => p.name === targetName);
+  if (found) return found;
+  // Fuzzy: same year + key service words (handles minor naming differences)
+  const yearStr = String(year);
+  const keyWords = service.label.toLowerCase().split(' ').filter(w => w.length > 3);
+  found = omAllPipelines.find(p => {
+    const pName = p.name.toLowerCase();
+    return pName.includes(yearStr) && keyWords.every(w => pName.includes(w));
+  });
+  return found || null;
 }
 
 // All years that have at least one pipeline
