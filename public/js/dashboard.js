@@ -1384,11 +1384,17 @@ async function dotCreateContact() {
     });
     const data = await res.json();
     if (res.status === 409) {
-      // Already exists — show warning but KEEP create section visible
+      const existingId = data.existingId || '';
+      const hasName = firstName || lastName;
       document.getElementById('dot-push-status').innerHTML = `
         <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:10px 14px;margin-top:8px">
-          <div style="font-size:13px;font-weight:700;color:var(--yellow)"><i class="ti ti-alert-triangle"></i> Contact Already Exists</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">${data.error} — search for them above and use "Update GHL Contact" instead.</div>
+          <div style="font-size:13px;font-weight:700;color:var(--yellow)"><i class="ti ti-alert-triangle"></i> Contact Already Exists in GHL</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px;margin-bottom:8px">${data.error}</div>
+          ${existingId && hasName ? `
+          <button onclick="dotUpdateNameOnly('${existingId}','${firstName.replace(/'/g,"\\'")}','${lastName.replace(/'/g,"\\'")}',this)"
+            style="width:100%;background:rgba(0,196,106,.12);color:var(--primary);border:1px solid rgba(0,196,106,.4);border-radius:7px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">
+            ✓ Update Name Only → ${firstName} ${lastName} on existing contact
+          </button>` : `<div style="font-size:11px;color:var(--text3)">Search for them above and use "Update GHL Contact" to push FMCSA data.</div>`}
         </div>`;
       btn.disabled = false;
       btn.innerHTML = '<i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities';
@@ -1421,6 +1427,23 @@ async function dotCreateContact() {
       `<span style="color:var(--red)">Error: ${err.message}</span>`;
     btn.disabled = false;
     btn.innerHTML = '<i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities';
+  }
+}
+
+async function dotUpdateNameOnly(contactId, firstName, lastName, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
+  try {
+    const res = await fetch(`/api/contacts/${contactId}/update-name`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ firstName, lastName }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    if (btn) { btn.textContent = `✓ Name updated — ${firstName} ${lastName}`; btn.style.background = 'rgba(0,196,106,.2)'; }
+    toast(`✓ Name updated on existing contact`);
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = `Error: ${e.message}`; btn.style.color = '#ef4444'; }
   }
 }
 
