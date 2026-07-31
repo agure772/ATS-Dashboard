@@ -1143,6 +1143,22 @@ async function dotLookup() {
     // Show company name that will be created
     const previewEl = document.getElementById('dot-create-preview');
     if (previewEl) previewEl.textContent = data.info.legal_name ? `→ ${data.info.legal_name}  (DOT# ${data.info.dot_number})` : '';
+
+    // Auto-populate operator name from Motus if available
+    if (data.info.official_name) {
+      const parts = data.info.official_name.trim().split(/\s+/);
+      const first = parts[0] || '';
+      const last  = parts.slice(1).join(' ') || '';
+      ['dot-push-first','dot-person-first'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && !el.value) el.value = first.charAt(0) + first.slice(1).toLowerCase();
+      });
+      ['dot-push-last','dot-person-last'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && !el.value) el.value = last.charAt(0) + last.slice(1).toLowerCase();
+      });
+      console.log(`Motus official: ${data.info.official_name} (${data.info.official_title})`);
+    }
     // Reset push status
     document.getElementById('dot-push-status').innerHTML = '';
     status.textContent = `✓ Found: ${data.info.legal_name}`;
@@ -1193,6 +1209,11 @@ function renderDotResult(info) {
     field('MC / FF Number', info.mc_number) +
     field('Entity Type', info.entity_type) +
     field('EIN', info.ein) +
+    (info.official_name ? `<div style="margin-bottom:10px;padding:8px 10px;background:rgba(0,196,106,.06);border:1px solid rgba(0,196,106,.2);border-radius:7px">
+      <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Company Official (Motus)</div>
+      <div style="font-size:13px;font-weight:700;color:var(--text)">${info.official_name.charAt(0)+info.official_name.slice(1).toLowerCase()}</div>
+      ${info.official_title ? `<div style="font-size:11px;color:var(--text3)">${info.official_title}</div>` : ''}
+    </div>` : '') +
     field('Phone', info.phone) +
     field('Email', info.email) +
     field('Mailing Address', info.mailing_address);
@@ -1352,11 +1373,14 @@ async function dotCreateContact() {
   btn.disabled = true;
   btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .7s linear infinite"></i> Creating...';
 
+  const firstName = document.getElementById('dot-person-first')?.value.trim() || '';
+  const lastName  = document.getElementById('dot-person-last')?.value.trim()  || '';
+
   try {
     const res = await fetch(`/api/dot/${dotCurrentInfo.dot_number}/create-contact`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ info: dotCurrentInfo }),
+      body: JSON.stringify({ info: dotCurrentInfo, firstName, lastName }),
     });
     const data = await res.json();
     if (res.status === 409) {
@@ -1407,10 +1431,12 @@ async function dotPushToGHL() {
   btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .7s linear infinite"></i> Updating...';
 
   try {
+    const firstName = document.getElementById('dot-push-first')?.value.trim() || '';
+    const lastName  = document.getElementById('dot-push-last')?.value.trim()  || '';
     const res = await fetch(`/api/dot/${dotCurrentInfo.dot_number}/push-to-ghl`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contactId: dotSelectedGHL.id, info: dotCurrentInfo }),
+      body: JSON.stringify({ contactId: dotSelectedGHL.id, info: dotCurrentInfo, firstName, lastName }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
