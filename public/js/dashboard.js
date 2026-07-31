@@ -1261,7 +1261,9 @@ function dotSearchGHL(query) {
     matches = state.clients.filter(c => {
       if (seen.has(c.id)) return false;
       seen.add(c.id);
-      return String(c.dot_number || '').trim() === fmcsaDot;
+      // Match on dot_number field OR company name containing the DOT#
+      return String(c.dot_number || '').trim() === fmcsaDot ||
+        (c.business_name || c.name || '').includes(fmcsaDot);
     });
   }
 
@@ -1289,26 +1291,36 @@ function dotSearchGHL(query) {
   }
 
   if (!matches.length) {
+    // Only do API fallback if we have FMCSA info (not manual typing)
+    if (!dotCurrentInfo?.dot_number) {
+      document.getElementById('dot-ghl-matches').innerHTML =
+        '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found. Use the create button below.</div>';
+      return;
+    }
     document.getElementById('dot-ghl-matches').innerHTML =
       '<div style="font-size:11px;color:var(--text3);padding:6px 0">Searching GHL directly...</div>';
-    // Fallback: search GHL API directly by company name
-    fetch(`/api/search-contacts?q=${encodeURIComponent(dotCurrentInfo?.legal_name || query)}&dot=${dotCurrentInfo?.dot_number||''}`)
+    // Fallback: search GHL API directly — use a flag to prevent recursion
+    if (dotSearchGHL._running) return;
+    dotSearchGHL._running = true;
+    fetch(`/api/search-contacts?q=${encodeURIComponent(dotCurrentInfo.legal_name||'')}&dot=${dotCurrentInfo.dot_number||''}`)
       .then(r => r.json())
       .then(data => {
+        dotSearchGHL._running = false;
         const apiMatches = data.contacts || [];
         if (!apiMatches.length) {
           document.getElementById('dot-ghl-matches').innerHTML =
-            '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT. Use the create button below to add as new.</div>';
+            '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT. Use the create button below.</div>';
           return;
         }
-        // Add to state.clients cache so mismatch detection works
+        // Merge into local cache
         apiMatches.forEach(c => { if (!state.clients.find(x=>x.id===c.id)) state.clients.push(c); });
-        // Re-run the search now that cache is populated
-        dotSearchGHL(query);
+        // Re-run with DOT# directly to get exact match
+        dotSearchGHL(dotCurrentInfo.dot_number);
       })
       .catch(() => {
+        dotSearchGHL._running = false;
         document.getElementById('dot-ghl-matches').innerHTML =
-          '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT. Use the create button below to add as new.</div>';
+          '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT. Use the create button below.</div>';
       });
     return;
   }
