@@ -345,17 +345,21 @@ app.get('/api/debug/contact/:id', async (req, res) => {
 async function scrapeMotus(dotNumber) {
   const result = { official_name: '', official_title: '', official_email: '', official_phone: '' };
   console.log(`Motus: starting fetch for DOT ${dotNumber}`);
+  const url = `https://motus.dot.gov/customer/${dotNumber}/account`;
   try {
-    const url = `https://motus.dot.gov/customer/${dotNumber}/account`;
     let res;
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
       res = await fetch(url, {
+        signal: controller.signal,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml',
           'Referer': 'https://motus.dot.gov/',
         },
       });
+      clearTimeout(timeout);
     } catch(fe) { console.log('Motus fetch threw:', fe.message); return result; }
     console.log(`Motus status: ${res.status} content-type: ${res.headers.get('content-type')}`);
     if (!res.ok) { console.log('Motus non-OK:', res.status); return result; }
