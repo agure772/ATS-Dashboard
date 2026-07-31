@@ -4465,12 +4465,15 @@ function csTool(name) {
   if (btn)  {
     btn.style.background = name === 'vehicles' ? 'rgba(245,158,11,.15)'
       : name === 'drivers' ? 'rgba(96,165,250,.15)'
+      : name === 'opps' ? 'rgba(249,115,22,.15)'
       : name === 'audit' ? 'rgba(124,58,237,.15)' : 'rgba(0,196,106,.15)';
     btn.style.color = name === 'vehicles' ? '#f59e0b'
       : name === 'drivers' ? '#60a5fa'
+      : name === 'opps' ? '#f97316'
       : name === 'audit' ? '#a78bfa' : 'var(--primary)';
     btn.style.borderColor = name === 'vehicles' ? 'rgba(245,158,11,.4)'
       : name === 'drivers' ? 'rgba(96,165,250,.4)'
+      : name === 'opps' ? 'rgba(249,115,22,.4)'
       : name === 'audit' ? 'rgba(124,58,237,.4)' : 'rgba(0,196,106,.4)';
   }
   csActiveTool = name;
@@ -5850,6 +5853,381 @@ async function tbApplySwimlaneLabel(oppId, label) {
   } catch(e) {
     toast(`❌ Label error: ${e.message}`);
     console.error('Label add failed:', e);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// OPP MANAGER (CS Board tool)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const ALL_2026_SERVICES = [
+  { key:'filing_2290',         label:'2026 2290 Form Filing (06-30-26)' },
+  { key:'filing_ucr',          label:'2026 UCR Filing' },
+  { key:'filing_ifta_license', label:'2026 IFTA License Renewal' },
+  { key:'filing_mcs150',       label:'2026 MCS-150 Mileage Update' },
+  { key:'filing_irp_cab_card', label:'2026 IRP Cab Card (Plate) Renewal' },
+  { key:'filing_clearinghouse',label:'2026 Clearinghouse Driver Annual Query' },
+  { key:'filing_nm_permit',    label:'2026 NM Permit Renewal' },
+  { key:'filing_ky_vehicle',   label:'2026 KY Annual Vehicle Update' },
+  { key:'filing_business_name',label:'2026 Business Name Renewal' },
+  { key:'ifta_q1_2026',        label:'Q1 2026 IFTA Filing' },
+  { key:'ifta_q2_2026',        label:'Q2 2026 IFTA Filing' },
+];
+
+let omSingleContact  = null;
+let omBulkContacts   = [];
+let omSelectedKeys   = new Set();
+
+let omBulkTaskContacts = [];
+
+function omSetTab(tab) {
+  ['single','bulk','tasks'].forEach(t => {
+    document.getElementById(`om-panel-${t}`).style.display = t === tab ? 'block' : 'none';
+    const btn = document.getElementById(`om-tab-${t}`);
+    if (!btn) return;
+    const active = t === tab;
+    btn.style.background   = active ? (t==='tasks'?'rgba(249,115,22,.2)':t==='bulk'?'rgba(249,115,22,.15)':'var(--primary)') : 'var(--bg3)';
+    btn.style.color        = active ? (t==='single'?'#000':'#f97316') : 'var(--text3)';
+    btn.style.borderBottom = active ? '2px solid #f97316' : 'none';
+  });
+  // Populate assignee dropdown when tasks tab opens
+  if (tab === 'tasks') omPopulateAssignees();
+}
+
+// ── SINGLE CONTACT ────────────────────────────────────────────────────────────
+function omSingleSearch(q) {
+  const res = document.getElementById('om-single-results');
+  if (!res) return;
+  const matches = omFilterClients(q).slice(0,8);
+  if (!q || !matches.length) { res.innerHTML = ''; return; }
+  res.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;margin-bottom:8px';
+  res.innerHTML = matches.map(c => `
+    <div onclick="omSingleSelect('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
+      style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text);display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.04)"
+      onmouseover="this.style.background='rgba(249,115,22,.08)'" onmouseout="this.style.background=''">
+      <span>${c.name}</span>
+      ${c.dot_number ? `<span style="color:var(--text3);font-size:11px">DOT# ${c.dot_number}</span>` : ''}
+    </div>`).join('');
+}
+
+async function omSingleSelect(id, name, dot) {
+  omSingleContact = { id, name, dot };
+  document.getElementById('om-single-search').value = '';
+  document.getElementById('om-single-results').innerHTML = '';
+
+  const selEl = document.getElementById('om-single-selected');
+  selEl.style.display = 'block';
+  selEl.innerHTML = `<div style="padding:8px 12px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.3);border-radius:8px;font-size:12px;font-weight:700;color:#f97316;display:flex;justify-content:space-between;align-items:center">
+    <span>✓ ${name}${dot ? ` — DOT# ${dot}` : ''}</span>
+    <button onclick="omSingleClear()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">×</button>
+  </div>`;
+
+  const oppsEl = document.getElementById('om-single-opps');
+  oppsEl.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:10px 0">Checking existing opportunities...</div>';
+
+  try {
+    const res  = await fetch(`/api/contacts/${id}/missing-opps`);
+    const data = await res.json();
+    omRenderSingleOpps(data, id, name);
+  } catch(e) {
+    oppsEl.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+  }
+}
+
+function omSingleClear() {
+  omSingleContact = null;
+  document.getElementById('om-single-selected').style.display = 'none';
+  document.getElementById('om-single-selected').innerHTML = '';
+  document.getElementById('om-single-opps').innerHTML = '';
+}
+
+function omRenderSingleOpps(data, contactId, contactName) {
+  const el = document.getElementById('om-single-opps');
+  const { missing, present } = data;
+
+  const missingHtml = missing.length ? `
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:#ef4444;margin-bottom:8px">⚠ MISSING ${missing.length} OPPORTUNITY${missing.length>1?'IES':''}</div>
+      ${missing.map(s => `
+        <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:7px;margin-bottom:5px;cursor:pointer">
+          <input type="checkbox" checked value="${s.key}" class="om-single-check" style="accent-color:#f97316;width:14px;height:14px">
+          <span style="font-size:12px;color:var(--text)">${s.name.replace(/^\d+\.\s*/,'')}</span>
+        </label>`).join('')}
+      <button onclick="omAddSingleSelected('${contactId}','${contactName.replace(/'/g,"\\'")}',true)"
+        style="width:100%;margin-top:8px;background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.4);border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer">
+        ✚ Add Selected Missing Opportunities to GHL
+      </button>
+    </div>` : `<div style="padding:8px;font-size:12px;color:var(--green);font-weight:700">✓ All 2026 opportunities are in place!</div>`;
+
+  const presentHtml = present.length ? `
+    <div style="margin-top:10px">
+      <div style="font-size:10px;font-weight:700;color:var(--text3);margin-bottom:6px">ALREADY EXISTS (${present.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        ${present.map(s => `<span style="font-size:10px;background:rgba(0,196,106,.08);color:var(--green);border:1px solid rgba(0,196,106,.2);border-radius:4px;padding:2px 8px">${s.name.replace(/^\d+\.\s*/,'')}</span>`).join('')}
+      </div>
+    </div>` : '';
+
+  const addExtraHtml = `
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">ADD ADDITIONAL OPPORTUNITIES</div>
+      ${ALL_2026_SERVICES.map(s => `
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:3px"
+          onmouseover="this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.background=''">
+          <input type="checkbox" value="${s.key}" class="om-single-extra" style="accent-color:#f97316;width:13px;height:13px">
+          <span style="font-size:12px;color:var(--text3)">${s.label}</span>
+        </label>`).join('')}
+      <button onclick="omAddSingleSelected('${contactId}','${contactName.replace(/'/g,"\\'")}',false)"
+        style="width:100%;margin-top:8px;background:rgba(96,165,250,.1);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer">
+        ✚ Add Selected to GHL
+      </button>
+    </div>`;
+
+  const statusEl = `<div id="om-single-status" style="margin-top:8px;font-size:12px;min-height:16px"></div>`;
+
+  el.innerHTML = missingHtml + presentHtml + addExtraHtml + statusEl;
+}
+
+async function omAddSingleSelected(contactId, contactName, fromMissing) {
+  const checkboxes = document.querySelectorAll(fromMissing ? '.om-single-check:checked' : '.om-single-extra:checked');
+  const keys = [...checkboxes].map(c => c.value);
+  if (!keys.length) { toast('Select at least one opportunity to add'); return; }
+
+  const statusEl = document.getElementById('om-single-status');
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3)">Adding ' + keys.length + ' opportunit' + (keys.length>1?'ies':'y') + '...</span>';
+
+  try {
+    const res  = await fetch(`/api/contacts/${contactId}/add-opps`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ serviceKeys: keys, contactName }),
+    });
+    const data = await res.json();
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ Created ${data.created?.length||0} opportunities${data.failed?.length ? ` (${data.failed.length} failed)` : ''}</span>`;
+    toast(`✓ ${data.created?.length||0} opps added to GHL`);
+    // Refresh the missing opp view
+    setTimeout(() => omSingleSelect(contactId, contactName, omSingleContact?.dot||''), 1200);
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
+
+// ── BULK MULTI-CONTACT ────────────────────────────────────────────────────────
+function omBulkSearch(q) {
+  const res = document.getElementById('om-bulk-results');
+  if (!res) return;
+  const existing = new Set(omBulkContacts.map(c => c.id));
+  const matches = omFilterClients(q).filter(c => !existing.has(c.id)).slice(0,8);
+  if (!q || !matches.length) { res.innerHTML = ''; return; }
+  res.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:8px;max-height:160px;overflow-y:auto;margin-bottom:8px';
+  res.innerHTML = matches.map(c => `
+    <div onclick="omBulkAdd('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
+      style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text);display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.04)"
+      onmouseover="this.style.background='rgba(249,115,22,.08)'" onmouseout="this.style.background=''">
+      <span>${c.name}</span>
+      ${c.dot_number ? `<span style="color:var(--text3);font-size:11px">DOT# ${c.dot_number}</span>` : ''}
+    </div>`).join('');
+}
+
+function omBulkAdd(id, name, dot) {
+  if (omBulkContacts.find(c => c.id === id)) return;
+  omBulkContacts.push({ id, name, dot });
+  document.getElementById('om-bulk-search').value = '';
+  document.getElementById('om-bulk-results').innerHTML = '';
+  omRenderBulkSelected();
+  omRenderBulkOppSelector();
+}
+
+function omBulkRemove(id) {
+  omBulkContacts = omBulkContacts.filter(c => c.id !== id);
+  omRenderBulkSelected();
+  omRenderBulkOppSelector();
+}
+
+function omRenderBulkSelected() {
+  const el = document.getElementById('om-bulk-selected-list');
+  if (!el) return;
+  el.innerHTML = omBulkContacts.map(c => `
+    <span style="display:inline-flex;align-items:center;gap:5px;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.3);color:#f97316;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700">
+      ${c.name.replace(/\s+DOT#.*$/,'')}
+      <button onclick="omBulkRemove('${c.id}')" style="background:none;border:none;color:#f97316;cursor:pointer;font-size:13px;line-height:1;padding:0">×</button>
+    </span>`).join('');
+}
+
+function omRenderBulkOppSelector() {
+  const el = document.getElementById('om-bulk-opp-selector');
+  const btn = document.getElementById('om-bulk-run-btn');
+  if (!el) return;
+  if (!omBulkContacts.length) { el.innerHTML = ''; if (btn) btn.style.display = 'none'; return; }
+
+  el.innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">${omBulkContacts.length} CONTACT${omBulkContacts.length>1?'S':''} SELECTED — CHOOSE OPPORTUNITIES TO ADD:</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      <button onclick="omBulkSelectAll(true)" style="font-size:11px;background:rgba(0,196,106,.1);color:var(--green);border:1px solid rgba(0,196,106,.3);border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:700">Select All</button>
+      <button onclick="omBulkSelectAll(false)" style="font-size:11px;background:var(--bg3);color:var(--text3);border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer">Clear</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+      ${ALL_2026_SERVICES.map(s => `
+        <label style="display:flex;align-items:center;gap:7px;padding:6px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;cursor:pointer;transition:border-color .1s"
+          onmouseover="this.style.borderColor='rgba(249,115,22,.4)'" onmouseout="this.style.borderColor='var(--border)'">
+          <input type="checkbox" value="${s.key}" class="om-bulk-check" style="accent-color:#f97316;width:13px;height:13px">
+          <span style="font-size:11px;color:var(--text)">${s.label}</span>
+        </label>`).join('')}
+    </div>`;
+
+  if (btn) btn.style.display = 'block';
+}
+
+function omBulkSelectAll(checked) {
+  document.querySelectorAll('.om-bulk-check').forEach(c => c.checked = checked);
+}
+
+async function omRunBulk() {
+  const keys = [...document.querySelectorAll('.om-bulk-check:checked')].map(c => c.value);
+  if (!keys.length) { toast('Select at least one opportunity'); return; }
+  if (!omBulkContacts.length) { toast('Select at least one contact'); return; }
+
+  const btn = document.getElementById('om-bulk-run-btn');
+  const statusEl = document.getElementById('om-bulk-status');
+  if (btn) { btn.disabled = true; btn.textContent = `⏳ Adding to ${omBulkContacts.length} contacts...`; }
+  if (statusEl) statusEl.innerHTML = '';
+
+  try {
+    const res  = await fetch('/api/bulk-add-opps', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ contactIds: omBulkContacts.map(c=>c.id), serviceKeys: keys }),
+    });
+    const data = await res.json();
+    const totalCreated = data.contacts.reduce((s,c) => s + c.created.length, 0);
+    const totalFailed  = data.contacts.reduce((s,c) => s + c.failed.length, 0);
+
+    if (statusEl) {
+      statusEl.innerHTML = `
+        <div style="background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.2);border-radius:8px;padding:12px">
+          <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:8px">✓ Bulk complete — ${totalCreated} opportunities created</div>
+          ${data.contacts.map(c => {
+            const contact = omBulkContacts.find(x => x.id === c.contactId);
+            return `<div style="font-size:11px;color:var(--text3);margin-bottom:3px">
+              ${contact?.name||c.contactId}: <span style="color:var(--green)">${c.created.length} added</span>${c.failed.length ? ` <span style="color:#ef4444">${c.failed.length} failed</span>` : ''}
+            </div>`;
+          }).join('')}
+          ${totalFailed ? `<div style="font-size:11px;color:#ef4444;margin-top:6px">⚠ ${totalFailed} opportunities failed — check Render logs</div>` : ''}
+        </div>`;
+    }
+    toast(`✓ ${totalCreated} opps added across ${omBulkContacts.length} contacts`);
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-rocket"></i> Add Opportunities to All Selected Contacts'; }
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-rocket"></i> Add Opportunities to All Selected Contacts'; }
+  }
+}
+
+// Shared client filter
+function omFilterClients(q) {
+  if (!q || q.length < 1) return (state.clients||[]).slice(0,20);
+  const lower = q.toLowerCase().replace(/dot#?\s*/i,'');
+  return (state.clients||[]).filter(c =>
+    (c.name||'').toLowerCase().includes(lower) ||
+    (c.dot_number||'').includes(lower) ||
+    (c.business_name||'').toLowerCase().includes(lower)
+  );
+}
+
+// ── BULK TASKS ────────────────────────────────────────────────────────────────
+function omPopulateAssignees() {
+  const sel = document.getElementById('om-task-assignee');
+  if (!sel || sel.options.length > 1) return;
+  (tbState.users || []).forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u.id; opt.textContent = u.name;
+    sel.appendChild(opt);
+  });
+}
+
+function omTaskSearch(q) {
+  const res = document.getElementById('om-task-results');
+  if (!res) return;
+  const existing = new Set(omBulkTaskContacts.map(c => c.id));
+  const matches = omFilterClients(q).filter(c => !existing.has(c.id)).slice(0,8);
+  if (!q || !matches.length) { res.innerHTML = ''; return; }
+  res.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:8px;max-height:160px;overflow-y:auto;margin-bottom:8px';
+  res.innerHTML = matches.map(c => `
+    <div onclick="omTaskAddContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
+      style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text);display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.04)"
+      onmouseover="this.style.background='rgba(249,115,22,.08)'" onmouseout="this.style.background=''">
+      <span>${c.name}</span>
+      ${c.dot_number ? `<span style="color:var(--text3);font-size:11px">DOT# ${c.dot_number}</span>` : ''}
+    </div>`).join('');
+}
+
+function omTaskAddContact(id, name, dot) {
+  if (omBulkTaskContacts.find(c => c.id === id)) return;
+  omBulkTaskContacts.push({ id, name, dot });
+  document.getElementById('om-task-search').value = '';
+  document.getElementById('om-task-results').innerHTML = '';
+  omRenderTaskSelected();
+}
+
+function omTaskRemoveContact(id) {
+  omBulkTaskContacts = omBulkTaskContacts.filter(c => c.id !== id);
+  omRenderTaskSelected();
+}
+
+function omRenderTaskSelected() {
+  const el = document.getElementById('om-task-selected-list');
+  const form = document.getElementById('om-task-form');
+  if (!el) return;
+  el.innerHTML = omBulkTaskContacts.map(c => `
+    <span style="display:inline-flex;align-items:center;gap:5px;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.3);color:#f97316;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700">
+      ${c.name.replace(/\s+DOT#.*$/,'')}
+      <button onclick="omTaskRemoveContact('${c.id}')" style="background:none;border:none;color:#f97316;cursor:pointer;font-size:13px;line-height:1;padding:0">×</button>
+    </span>`).join('');
+  if (form) form.style.display = omBulkTaskContacts.length ? 'flex' : 'none';
+}
+
+async function omRunBulkTasks() {
+  const title      = document.getElementById('om-task-title')?.value.trim();
+  const body       = document.getElementById('om-task-body')?.value.trim();
+  const dueDate    = document.getElementById('om-task-due')?.value;
+  const assignedTo = document.getElementById('om-task-assignee')?.value;
+  const statusEl   = document.getElementById('om-task-status');
+
+  if (!title)                   { toast('Task title is required'); return; }
+  if (!omBulkTaskContacts.length) { toast('Add at least one contact'); return; }
+
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3)">Creating tasks...</span>';
+
+  try {
+    const res  = await fetch('/api/bulk-add-tasks', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contactIds: omBulkTaskContacts.map(c => c.id),
+        title, body, dueDate, assignedTo,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    if (statusEl) {
+      statusEl.innerHTML = `
+        <div style="background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.2);border-radius:8px;padding:12px">
+          <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:6px">✓ ${data.created?.length||0} tasks created</div>
+          ${omBulkTaskContacts.map(c => {
+            const ok = data.created?.includes(c.contactId||c.id);
+            return `<div style="font-size:11px;color:var(--text3);margin-bottom:2px">
+              ${c.name.replace(/\s+DOT#.*$/,'')}: <span style="color:${ok?'var(--green)':'#ef4444'}">${ok?'✓ Created':'✗ Failed'}</span>
+            </div>`;
+          }).join('')}
+          ${data.failed?.length ? `<div style="font-size:11px;color:#ef4444;margin-top:6px">⚠ ${data.failed.length} failed — check Render logs</div>` : ''}
+        </div>`;
+    }
+    toast(`✓ ${data.created?.length||0} tasks created across ${omBulkTaskContacts.length} contacts`);
+    // Clear the form
+    document.getElementById('om-task-title').value = '';
+    document.getElementById('om-task-body').value  = '';
+    document.getElementById('om-task-due').value   = '';
+    omBulkTaskContacts = [];
+    omRenderTaskSelected();
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
   }
 }
 
