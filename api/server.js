@@ -1876,6 +1876,25 @@ app.get('/api/pipelines', async (req, res) => {
   }
 });
 
+// ── Update contact name only ───────────────────────────────────────────────────
+app.post('/api/contacts/:contactId/update-name', async (req, res) => {
+  const { contactId } = req.params;
+  const { firstName, lastName } = req.body;
+  if (!firstName && !lastName) return res.status(400).json({ error: 'First or last name required' });
+  try {
+    await ghl('PUT', `${V2}/contacts/${contactId}`, {
+      ...(firstName ? { firstName } : {}),
+      ...(lastName  ? { lastName  } : {}),
+    });
+    clientCache.data = null;
+    console.log(`✓ Name updated for contact ${contactId}: ${firstName} ${lastName}`);
+    res.json({ success: true });
+  } catch(err) {
+    console.error('Name update error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
