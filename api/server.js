@@ -445,14 +445,13 @@ async function scrapeMotus(dotNumber) {
   const result = { official_name: '', official_title: '', official_email: '', official_phone: '' };
   console.log(`Motus: fetching API for DOT ${dotNumber}`);
   try {
-    // Motus is a React app — scraping HTML won't work (client-rendered)
-    // Use the Motus REST API that the React app calls internally
-    const apiUrl = `https://motus.dot.gov/api/customer/${dotNumber}`;
+    // /api/carriers/{dot} is confirmed working (status 200)
+    const url = `https://motus.dot.gov/api/carriers/${dotNumber}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     let res;
     try {
-      res = await fetch(apiUrl, {
+      res = await fetch(url, {
         signal: controller.signal,
         headers: {
           'Accept': 'application/json',
@@ -461,51 +460,49 @@ async function scrapeMotus(dotNumber) {
         },
       });
       clearTimeout(timeout);
-    } catch(fe) { console.log('Motus API fetch error:', fe.message); return result; }
+    } catch(fe) { console.log('Motus fetch error:', fe.message); return result; }
 
-    console.log(`Motus API status: ${res.status} content-type: ${res.headers.get('content-type')}`);
+    console.log(`Motus status: ${res.status}`);
+    if (!res.ok) { console.log('Motus non-OK:', res.status); return result; }
 
-    if (res.ok) {
-      const data = await res.json();
-      console.log('Motus API response:', JSON.stringify(data).slice(0, 400));
-      // Try different response shapes
-      const officials = data.officials || data.companyOfficials || data.contacts ||
-        data.customer?.officials || data.data?.officials || [];
-      const list = Array.isArray(officials) ? officials : [];
-      const first = list[0];
-      if (first) {
-        const fn = first.firstName || first.first_name || (first.name||'').split(' ')[0] || '';
-        const ln = first.lastName  || first.last_name  || (first.name||'').split(' ').slice(1).join(' ') || '';
-        result.official_name  = [fn, ln].filter(Boolean).join(' ').trim();
-        result.official_title = first.title || first.titleDescription || first.type || '';
-        console.log(`✓ Motus official: "${result.official_name}" / "${result.official_title}"`);
-      } else {
-        // Try top-level name fields
-        const name = data.name || data.legalName || data.customer?.name || '';
-        if (name) {
-          result.official_name = name;
-          console.log(`Motus top-level name: "${name}"`);
-        } else {
-          console.log('Motus API: no officials found. Keys:', Object.keys(data).join(', '));
-        }
-      }
+    const data = await res.json();
+    // Log full response to find where officials/name is stored
+    console.log('Motus full response:', JSON.stringify(data).slice(0, 1000));
+
+    // Try to find officials in various response shapes
+    const officials = data.officials || data.companyOfficials || data.contacts ||
+      data.customer?.officials || data.data?.officials ||
+      (Array.isArray(data) ? data : null) || [];
+
+    const list = Array.isArray(officials) ? officials : [];
+    const first = list.find(o => o && (o.firstName || o.first_name || o.name || o.fullName));
+    if (first) {
+      const fn = first.firstName || first.first_name || (first.name||first.fullName||'').split(' ')[0] || '';
+      const ln = first.lastName  || first.last_name  || (first.name||first.fullName||'').split(' ').slice(1).join(' ') || '';
+      result.official_name  = [fn, ln].filter(Boolean).join(' ').trim();
+      result.official_title = first.title || first.titleDescription || first.type || first.role || '';
+      console.log(`✓ Motus official: "${result.official_name}" / "${result.official_title}"`);
     } else {
-      // Try alternate API paths
-      const altPaths = [
-        `https://motus.dot.gov/api/v1/customer/${dotNumber}`,
-        `https://motus.dot.gov/api/carriers/${dotNumber}`,
-        `https://motus.dot.gov/api/customer/${dotNumber}/officials`,
-      ];
-      for (const path of altPaths) {
+      // Try top-level name fields on the carrier record
+      const topName = data.contactName || data.ownerName || data.operatorName ||
+        data.principalName || data.name || '';
+      if (topName) {
+        result.official_name = topName;
+        console.log(`Motus top-level name: "${topName}"`);
+      } else {
+        console.log('Motus: checking for officials sub-endpoint...');
+        // Try the officials sub-endpoint
         try {
-          const r = await fetch(path, { headers: { 'Accept': 'application/json', 'Referer': 'https://motus.dot.gov/' } });
-          console.log(`Motus alt path ${path}: status ${r.status}`);
-          if (r.ok) {
-            const d = await r.json();
-            console.log('Motus alt response:', JSON.stringify(d).slice(0,300));
-            break;
+          const offRes = await fetch(`https://motus.dot.gov/api/carriers/${dotNumber}/officials`, {
+            headers: { 'Accept': 'application/json', 'Referer': 'https://motus.dot.gov/' }
+          });
+          console.log(`Motus /officials status: ${offRes.status}`);
+          if (offRes.ok) {
+            const offData = await offRes.json();
+            console.log('Motus /officials response:', JSON.stringify(offData).slice(0, 500));
           }
-        } catch(e) {}
+        } catch(e) { console.log('Motus /officials error:', e.message); }
+        console.log('Motus top-level keys:', Object.keys(data).join(', '));
       }
     }
   } catch(e) {
