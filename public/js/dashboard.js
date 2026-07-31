@@ -5860,19 +5860,50 @@ async function tbApplySwimlaneLabel(oppId, label) {
 // OPP MANAGER (CS Board tool)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const ALL_2026_SERVICES = [
-  { key:'filing_2290',         label:'2026 2290 Form Filing (06-30-26)' },
-  { key:'filing_ucr',          label:'2026 UCR Filing' },
-  { key:'filing_ifta_license', label:'2026 IFTA License Renewal' },
-  { key:'filing_mcs150',       label:'2026 MCS-150 Mileage Update' },
-  { key:'filing_irp_cab_card', label:'2026 IRP Cab Card (Plate) Renewal' },
-  { key:'filing_clearinghouse',label:'2026 Clearinghouse Driver Annual Query' },
-  { key:'filing_nm_permit',    label:'2026 NM Permit Renewal' },
-  { key:'filing_ky_vehicle',   label:'2026 KY Annual Vehicle Update' },
-  { key:'filing_business_name',label:'2026 Business Name Renewal' },
-  { key:'ifta_q1_2026',        label:'Q1 2026 IFTA Filing' },
-  { key:'ifta_q2_2026',        label:'Q2 2026 IFTA Filing' },
+// Year-agnostic service templates — year gets swapped in at runtime
+const OM_SERVICES = [
+  { key:'annual_2290',         label:'2290 Form Filing',                   namePattern: (y) => `1. ${y} 2290 Form Filing (06-30-${String(y).slice(2)})` },
+  { key:'annual_ucr',          label:'UCR Filing',                         namePattern: (y) => `2. ${y} UCR Filing` },
+  { key:'annual_ifta_license', label:'IFTA License Renewal',               namePattern: (y) => `3. ${y} IFTA License Renewal` },
+  { key:'annual_business',     label:'Business Name Renewal',              namePattern: (y) => `4. ${y} Business Name Renewal` },
+  { key:'annual_clearinghouse',label:'Clearinghouse Driver Annual Query',  namePattern: (y) => `5. ${y} Clearinghouse Driver Annual Query` },
+  { key:'annual_nm_permit',    label:'NM Permit Renewal',                  namePattern: (y) => `6. ${y} NM Permit Renewal` },
+  { key:'annual_irp_cab_card', label:'IRP Cab Card (Plate) Renewal',       namePattern: (y) => `7. ${y} IRP Cab Card (Plate) Renewal` },
+  { key:'annual_mcs150',       label:'MCS-150 Mileage Update',             namePattern: (y) => `8. ${y} MCS-150 Mileage Update for ${y-1}` },
+  { key:'annual_ky_vehicle',   label:'KY Annual Vehicle Update',           namePattern: (y) => `9. ${y} KY Annual Vehicle Update` },
+  { key:'ifta_q1',             label:'Q1 IFTA Filing',                     namePattern: (y) => `Q1 ${y} IFTA Filing` },
+  { key:'ifta_q2',             label:'Q2 IFTA Filing',                     namePattern: (y) => `Q2 ${y} IFTA Filing` },
+  { key:'ifta_q3',             label:'Q3 IFTA Filing',                     namePattern: (y) => `Q3 ${y} IFTA Filing` },
+  { key:'ifta_q4',             label:'Q4 IFTA Filing',                     namePattern: (y) => `Q4 ${y} IFTA Filing` },
 ];
+
+let omAllPipelines = [];
+let omSelectedYear = new Date().getFullYear(); // default to current year
+
+async function omLoadPipelines() {
+  if (omAllPipelines.length) return;
+  try {
+    const res  = await fetch('/api/pipelines');
+    const data = await res.json();
+    omAllPipelines = data.pipelines || [];
+  } catch(e) { console.error('Failed to load pipelines:', e.message); }
+}
+
+// Resolve a service + year to a live pipeline ID from the cache
+function omResolvePipeline(service, year) {
+  const targetName = service.namePattern(year);
+  return omAllPipelines.find(p => p.name === targetName) || null;
+}
+
+// All years that have at least one pipeline
+function omGetYears() {
+  const years = new Set();
+  omAllPipelines.forEach(p => { const m = p.name.match(/20(\d\d)/); if (m) years.add(2000 + parseInt(m[1])); });
+  // Also include next year even if no pipelines yet
+  const next = new Date().getFullYear() + 1;
+  years.add(next);
+  return [...years].sort().reverse();
+}
 
 let omSingleContact  = null;
 let omBulkContacts   = [];
@@ -5890,8 +5921,10 @@ function omSetTab(tab) {
     btn.style.color        = active ? (t==='single'?'#000':'#f97316') : 'var(--text3)';
     btn.style.borderBottom = active ? '2px solid #f97316' : 'none';
   });
-  // Populate assignee dropdown when tasks tab opens
-  if (tab === 'tasks') omPopulateAssignees();
+  if (tab === 'tasks')  omPopulateAssignees();
+  if (tab === 'bulk' || tab === 'single') omLoadPipelines().then(() => {
+    if (tab === 'bulk') omRenderBulkOppSelector();
+  });
 }
 
 // ── SINGLE CONTACT ────────────────────────────────────────────────────────────
@@ -5922,13 +5955,37 @@ async function omSingleSelect(id, name, dot) {
     <button onclick="omSingleClear()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">×</button>
   </div>`;
 
-  const oppsEl = document.getElementById('om-single-opps');
-  oppsEl.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:10px 0">Checking existing opportunities...</div>';
+  await omLoadPipelines();
+  omRenderSingleYearPicker();
+}
 
+function omRenderSingleYearPicker() {
+  const oppsEl = document.getElementById('om-single-opps');
+  const years  = omGetYears();
+  oppsEl.innerHTML = `
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;font-weight:700;color:var(--text3);margin-bottom:6px;letter-spacing:.07em">SELECT YEAR TO CHECK</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${years.map(y => `
+          <button onclick="omSingleLoadYear(${y})"
+            style="padding:5px 18px;border-radius:20px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid var(--border);
+                   background:var(--bg3);color:var(--text3);transition:all .15s"
+            onmouseover="this.style.borderColor='#f97316';this.style.color='#f97316'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text3)'">
+            ${y}
+          </button>`).join('')}
+      </div>
+    </div>`;
+}
+
+async function omSingleLoadYear(year) {
+  omSelectedYear = year;
+  const oppsEl = document.getElementById('om-single-opps');
+  oppsEl.innerHTML = `<div style="color:var(--text3);font-size:12px;padding:10px 0">Checking ${year} opportunities...</div>`;
   try {
-    const res  = await fetch(`/api/contacts/${id}/missing-opps`);
+    const res  = await fetch(`/api/contacts/${omSingleContact.id}/missing-opps?year=${year}`);
     const data = await res.json();
-    omRenderSingleOpps(data, id, name);
+    omRenderSingleOpps(data, omSingleContact.id, omSingleContact.name, year);
   } catch(e) {
     oppsEl.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
   }
@@ -5941,23 +5998,33 @@ function omSingleClear() {
   document.getElementById('om-single-opps').innerHTML = '';
 }
 
-function omRenderSingleOpps(data, contactId, contactName) {
+function omRenderSingleOpps(data, contactId, contactName, year) {
   const el = document.getElementById('om-single-opps');
   const { missing, present } = data;
+  const missable = missing.filter(s => s.pipelineId); // only ones that exist in GHL
 
   const missingHtml = missing.length ? `
     <div style="margin-bottom:12px">
-      <div style="font-size:11px;font-weight:700;color:#ef4444;margin-bottom:8px">⚠ MISSING ${missing.length} OPPORTUNITY${missing.length>1?'IES':''}</div>
+      <div style="font-size:11px;font-weight:700;color:#ef4444;margin-bottom:8px">⚠ MISSING ${missing.length} ${year} OPPORTUNIT${missing.length>1?'IES':'Y'}</div>
       ${missing.map(s => `
-        <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:7px;margin-bottom:5px;cursor:pointer">
-          <input type="checkbox" checked value="${s.key}" class="om-single-check" style="accent-color:#f97316;width:14px;height:14px">
-          <span style="font-size:12px;color:var(--text)">${s.name.replace(/^\d+\.\s*/,'')}</span>
+        <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;
+          background:${s.notInGHL?'rgba(148,163,184,.04)':'rgba(239,68,68,.06)'};
+          border:1px solid ${s.notInGHL?'rgba(148,163,184,.15)':'rgba(239,68,68,.2)'};
+          border-radius:7px;margin-bottom:5px;cursor:${s.notInGHL?'default':'pointer'}">
+          ${s.notInGHL
+            ? `<span style="width:14px;height:14px;background:rgba(148,163,184,.15);border:1px solid rgba(148,163,184,.2);border-radius:3px;flex-shrink:0"></span>`
+            : `<input type="checkbox" checked value="${s.key}" class="om-single-check" style="accent-color:#f97316;width:14px;height:14px">`}
+          <div>
+            <span style="font-size:12px;color:${s.notInGHL?'var(--text3)':'var(--text)'}">${s.name.replace(/^\d+\.\s*/,'')}</span>
+            ${s.notInGHL?`<span style="font-size:9px;color:var(--text3);margin-left:6px">Pipeline not in GHL yet</span>`:''}
+          </div>
         </label>`).join('')}
-      <button onclick="omAddSingleSelected('${contactId}','${contactName.replace(/'/g,"\\'")}',true)"
-        style="width:100%;margin-top:8px;background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.4);border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer">
-        ✚ Add Selected Missing Opportunities to GHL
-      </button>
-    </div>` : `<div style="padding:8px;font-size:12px;color:var(--green);font-weight:700">✓ All 2026 opportunities are in place!</div>`;
+      ${missable.length ? `
+        <button onclick="omAddSingleSelected('${contactId}','${contactName.replace(/'/g,"\\'")}',true)"
+          style="width:100%;margin-top:8px;background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.4);border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer">
+          ✚ Add Selected ${year} Opportunities to GHL
+        </button>` : ''}
+    </div>` : `<div style="padding:8px;font-size:12px;color:var(--green);font-weight:700">✓ All ${year} opportunities are in place!</div>`;
 
   const presentHtml = present.length ? `
     <div style="margin-top:10px">
@@ -5967,24 +6034,10 @@ function omRenderSingleOpps(data, contactId, contactName) {
       </div>
     </div>` : '';
 
-  const addExtraHtml = `
-    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-      <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">ADD ADDITIONAL OPPORTUNITIES</div>
-      ${ALL_2026_SERVICES.map(s => `
-        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:3px"
-          onmouseover="this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.background=''">
-          <input type="checkbox" value="${s.key}" class="om-single-extra" style="accent-color:#f97316;width:13px;height:13px">
-          <span style="font-size:12px;color:var(--text3)">${s.label}</span>
-        </label>`).join('')}
-      <button onclick="omAddSingleSelected('${contactId}','${contactName.replace(/'/g,"\\'")}',false)"
-        style="width:100%;margin-top:8px;background:rgba(96,165,250,.1);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer">
-        ✚ Add Selected to GHL
-      </button>
-    </div>`;
-
+  const backBtn = `<button onclick="omRenderSingleYearPicker()" style="margin-bottom:10px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0">← Back to year select</button>`;
   const statusEl = `<div id="om-single-status" style="margin-top:8px;font-size:12px;min-height:16px"></div>`;
 
-  el.innerHTML = missingHtml + presentHtml + addExtraHtml + statusEl;
+  el.innerHTML = backBtn + missingHtml + presentHtml + statusEl;
 }
 
 async function omAddSingleSelected(contactId, contactName, fromMissing) {
@@ -6053,27 +6106,57 @@ function omRenderBulkSelected() {
 }
 
 function omRenderBulkOppSelector() {
-  const el = document.getElementById('om-bulk-opp-selector');
+  const el  = document.getElementById('om-bulk-opp-selector');
   const btn = document.getElementById('om-bulk-run-btn');
   if (!el) return;
   if (!omBulkContacts.length) { el.innerHTML = ''; if (btn) btn.style.display = 'none'; return; }
 
+  const years = omGetYears();
+
   el.innerHTML = `
-    <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">${omBulkContacts.length} CONTACT${omBulkContacts.length>1?'S':''} SELECTED — CHOOSE OPPORTUNITIES TO ADD:</div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.07em;margin-bottom:6px">SELECT YEAR</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${years.map(y => `
+          <button onclick="omSelectedYear=${y};omRenderBulkOppSelector()"
+            style="padding:5px 16px;border-radius:20px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid;transition:all .15s;
+                   background:${omSelectedYear===y?'rgba(249,115,22,.2)':'var(--bg3)'};
+                   color:${omSelectedYear===y?'#f97316':'var(--text3)'};
+                   border-color:${omSelectedYear===y?'#f97316':'var(--border)'}">
+            ${y}
+          </button>`).join('')}
+      </div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">
+      SELECT SERVICES FOR ${omSelectedYear}
+    </div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <button onclick="omBulkSelectAll(true)" style="font-size:11px;background:rgba(0,196,106,.1);color:var(--green);border:1px solid rgba(0,196,106,.3);border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:700">Select All</button>
       <button onclick="omBulkSelectAll(false)" style="font-size:11px;background:var(--bg3);color:var(--text3);border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer">Clear</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-      ${ALL_2026_SERVICES.map(s => `
-        <label style="display:flex;align-items:center;gap:7px;padding:6px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;cursor:pointer;transition:border-color .1s"
-          onmouseover="this.style.borderColor='rgba(249,115,22,.4)'" onmouseout="this.style.borderColor='var(--border)'">
-          <input type="checkbox" value="${s.key}" class="om-bulk-check" style="accent-color:#f97316;width:13px;height:13px">
-          <span style="font-size:11px;color:var(--text)">${s.label}</span>
-        </label>`).join('')}
+      ${OM_SERVICES.map(s => {
+        const pipe     = omResolvePipeline(s, omSelectedYear);
+        const exists   = !!pipe;
+        const pipeName = s.namePattern(omSelectedYear);
+        return `<label style="display:flex;align-items:center;gap:7px;padding:7px 9px;
+                  background:${exists?'var(--bg3)':'rgba(239,68,68,.04)'};
+                  border:1px solid ${exists?'var(--border)':'rgba(239,68,68,.2)'};
+                  border-radius:7px;cursor:${exists?'pointer':'default'};transition:border-color .1s"
+                  title="${exists?'Pipeline exists in GHL':'Pipeline not yet in GHL for '+omSelectedYear}"
+                  ${exists?`onmouseover="this.style.borderColor='rgba(249,115,22,.4)'" onmouseout="this.style.borderColor='var(--border)'"`:''}>
+          <input type="checkbox" value="pipeline_id:${pipe?.id||''}" class="om-bulk-check"
+            ${exists?'':'disabled'} style="accent-color:#f97316;width:13px;height:13px">
+          <div style="min-width:0">
+            <div style="font-size:11px;font-weight:700;color:${exists?'var(--text)':'var(--text3)'};">${s.label}</div>
+            ${!exists?`<div style="font-size:9px;color:#ef4444">Not in GHL yet</div>`:''}
+          </div>
+        </label>`;
+      }).join('')}
     </div>`;
 
   if (btn) btn.style.display = 'block';
+  if (btn) btn.innerHTML = `<i class="ti ti-rocket"></i> Add ${omSelectedYear} Opportunities to ${omBulkContacts.length} Contact${omBulkContacts.length>1?'s':''}`;
 }
 
 function omBulkSelectAll(checked) {
@@ -6102,14 +6185,14 @@ async function omRunBulk() {
     if (statusEl) {
       statusEl.innerHTML = `
         <div style="background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.2);border-radius:8px;padding:12px">
-          <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:8px">✓ Bulk complete — ${totalCreated} opportunities created</div>
+          <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:8px">✓ Bulk complete — ${totalCreated} opportunities created across ${omBulkContacts.length} contacts</div>
           ${data.contacts.map(c => {
             const contact = omBulkContacts.find(x => x.id === c.contactId);
             return `<div style="font-size:11px;color:var(--text3);margin-bottom:3px">
-              ${contact?.name||c.contactId}: <span style="color:var(--green)">${c.created.length} added</span>${c.failed.length ? ` <span style="color:#ef4444">${c.failed.length} failed</span>` : ''}
+              ${contact?.name?.replace(/\s+DOT#.*$/,'')||c.contactId}: <span style="color:var(--green)">${c.created.length} added</span>${c.failed.length ? ` <span style="color:#ef4444">${c.failed.length} failed</span>` : ''}
             </div>`;
           }).join('')}
-          ${totalFailed ? `<div style="font-size:11px;color:#ef4444;margin-top:6px">⚠ ${totalFailed} opportunities failed — check Render logs</div>` : ''}
+          ${totalFailed ? `<div style="font-size:11px;color:#ef4444;margin-top:6px">⚠ ${totalFailed} failed — check Render logs</div>` : ''}
         </div>`;
     }
     toast(`✓ ${totalCreated} opps added across ${omBulkContacts.length} contacts`);
@@ -6133,13 +6216,48 @@ function omFilterClients(q) {
 
 // ── BULK TASKS ────────────────────────────────────────────────────────────────
 function omPopulateAssignees() {
+  // Populate assignee dropdown
   const sel = document.getElementById('om-task-assignee');
-  if (!sel || sel.options.length > 1) return;
-  (tbState.users || []).forEach(u => {
-    const opt = document.createElement('option');
-    opt.value = u.id; opt.textContent = u.name;
-    sel.appendChild(opt);
-  });
+  if (sel && sel.options.length <= 1) {
+    (tbState.users || []).forEach(u => {
+      const opt = document.createElement('option');
+      opt.value = u.id; opt.textContent = u.name;
+      sel.appendChild(opt);
+    });
+  }
+  // Build grouped task title dropdown from SK_CATEGORIES (same as Add Task modal)
+  const titleSel = document.getElementById('om-task-title-select');
+  if (titleSel && titleSel.options.length <= 1 && typeof SK_CATEGORIES !== 'undefined') {
+    SK_CATEGORIES.forEach(cat => {
+      const group = document.createElement('optgroup');
+      group.label = cat.label;
+      group.style.color = cat.color;
+      cat.children.forEach(child => {
+        const opt = document.createElement('option');
+        opt.value = `${cat.label} — ${child.label}`;
+        opt.textContent = child.label;
+        group.appendChild(opt);
+      });
+      titleSel.appendChild(group);
+    });
+    // Add "Other" at the bottom
+    const otherOpt = document.createElement('option');
+    otherOpt.value = '__other__';
+    otherOpt.textContent = 'Other (custom title)';
+    titleSel.appendChild(otherOpt);
+  }
+}
+
+function omTaskTitleChange(val) {
+  const customInput = document.getElementById('om-task-title');
+  if (!customInput) return;
+  if (val === '__other__') {
+    customInput.style.display = 'block';
+    customInput.focus();
+  } else {
+    customInput.style.display = 'none';
+    customInput.value = '';
+  }
 }
 
 function omTaskSearch(q) {
@@ -6184,7 +6302,9 @@ function omRenderTaskSelected() {
 }
 
 async function omRunBulkTasks() {
-  const title      = document.getElementById('om-task-title')?.value.trim();
+  const selVal     = document.getElementById('om-task-title-select')?.value;
+  const customVal  = document.getElementById('om-task-title')?.value.trim();
+  const title      = selVal === '__other__' ? customVal : selVal;
   const body       = document.getElementById('om-task-body')?.value.trim();
   const dueDate    = document.getElementById('om-task-due')?.value;
   const assignedTo = document.getElementById('om-task-assignee')?.value;
@@ -6221,6 +6341,9 @@ async function omRunBulkTasks() {
     }
     toast(`✓ ${data.created?.length||0} tasks created across ${omBulkTaskContacts.length} contacts`);
     // Clear the form
+    const titleSel = document.getElementById('om-task-title-select');
+    if (titleSel) titleSel.value = '';
+    document.getElementById('om-task-title').style.display = 'none';
     document.getElementById('om-task-title').value = '';
     document.getElementById('om-task-body').value  = '';
     document.getElementById('om-task-due').value   = '';
