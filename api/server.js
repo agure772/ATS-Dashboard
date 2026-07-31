@@ -1647,7 +1647,17 @@ app.get('/api/contacts/:contactId/missing-opps', async (req, res) => {
 
     const missing = [], present = [];
     for (const svc of yearServices) {
-      const pipeline = pipelineCache[svc.name];
+      // Try exact match first, then fuzzy match on year + key words
+      let pipeline = pipelineCache[svc.name];
+      if (!pipeline) {
+        const yearStr  = String(year);
+        const keyWords = svc.name.toLowerCase().replace(/^\d+\.\s*/,'').replace(yearStr,'').trim().split(/\s+/).filter(w=>w.length>3);
+        const fuzzyKey = Object.keys(pipelineCache).find(k => {
+          const kl = k.toLowerCase();
+          return kl.includes(yearStr) && keyWords.every(w => kl.includes(w));
+        });
+        if (fuzzyKey) pipeline = pipelineCache[fuzzyKey];
+      }
       if (!pipeline) {
         missing.push({ key: svc.key, name: svc.name, pipelineId: null, notInGHL: true });
         continue;
