@@ -345,34 +345,65 @@ async function scrapeMotus(dotNumber) {
     });
     if (!res.ok) { console.log('Motus returned:', res.status); return result; }
     const html = await res.text();
-    console.log(`Motus HTML length: ${html.length}, first 300 chars: ${html.slice(0,300).replace(/\s+/g,' ')}`);
+    // Log enough to see the Company Officials section structure
+    const officialsIdx = html.toLowerCase().indexOf('official');
+    console.log(`Motus HTML length: ${html.length}`);
+    console.log(`Motus officials section (500 chars): ${html.slice(Math.max(0,officialsIdx-50), officialsIdx+500).replace(/\s+/g,' ')}`);
 
-    // Find "COMPANY OFFICIALS" section — table row with name and title
-    // Pattern: <td>MOHAMUD SAID</td><td>MANAGER</td>
-    const tableMatch = html.match(/Company\s*Officials[\s\S]{0,2000}?<tbody>([\s\S]{0,1000}?)<\/tbody>/i);
+    // Find official name — try multiple patterns since Motus may render differently
+    let found = false;
+
+    // Pattern 1: Standard table tbody with rows
+    const tableMatch = html.match(/Company\s*Officials[\s\S]{0,3000}?<tbody[^>]*>([\s\S]{0,2000}?)<\/tbody>/i);
     if (tableMatch) {
       const tbody = tableMatch[1];
-      // Extract all rows
-      const rowRx = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-      let rowMatch;
-      while ((rowMatch = rowRx.exec(tbody)) !== null) {
-        const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
-          .map(m => m[1].replace(/<[^>]+>/g,'').trim());
-        if (cells[0] && cells[0].length > 1 && !/^\s*$/.test(cells[0])) {
-          result.official_name  = cells[0] || '';
+      const rows = [...tbody.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+      for (const row of rows) {
+        const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+          .map(m => m[1].replace(/<[^>]+>/g,'').trim()).filter(Boolean);
+        if (cells[0] && cells[0].length > 2 && /[A-Z]/.test(cells[0])) {
+          result.official_name  = cells[0];
           result.official_title = cells[1] || '';
           result.official_phone = cells[2] || '';
           result.official_email = cells[3] || '';
-          console.log(`Motus official: name="${result.official_name}" title="${result.official_title}"`);
-          break; // take the first official
+          found = true;
+          break;
         }
       }
     }
 
-    if (!result.official_name) {
-      // Fallback: simpler regex for name pattern in any row
-      const nameMatch = html.match(/<td[^>]*>\s*([A-Z][A-Z\s]{2,40})\s*<\/td>/);
-      if (nameMatch) result.official_name = nameMatch[1].trim();
+    // Pattern 2: JSON data embedded in script tags (React/Next.js apps)
+    if (!found) {
+      const jsonMatches = html.matchAll(/"(?:officialName|official_name|firstName|fullName)"\s*:\s*"([^"]+)"/gi);
+      for (const m of jsonMatches) {
+        if (m[1] && m[1].length > 2) {
+          result.official_name = m[1];
+          found = true;
+          break;
+        }
+      }
+    }
+
+    // Pattern 3: Name in a data attribute or aria label
+    if (!found) {
+      const ariaMatch = html.match(/aria-label="([A-Z][A-Z\s]{3,40})"\s*(?:title|role)/i);
+      if (ariaMatch) result.official_name = ariaMatch[1].trim();
+    }
+
+    // Pattern 4: Two consecutive ALL-CAPS words (typical name format) near "Official" or "Manager"
+    if (!found) {
+      const nameBlock = html.slice(Math.max(0, html.toLowerCase().indexOf('official')), html.toLowerCase().indexOf('official') + 3000);
+      const nameMatch = nameBlock.match(/\b([A-Z]{2,20})\s+([A-Z]{2,20})\b/);
+      if (nameMatch && nameMatch[0] !== 'COMPANY OFFICIALS' && nameMatch[0] !== 'OFFICIAL NAME') {
+        result.official_name = nameMatch[0];
+        found = true;
+      }
+    }
+
+    if (found) {
+      console.log(`Motus official found: "${result.official_name}" / "${result.official_title}"`);
+    } else {
+      console.log('Motus: no official name found in HTML');
     }
   } catch(e) {
     console.log('Motus scrape error:', e.message);
@@ -514,6 +545,28 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
       scrapeSAFER(dotNumber),
       scrapeMotus(dotNumber),
     ]);
+
+    // FMCSA officials API — runs separately since it uses the webKey
+    let officialName = motus.official_name || '';
+    let officialTitle = motus.official_title || '';
+    if (!officialName && webKey) {
+      try {
+        const officialsUrl = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dotNumber}/officials?webKey=${webKey}`;
+        const officialsRes = await fetch(officialsUrl, { headers: { 'Accept': 'application/json' } });
+        if (officialsRes.ok) {
+          const officialsData = await officialsRes.json();
+          const officials = officialsData.content || officialsData.officials || officialsData || [];
+          const first = Array.isArray(officials) ? officials[0] : null;
+          if (first) {
+            const fn = first.firstName || first.first_name || '';
+            const ln = first.lastName  || first.last_name  || '';
+            officialName  = [fn, ln].filter(Boolean).join(' ').trim();
+            officialTitle = first.title || first.titleDescription || '';
+            console.log(`FMCSA officials API: "${officialName}" / "${officialTitle}"`);
+          }
+        }
+      } catch(e) { console.log('FMCSA officials API error:', e.message); }
+    }
     let mcNumber    = safer.mc_number;
     let mcs150Date  = safer.mcs150_date;
     let mcs150Mileage = safer.mcs150_mileage;
@@ -565,8 +618,8 @@ app.get('/api/dot/:dotNumber', async (req, res) => {
       operating_status:  opStatus,
       safety_rating:     carrier.safetyRating || 'Not Rated',
       owner_name:        safer.owner_name || '',
-      official_name:     motus.official_name  || '',
-      official_title:    motus.official_title || '',
+      official_name:     officialName  || motus.official_name  || '',
+      official_title:    officialTitle || motus.official_title || '',
       official_email:    motus.official_email || '',
       official_phone:    motus.official_phone || '',
       crash_total:       String(carrier.crashTotal || '0'),
