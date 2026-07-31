@@ -342,6 +342,105 @@ app.get('/api/debug/contact/:id', async (req, res) => {
 
 
 // ── Scrape Motus for company officials (operator name) ────────────────────────
+async function scrapeSAFER(dotNumber) {
+  const result = { mc_number:'', mcs150_date:'', mcs150_mileage:'', mcs150_year:'', owner_name:'', phone:'', email:'', mailing_address:'' };
+  try {
+    // Use SAFER registration page which has MCS-150 form date
+    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
+    const regUrl = `https://safer.fmcsa.dot.gov/query.asp?query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}&action=Register`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Referer': 'https://safer.fmcsa.dot.gov/',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
+    });
+    if (!res.ok) { console.log('SAFER returned:', res.status); return result; }
+    const html = await res.text();
+
+    // Log a section around MCS-150 so we can see the exact HTML structure
+    // MC number
+    const mcMatch = html.match(/MC-(\d+)/);
+    if (mcMatch) result.mc_number = `MC-${mcMatch[1]}`;
+
+    // Collect all dates MM/DD/YYYY with their positions
+    const allDateMatches = [];
+    const dateRx = /(\d{2}\/\d{2}\/\d{4})/g;
+    let dm;
+    while ((dm = dateRx.exec(html)) !== null) {
+      allDateMatches.push({ date: dm[1], index: dm.index });
+    }
+    console.log('All dates in SAFER HTML:', allDateMatches.map(d => d.date));
+
+    // Today's date to exclude
+    const now = new Date();
+    const todayStr = String(now.getMonth()+1).padStart(2,'0') + '/' +
+                     String(now.getDate()).padStart(2,'0') + '/' + now.getFullYear();
+
+    // Mileage position
+    const mileageMatch = html.match(/(\d[\d,]+)\s*\((\d{4})\)/);
+    if (mileageMatch) {
+      result.mcs150_mileage = mileageMatch[1].replace(/,/g,'');
+      result.mcs150_year    = mileageMatch[2];
+    }
+
+    // MCS-150 date = any date that is NOT today, preferring ones near "Form Date" label
+    // First try: find date after "Form Date" text
+    const formDateIdx = html.search(/Form\s*Date/i);
+    if (formDateIdx >= 0) {
+      const chunk = html.slice(formDateIdx, formDateIdx + 150);
+      const fd = chunk.match(/(\d{2}\/\d{2}\/\d{4})/);
+      if (fd && fd[1] !== todayStr) {
+        result.mcs150_date = fd[1];
+      }
+    }
+
+    // Second try: any date that isn't today
+    if (!result.mcs150_date) {
+      const notToday = allDateMatches.filter(d => d.date !== todayStr);
+      if (notToday.length > 0) result.mcs150_date = notToday[0].date;
+    }
+
+    // Owner/contact name from FMCSA SMS Census API (data.transportation.gov Socrata API)
+    // This is the official free public dataset with contact names — no auth required
+    try {
+      const socrataUrl = `https://data.transportation.gov/resource/kjg3-diqy.json?dot_number=${dotNumber}&$limit=1`;
+      const socrataRes = await fetch(socrataUrl, { headers: { 'Accept': 'application/json' } });
+      console.log('Socrata census API status:', socrataRes.status);
+      if (socrataRes.ok) {
+        const records = await socrataRes.json();
+        console.log('Socrata record:', JSON.stringify(records[0] || {}).slice(0, 400));
+        if (records.length > 0) {
+          const r = records[0];
+          // Contact name field in SMS census data
+          // No contact name in this dataset — but grab phone, email, mileage
+          result.owner_name = ''; // not available in public census data
+          if (!result.mcs150_mileage && r.mcs150_mileage) result.mcs150_mileage = r.mcs150_mileage;
+          if (!result.mcs150_year && r.mcs150_mileage_year) result.mcs150_year = r.mcs150_mileage_year;
+          if (!result.phone && r.telephone) result.phone = r.telephone;
+          if (!result.email && r.email_address) result.email = r.email_address;
+          if (!result.mailing_address && r.mailing_street) {
+            result.mailing_address = [r.mailing_street, r.mailing_city, r.mailing_state, r.mailing_zip].filter(Boolean).join(', ');
+          }
+          // Store individual address parts
+          if (!result.mailing_street && r.mailing_street) result.mailing_street = r.mailing_street;
+          if (!result.mailing_city   && r.mailing_city)   result.mailing_city   = r.mailing_city;
+          if (!result.mailing_state  && r.mailing_state)  result.mailing_state  = r.mailing_state;
+          if (!result.mailing_zip    && r.mailing_zip)    result.mailing_zip    = r.mailing_zip;
+          console.log('Socrata phone:', result.phone, 'email:', result.email, 'mileage:', result.mcs150_mileage, 'year:', result.mcs150_year);
+        }
+      }
+    } catch(e) { console.log('Socrata census error:', e.message); }
+
+    console.log('SAFER scrape result:', result);
+  } catch(e) {
+    console.log('SAFER scrape error:', e.message);
+  }
+  return result;
+}
+
+
 async function scrapeMotus(dotNumber) {
   const result = { official_name: '', official_title: '', official_email: '', official_phone: '' };
   console.log(`Motus: fetching API for DOT ${dotNumber}`);
