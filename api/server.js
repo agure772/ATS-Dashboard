@@ -466,44 +466,21 @@ async function scrapeMotus(dotNumber) {
     if (!res.ok) { console.log('Motus non-OK:', res.status); return result; }
 
     const data = await res.json();
-    // Log full response to find where officials/name is stored
-    console.log('Motus full response:', JSON.stringify(data).slice(0, 1000));
 
-    // Try to find officials in various response shapes
-    const officials = data.officials || data.companyOfficials || data.contacts ||
-      data.customer?.officials || data.data?.officials ||
-      (Array.isArray(data) ? data : null) || [];
-
+    // entityOfficers is the correct key (confirmed from API response)
+    const officials = data.entityOfficers || data.officials || data.companyOfficials || [];
     const list = Array.isArray(officials) ? officials : [];
-    const first = list.find(o => o && (o.firstName || o.first_name || o.name || o.fullName));
+    console.log(`Motus entityOfficers count: ${list.length}`, list.length ? JSON.stringify(list[0]).slice(0,200) : 'empty');
+
+    const first = list.find(o => o && (o.firstName || o.first_name || o.name || o.fullName || o.officerName)) || list[0];
     if (first) {
-      const fn = first.firstName || first.first_name || (first.name||first.fullName||'').split(' ')[0] || '';
-      const ln = first.lastName  || first.last_name  || (first.name||first.fullName||'').split(' ').slice(1).join(' ') || '';
-      result.official_name  = [fn, ln].filter(Boolean).join(' ').trim();
-      result.official_title = first.title || first.titleDescription || first.type || first.role || '';
+      const fn = first.firstName || first.first_name || (first.officerName||first.name||first.fullName||'').split(' ')[0] || '';
+      const ln = first.lastName  || first.last_name  || (first.officerName||first.name||first.fullName||'').split(' ').slice(1).join(' ') || '';
+      result.official_name  = (first.officerName || first.fullName || [fn,ln].filter(Boolean).join(' ')).trim();
+      result.official_title = first.title || first.titleDescription || first.type || first.role || first.officerTitle || '';
       console.log(`✓ Motus official: "${result.official_name}" / "${result.official_title}"`);
     } else {
-      // Try top-level name fields on the carrier record
-      const topName = data.contactName || data.ownerName || data.operatorName ||
-        data.principalName || data.name || '';
-      if (topName) {
-        result.official_name = topName;
-        console.log(`Motus top-level name: "${topName}"`);
-      } else {
-        console.log('Motus: checking for officials sub-endpoint...');
-        // Try the officials sub-endpoint
-        try {
-          const offRes = await fetch(`https://motus.dot.gov/api/carriers/${dotNumber}/officials`, {
-            headers: { 'Accept': 'application/json', 'Referer': 'https://motus.dot.gov/' }
-          });
-          console.log(`Motus /officials status: ${offRes.status}`);
-          if (offRes.ok) {
-            const offData = await offRes.json();
-            console.log('Motus /officials response:', JSON.stringify(offData).slice(0, 500));
-          }
-        } catch(e) { console.log('Motus /officials error:', e.message); }
-        console.log('Motus top-level keys:', Object.keys(data).join(', '));
-      }
+      console.log('Motus entityOfficers empty. Top-level keys:', Object.keys(data).join(', '));
     }
   } catch(e) {
     console.log('Motus error:', e.message);
