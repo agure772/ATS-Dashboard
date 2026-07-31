@@ -27,19 +27,30 @@ const HDRS    = {
   'Version':       '2021-07-28',
 };
 
-async function ghl(method, url, body = null) {
-  const res = await fetch(url, {
-    method, headers: HDRS,
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch(e) { data = { raw: text }; }
-  if (!res.ok) {
-    console.error(`✗ ${res.status} ${url}:`, JSON.stringify(data).slice(0,200));
-    throw { status: res.status, message: data.message||data.msg||`HTTP ${res.status}`, data };
+async function ghl(method, url, body = null, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const res = await fetch(url, {
+      method, headers: HDRS,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) { data = { raw: text }; }
+
+    // Retry on 429 rate limit with exponential backoff
+    if (res.status === 429 && attempt < retries) {
+      const wait = attempt * 1000; // 1s, 2s, 3s
+      console.log(`⏳ GHL 429 rate limit — retrying in ${wait}ms (attempt ${attempt}/${retries})`);
+      await new Promise(r => setTimeout(r, wait));
+      continue;
+    }
+
+    if (!res.ok) {
+      console.error(`✗ ${res.status} ${url}:`, JSON.stringify(data).slice(0,200));
+      throw { status: res.status, message: data.message||data.msg||`HTTP ${res.status}`, data };
+    }
+    return data;
   }
-  return data;
 }
 
 // Fetch ALL pages of contacts (handles 1000+ contacts)
@@ -333,20 +344,29 @@ app.get('/api/debug/contact/:id', async (req, res) => {
 // ── Scrape Motus for company officials (operator name) ────────────────────────
 async function scrapeMotus(dotNumber) {
   const result = { official_name: '', official_title: '', official_email: '', official_phone: '' };
+  console.log(`Motus: starting fetch for DOT ${dotNumber}`);
   try {
     const url = `https://motus.dot.gov/customer/${dotNumber}/account`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Referer': 'https://motus.dot.gov/',
-      },
-      timeout: 8000,
-    });
-    if (!res.ok) { console.log('Motus returned:', res.status); return result; }
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Referer': 'https://motus.dot.gov/',
+        },
+      });
+    } catch(fe) { console.log('Motus fetch threw:', fe.message); return result; }
+    console.log(`Motus status: ${res.status} content-type: ${res.headers.get('content-type')}`);
+    if (!res.ok) { console.log('Motus non-OK:', res.status); return result; }
     const html = await res.text();
-    // Log enough to see the Company Officials section structure
     const officialsIdx = html.toLowerCase().indexOf('official');
+    console.log(`Motus HTML length: ${html.length}, officials idx: ${officialsIdx}`);
+    if (officialsIdx >= 0) {
+      console.log('Motus officials section:', html.slice(Math.max(0,officialsIdx-20), officialsIdx+500).replace(/\s+/g,' '));
+    } else {
+      console.log('Motus first 400:', html.slice(0,400).replace(/\s+/g,' '));
+    }
     console.log(`Motus HTML length: ${html.length}`);
     console.log(`Motus officials section (500 chars): ${html.slice(Math.max(0,officialsIdx-50), officialsIdx+500).replace(/\s+/g,' ')}`);
 
