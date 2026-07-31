@@ -345,6 +345,7 @@ async function scrapeMotus(dotNumber) {
     });
     if (!res.ok) { console.log('Motus returned:', res.status); return result; }
     const html = await res.text();
+    console.log(`Motus HTML length: ${html.length}, first 300 chars: ${html.slice(0,300).replace(/\s+/g,' ')}`);
 
     // Find "COMPANY OFFICIALS" section — table row with name and title
     // Pattern: <td>MOHAMUD SAID</td><td>MANAGER</td>
