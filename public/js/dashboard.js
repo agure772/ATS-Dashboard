@@ -1290,7 +1290,26 @@ function dotSearchGHL(query) {
 
   if (!matches.length) {
     document.getElementById('dot-ghl-matches').innerHTML =
-      '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT. Use the create button below to add as new.</div>';
+      '<div style="font-size:11px;color:var(--text3);padding:6px 0">Searching GHL directly...</div>';
+    // Fallback: search GHL API directly by company name
+    fetch(`/api/search-contacts?q=${encodeURIComponent(dotCurrentInfo?.legal_name || query)}&dot=${dotCurrentInfo?.dot_number||''}`)
+      .then(r => r.json())
+      .then(data => {
+        const apiMatches = data.contacts || [];
+        if (!apiMatches.length) {
+          document.getElementById('dot-ghl-matches').innerHTML =
+            '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT. Use the create button below to add as new.</div>';
+          return;
+        }
+        // Add to state.clients cache so mismatch detection works
+        apiMatches.forEach(c => { if (!state.clients.find(x=>x.id===c.id)) state.clients.push(c); });
+        // Re-run the search now that cache is populated
+        dotSearchGHL(query);
+      })
+      .catch(() => {
+        document.getElementById('dot-ghl-matches').innerHTML =
+          '<div style="font-size:11px;color:var(--text3);padding:6px 0">No existing GHL contact found for this DOT. Use the create button below to add as new.</div>';
+      });
     return;
   }
 
