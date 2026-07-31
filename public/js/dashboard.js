@@ -1255,21 +1255,20 @@ function dotSearchGHL(query) {
   const seen = new Set();
   let matches = [];
 
-  // Priority 1: exact DOT# match (most reliable)
+  // When we have a known DOT from FMCSA, ONLY match on that DOT — never fuzzy name match
   if (dotCurrentInfo?.dot_number) {
     const fmcsaDot = String(dotCurrentInfo.dot_number).trim();
     matches = state.clients.filter(c => {
       if (seen.has(c.id)) return false;
       seen.add(c.id);
-      // Match on dot_number field OR company name containing the DOT#
       return String(c.dot_number || '').trim() === fmcsaDot ||
         (c.business_name || c.name || '').includes(fmcsaDot);
     });
   }
 
-  // Priority 2: if no DOT match, try exact company name match (stripped of DOT# suffix)
-  if (!matches.length) {
-    const fmcsaName = (dotCurrentInfo?.legal_name || query).trim().toUpperCase();
+  // Priority 2: only if no DOT match AND user is manually typing (not from FMCSA auto-search)
+  if (!matches.length && !dotCurrentInfo?.dot_number) {
+    const fmcsaName = (query || '').trim().toUpperCase();
     matches = state.clients.filter(c => {
       if (seen.has(c.id)) return false;
       seen.add(c.id);
@@ -1278,8 +1277,8 @@ function dotSearchGHL(query) {
     });
   }
 
-  // Priority 3: manual search — user typed something, do substring match on what they typed
-  if (!matches.length && query !== dotCurrentInfo?.legal_name) {
+  // Priority 3: manual search only (user typed in search box, no FMCSA data)
+  if (!matches.length && query !== dotCurrentInfo?.legal_name && !dotCurrentInfo?.dot_number) {
     const q = query.toLowerCase().replace(/dot#?\s*/i,'').trim();
     matches = state.clients.filter(c => {
       if (seen.has(c.id)) return false;
@@ -1325,7 +1324,23 @@ function dotSearchGHL(query) {
     return;
   }
 
-  document.getElementById('dot-ghl-matches').innerHTML = matches.map(c => {
+  // Sort — exact DOT match AND exact name match first
+  matches.sort((a, b) => {
+    const fmcsaDot  = String(dotCurrentInfo?.dot_number || '').trim();
+    const fmcsaName = (dotCurrentInfo?.legal_name || '').trim().toUpperCase();
+    const aNameClean = (a.business_name || a.name || '').replace(/\s+DOT#.*$/i,'').trim().toUpperCase();
+    const bNameClean = (b.business_name || b.name || '').replace(/\s+DOT#.*$/i,'').trim().toUpperCase();
+    const aScore = (String(a.dot_number||'').trim() === fmcsaDot ? 2 : 0) + (aNameClean === fmcsaName ? 1 : 0);
+    const bScore = (String(b.dot_number||'').trim() === fmcsaDot ? 2 : 0) + (bNameClean === fmcsaName ? 1 : 0);
+    return bScore - aScore;
+  });
+
+  const multiWarning = matches.length > 1 ? `
+    <div style="font-size:11px;color:#f59e0b;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:7px;padding:7px 10px;margin-bottom:8px">
+      ⚠ ${matches.length} contacts in GHL share this DOT#. The best match is shown first. Check GHL for duplicate DOT# entries.
+    </div>` : '';
+
+  document.getElementById('dot-ghl-matches').innerHTML = multiWarning + matches.map(c => {
     const isSelected = dotSelectedGHL?.id === c.id;
     // Mismatch detection: compare FMCSA data vs GHL contact data
     const mismatches = [];
@@ -1355,6 +1370,7 @@ function dotSearchGHL(query) {
     // Get Motus official name for pre-filling
     const _motFirst = dotCurrentInfo?.official_name ? (dotCurrentInfo.official_name.split(' ')[0]||'').charAt(0).toUpperCase()+(dotCurrentInfo.official_name.split(' ')[0]||'').slice(1).toLowerCase() : '';
     const _motLast  = dotCurrentInfo?.official_name ? dotCurrentInfo.official_name.split(' ').slice(1).join(' ').replace(/\b\w/g,l=>l.toUpperCase()) : '';
+    const _motNote  = dotCurrentInfo?.official_name ? '<div style="font-size:9px;color:var(--green);margin-bottom:4px">✓ Name from Motus: '+dotCurrentInfo.official_name+'</div>' : '<div style="font-size:9px;color:var(--text3);margin-bottom:4px">⚠ Name not found in Motus — enter manually below</div>';
     const mismatchDetail = mismatches.length ? `
       <div style="margin-top:6px;padding:8px 10px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:6px">
         <div style="font-size:10px;font-weight:700;color:#ef4444;margin-bottom:4px">⚠ Fields that differ from FMCSA:</div>
@@ -1364,35 +1380,28 @@ function dotSearchGHL(query) {
             <span style="color:#ef4444" title="GHL value">GHL: ${m.ghl || '—'}</span>
             <span style="color:var(--green)" title="FMCSA value">FMCSA: ${m.fmcsa || '—'}</span>
           </div>`).join('')}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;margin-bottom:6px">
+        ${_motNote}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;margin-bottom:6px">
           <div>
             <div style="font-size:9px;color:var(--text3);margin-bottom:2px">FIRST NAME (optional)</div>
-            <input id="mis-first-${c.id}" type="text" placeholder="e.g. Mohamud" value="${_motFirst}"
-              style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;box-sizing:border-box">
+            <input id="mis-first-${c.id}" type="text" placeholder="Enter operator first name" value="${_motFirst}"
+              style="width:100%;background:var(--bg2);border:1px solid rgba(249,115,22,.3);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;box-sizing:border-box">
           </div>
           <div>
             <div style="font-size:9px;color:var(--text3);margin-bottom:2px">LAST NAME (optional)</div>
-            <input id="mis-last-${c.id}" type="text" placeholder="e.g. Said" value="${_motLast}"
+            <input id="mis-last-${c.id}" type="text" placeholder="Enter operator last name" value="${_motLast}"
               style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;box-sizing:border-box">
           </div>
         </div>
         <button onclick="event.stopPropagation();
           var f=document.getElementById('mis-first-${c.id}')?.value.trim()||'';
           var l=document.getElementById('mis-last-${c.id}')?.value.trim()||'';
-          if(!f&&!l){
-            var fe=document.getElementById('mis-first-${c.id}');
-            var le=document.getElementById('mis-last-${c.id}');
-            if(fe)fe.style.borderColor='#ef4444';
-            if(le)le.style.borderColor='#ef4444';
-            if(fe)fe.placeholder='Required — enter first name';
-            return;
-          }
           document.getElementById('dot-push-first').value=f;
           document.getElementById('dot-push-last').value=l;
           dotSelectContact('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}');
           dotPushToGHL()"
           style="margin-top:2px;width:100%;background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">
-          ↑ Update GHL with FMCSA Data (name required)
+          ↑ Update GHL with FMCSA Data
         </button>
       </div>` : '';
 
