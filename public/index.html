@@ -361,6 +361,19 @@
             <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">
               <i class="ti ti-upload" style="color:var(--primary)"></i> Push to GHL Contact
             </div>
+            <!-- Optional person name fields -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+              <div>
+                <div style="font-size:10px;color:var(--text3);margin-bottom:3px">OPERATOR FIRST NAME <span style="opacity:.5">(optional)</span></div>
+                <input id="dot-push-first" type="text" placeholder="e.g. Ahmed" autocomplete="off"
+                  style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--text3);margin-bottom:3px">OPERATOR LAST NAME <span style="opacity:.5">(optional)</span></div>
+                <input id="dot-push-last" type="text" placeholder="e.g. Ibrahim" autocomplete="off"
+                  style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
+              </div>
+            </div>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
               <input id="dot-ghl-search" type="text" placeholder="Search client by name or DOT..."
                 oninput="dotSearchGHL(this.value)"
@@ -375,6 +388,18 @@
             <!-- Create new contact — always visible once DOT result is loaded -->
             <div id="dot-create-section" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
               <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">── OR CREATE AS NEW CONTACT ──</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+                <div>
+                  <div style="font-size:10px;color:var(--text3);margin-bottom:3px">OPERATOR FIRST NAME</div>
+                  <input id="dot-person-first" type="text" placeholder="e.g. Ahmed" autocomplete="off"
+                    style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
+                </div>
+                <div>
+                  <div style="font-size:10px;color:var(--text3);margin-bottom:3px">OPERATOR LAST NAME</div>
+                  <input id="dot-person-last" type="text" placeholder="e.g. Ibrahim" autocomplete="off"
+                    style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
+                </div>
+              </div>
               <button onclick="dotCreateContact()" style="width:100%;background:rgba(0,196,106,.12);color:var(--primary);border:1px solid rgba(0,196,106,.4);border-radius:8px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
                 <i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities
               </button>
@@ -715,12 +740,16 @@
               <div id="om-task-selected-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:10px"></div>
 
               <!-- Task definition -->
-              <div id="om-task-form" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px">
+              <div id="om-task-form" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;flex-direction:column;gap:10px">
                 <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em">TASK DETAILS</div>
                 <div>
-                  <div style="font-size:10px;color:var(--text3);margin-bottom:4px">TITLE *</div>
-                  <input id="om-task-title" type="text" placeholder="e.g. Q2 2026 IFTA Filing — Missing Mileage"
-                    style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
+                  <div style="font-size:10px;color:var(--text3);margin-bottom:4px">TASK TITLE *</div>
+                  <select id="om-task-title-select" onchange="omTaskTitleChange(this.value)"
+                    style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:8px 10px;font-size:12px;box-sizing:border-box;margin-bottom:6px">
+                    <option value="">-- Select task title --</option>
+                  </select>
+                  <input id="om-task-title" type="text" placeholder="Custom title (if Other selected)"
+                    style="display:none;width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
                 </div>
                 <div>
                   <div style="font-size:10px;color:var(--text3);margin-bottom:4px">BODY / NOTES</div>
