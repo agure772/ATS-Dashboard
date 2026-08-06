@@ -1255,15 +1255,32 @@ function dotSearchGHL(query) {
   const seen = new Set();
   let matches = [];
 
-  // When we have a known DOT from FMCSA, ONLY match on that DOT — never fuzzy name match
+  // When we have a known DOT from FMCSA, ONLY match contacts whose stored dot_number exactly equals it
   if (dotCurrentInfo?.dot_number) {
-    const fmcsaDot = String(dotCurrentInfo.dot_number).trim();
+    const fmcsaDot  = String(dotCurrentInfo.dot_number).trim();
+    const fmcsaName = (dotCurrentInfo.legal_name || '').toLowerCase().replace(/\s+llc|\s+inc|\s+corp|\s+ltd/gi,'').trim();
     matches = state.clients.filter(c => {
       if (seen.has(c.id)) return false;
       seen.add(c.id);
-      return String(c.dot_number || '').trim() === fmcsaDot ||
-        (c.business_name || c.name || '').includes(fmcsaDot);
+      if (String(c.dot_number || '').trim() !== fmcsaDot) return false;
+      // Secondary sanity check: if FMCSA name and GHL company name share NO common words, exclude
+      if (fmcsaName && c.name) {
+        const ghlName = c.name.toLowerCase().replace(/\s+llc|\s+inc|\s+corp|\s+ltd/gi,'').replace(/\s+dot#.*$/i,'').trim();
+        const fmcsaWords = fmcsaName.split(/\s+/).filter(w => w.length > 2);
+        const hasCommonWord = fmcsaWords.some(w => ghlName.includes(w));
+        if (!hasCommonWord && fmcsaWords.length > 0) return false; // clearly wrong company
+      }
+      return true;
     });
+    // If name filter excluded everything, fall back to DOT-only match
+    if (!matches.length) {
+      seen.clear();
+      matches = state.clients.filter(c => {
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return String(c.dot_number || '').trim() === fmcsaDot;
+      });
+    }
   }
 
   // Priority 2: only if no DOT match AND user is manually typing (not from FMCSA auto-search)
@@ -1617,6 +1634,8 @@ function tbSupColor(ghlId) {
 
 // ── Init: build supervisor dropdown ───────────────────────────────────────
 function tbInit() {
+  // Always start on CS Board (Operator Tasks is hidden)
+  tbSwitchView('cs');
   const container = document.getElementById('tb-supervisor-tabs');
   if (!container) return;
 
@@ -4855,7 +4874,7 @@ function csModalToggleStaff(userId, userName, btn) {
 // TASKS BOARD VIEW TOGGLE (Operator / CS Board)
 // ═════════════════════════════════════════════════════════════════════════════
 
-let tbCurrentView = 'operator';
+let tbCurrentView = 'cs'; // Operator Tasks hidden — default to CS Board
 
 function tbSwitchView(view) {
   tbCurrentView = view;
