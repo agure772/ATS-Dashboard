@@ -5311,6 +5311,13 @@ function vmSearchContact(query) {
   if (!resultsEl) return;
   const q = (query || '').toLowerCase().trim();
   const clients = state.clients || [];
+  // Auto-fetch clients if not loaded
+  if (!clients.length && !omFilterClients._fetching) {
+    omFilterClients._fetching = true;
+    fetch('/api/clients').then(r=>r.json()).then(d=>{ state.clients=d.clients||[]; omFilterClients._fetching=false; }).catch(()=>{ omFilterClients._fetching=false; });
+    resultsEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:6px">Loading contacts...</div>';
+    return;
+  }
   const matches = q.length < 1
     ? clients.slice().sort((a,b) => (a.name||'').localeCompare(b.name||'')).slice(0, 40)
     : clients.filter(c =>
@@ -5530,6 +5537,12 @@ function dmSearchContact(query) {
   if (!resultsEl) return;
   const q = (query || '').toLowerCase().trim();
   const clients = state.clients || [];
+  if (!clients.length && !omFilterClients._fetching) {
+    omFilterClients._fetching = true;
+    fetch('/api/clients').then(r=>r.json()).then(d=>{ state.clients=d.clients||[]; omFilterClients._fetching=false; }).catch(()=>{ omFilterClients._fetching=false; });
+    resultsEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:6px">Loading contacts...</div>';
+    return;
+  }
   const matches = q.length < 1
     ? clients.slice().sort((a,b) => (a.name||'').localeCompare(b.name||'')).slice(0, 40)
     : clients.filter(c =>
@@ -6364,6 +6377,18 @@ async function omRunBulk() {
 
 // Shared client filter
 function omFilterClients(q) {
+  // If clients not loaded yet, trigger a fetch
+  if (!state.clients || state.clients.length === 0) {
+    if (!omFilterClients._fetching) {
+      omFilterClients._fetching = true;
+      fetch('/api/clients').then(r => r.json()).then(data => {
+        state.clients = data.clients || [];
+        omFilterClients._fetching = false;
+        console.log(`CS tools: loaded ${state.clients.length} clients`);
+      }).catch(() => { omFilterClients._fetching = false; });
+    }
+    return [];
+  }
   if (!q || q.length < 1) return (state.clients||[]).slice(0,20);
   const lower = q.toLowerCase().replace(/dot#?\s*/i,'');
   return (state.clients||[]).filter(c =>
