@@ -488,39 +488,7 @@
             <button onclick="tbRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
               <i class="ti ti-refresh"></i> Refresh
             </button>
-            <!-- Tool buttons in header -->
-            <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:4px;border-top:1px solid rgba(255,255,255,.06);margin-top:4px;width:100%">
-<button onclick="csTool('dot')"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
-                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
-              id="cs-tool-btn-dot">
-              <i class="ti ti-search" style="color:var(--primary)"></i> DOT Lookup
-            </button>
-            <button onclick="csTool('vehicles')"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
-                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
-              id="cs-tool-btn-vehicles">
-              <i class="ti ti-truck" style="color:#f59e0b"></i> Vehicle Manager
-            </button>
-            <button onclick="csTool('drivers')"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
-                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
-              id="cs-tool-btn-drivers">
-              <i class="ti ti-id-badge" style="color:#60a5fa"></i> Driver Manager
-            </button>
-            <button onclick="csTool('opps')"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
-                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
-              id="cs-tool-btn-opps">
-              <i class="ti ti-briefcase" style="color:#f97316"></i> Opp Manager
-            </button>
-            <button onclick="csTool('audit')"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
-                     padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s"
-              id="cs-tool-btn-audit">
-              <i class="ti ti-zoom-scan" style="color:#a78bfa"></i> Contact Audit
-            </button>
-            </div>
+
             <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
               <button id="tb-view-list-btn" onclick="tbSetView('list')"
                 style="background:var(--primary);color:#000;border:none;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px">
@@ -548,24 +516,45 @@
       <div id="tb-cs-view" style="display:none">
 
         <!-- CS header -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
-          <div>
-            <div style="font-size:16px;font-weight:800;color:var(--text)">CS Task Board</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:2px">Customer service · info gathering & GHL updates</div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:14px 18px;margin-bottom:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+            <div>
+              <div style="font-size:16px;font-weight:800;color:var(--text)">CS Task Board</div>
+              <div style="font-size:12px;color:var(--text3);margin-top:2px">Customer service · info gathering & GHL updates</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button onclick="csOpenAddTask()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+                <i class="ti ti-plus"></i> Add CS Task
+              </button>
+              <button onclick="csRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
+                <i class="ti ti-refresh"></i> Refresh
+              </button>
+              <button onclick="csOpenStaffModal()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+                <i class="ti ti-users-group"></i> CS Staff
+              </button>
+            </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button onclick="csOpenAddTask()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-              <i class="ti ti-plus"></i> Add CS Task
+          <!-- Tool buttons row -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)">
+            <button onclick="csTool('dot')" id="cs-tool-btn-dot"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
+              <i class="ti ti-search" style="color:var(--primary)"></i> DOT Lookup
             </button>
-            <button onclick="csTool('audit');document.getElementById('cs-tool-panel-audit')?.scrollIntoView({behavior:'smooth',block:'start'})"
-              style="background:rgba(124,58,237,.12);color:#a78bfa;border:1px solid rgba(124,58,237,.35);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-              <i class="ti ti-zoom-scan"></i> Run Audit
+            <button onclick="csTool('vehicles')" id="cs-tool-btn-vehicles"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
+              <i class="ti ti-truck" style="color:#f59e0b"></i> Vehicle Manager
             </button>
-            <button onclick="csRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
-              <i class="ti ti-refresh"></i> Refresh
+            <button onclick="csTool('drivers')" id="cs-tool-btn-drivers"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
+              <i class="ti ti-id-badge" style="color:#60a5fa"></i> Driver Manager
             </button>
-            <button onclick="csOpenStaffModal()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-              <i class="ti ti-users-group"></i> CS Staff
+            <button onclick="csTool('opps')" id="cs-tool-btn-opps"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
+              <i class="ti ti-briefcase" style="color:#f97316"></i> Opp Manager
+            </button>
+            <button onclick="csTool('audit')" id="cs-tool-btn-audit"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
+              <i class="ti ti-zoom-scan" style="color:#a78bfa"></i> Contact Audit
             </button>
           </div>
         </div>
