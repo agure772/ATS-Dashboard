@@ -1636,6 +1636,14 @@ function tbSupColor(ghlId) {
 function tbInit() {
   // Always start on CS Board (Operator Tasks is hidden)
   tbSwitchView('cs');
+  // Auto-load CS tasks after a short delay to let state settle
+  setTimeout(() => {
+    if (tbState.loaded && tbState.users.length) {
+      csLoadFromCache();
+    } else if (!csState.loading) {
+      csLoad(true);
+    }
+  }, 500);
   const container = document.getElementById('tb-supervisor-tabs');
   if (!container) return;
 
@@ -3757,7 +3765,10 @@ function csRenderStaffTabs() {
   const tabs = document.getElementById('cs-staff-tabs');
   if (!tabs) return;
   const csIds = csGetStaffIds();
-  const csStaff = csState.allStaff.filter(s => csIds.includes(s.id));
+  // If no CS staff configured, show all loaded users
+  const csStaff = csIds.length
+    ? csState.allStaff.filter(s => csIds.includes(s.id))
+    : csState.allStaff;
   const all = [{ id: 'all', name: 'All CS Staff' }, ...csStaff];
   tabs.innerHTML = all.map(s => `
     <button onclick="csSelectStaff('${s.id}')"
@@ -3778,11 +3789,11 @@ function csApplyFilter() {
   const csIds = csGetStaffIds();
   const now = Date.now();
 
-  // When no CS staff set up, show ALL [CS] tasks (including fallback-assigned ones)
+  // When no CS staff set up, show ALL [CS] tasks
   let tasks = csState.rawTasks.filter(t => {
     const taskAssignee = t.assigneeId || t.assignedTo || t.assignedUserId || t.userId || '';
     if (csState.selectedStaff !== 'all' && taskAssignee !== csState.selectedStaff) return false;
-    // If CS staff configured: only show their tasks. If not configured: show all [CS] tasks
+    // Only filter by csIds if staff are actually configured
     if (csIds.length && !csIds.includes(taskAssignee) && taskAssignee !== CS_MAHAD_ID) return false;
     if (q && !t.title.toLowerCase().includes(q) &&
         !(t.contactName||'').toLowerCase().includes(q) &&
