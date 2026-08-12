@@ -63,6 +63,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           tbState.users  = (data.users || []).filter(u => !u.deleted);
           tbState.loaded = true;
           console.log(`✓ Tasks warm: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} staff`);
+          // Refresh CS board staff tabs if active
+          if (typeof csLoadFromCache === 'function' && tbCurrentView === 'cs') csLoadFromCache();
         }
       })
       .catch(() => {}); // silent — never affects UI
@@ -1636,14 +1638,17 @@ function tbSupColor(ghlId) {
 function tbInit() {
   // Always start on CS Board (Operator Tasks is hidden)
   tbSwitchView('cs');
-  // Auto-load CS tasks after a short delay to let state settle
-  setTimeout(() => {
-    if (tbState.loaded && tbState.users.length) {
-      csLoadFromCache();
-    } else if (!csState.loading) {
-      csLoad(true);
-    }
-  }, 500);
+  // Load data then populate CS staff tabs
+  if (tbState.loaded && tbState.users.length) {
+    csLoadFromCache();
+  } else {
+    // Trigger full load, then re-render once done
+    tbLoad(false).then(() => {
+      if (tbState.users.length) csLoadFromCache();
+    }).catch(() => {
+      if (!csState.loading) csLoad(true);
+    });
+  }
   const container = document.getElementById('tb-supervisor-tabs');
   if (!container) return;
 
@@ -1733,6 +1738,10 @@ async function tbLoad(forceRefresh) {
     tbState.users = (data.users || []).filter(u => !u.deleted);
     tbState.loaded = true;
     console.log(`TB loaded: ${tbState.tasks.length} tasks, ${tbState.opps.length} opps, ${tbState.users.length} users`);
+    // If CS board is active, refresh it with the newly loaded data
+    if (tbCurrentView === 'cs') {
+      csLoadFromCache();
+    }
     const mahadId = 'yri669q8Ymx22zdFDPLK';
     const mahadOpps = tbState.opps.filter(o => o.assignedTo === mahadId);
     const mahadTasks = tbState.tasks.filter(t => t.assigneeId === mahadId || t.assignedTo === mahadId);
