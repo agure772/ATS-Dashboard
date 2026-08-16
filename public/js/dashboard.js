@@ -3675,12 +3675,20 @@ function csLoadFromCache() {
   }
   } // end else (users > 0)
   csState.rawTasks = [];
+  // Add tasks assigned to known staff
   csState.allStaff.forEach(s => {
     (s.tasks || []).forEach(t => {
       if (t.title && t.title.startsWith(CS_PREFIX)) {
         csState.rawTasks.push({ ...t, assigneeName: s.name, assigneeId: s.id });
       }
     });
+  });
+  // Also include unassigned [CS] tasks (no assignee or assignee not in staff list)
+  const assignedIds = new Set(csState.rawTasks.map(t => t.id));
+  (tbState.tasks || []).forEach(t => {
+    if (!t.title || !t.title.startsWith(CS_PREFIX)) return;
+    if (assignedIds.has(t.id)) return; // already included
+    csState.rawTasks.push({ ...t, assigneeName: 'Unassigned', assigneeId: '' });
   });
   csState.loaded = true;
   csRenderStaffTabs();
@@ -3806,12 +3814,13 @@ function csApplyFilter() {
   const csIds = csGetStaffIds();
   const now = Date.now();
 
-  // When no CS staff set up, show ALL [CS] tasks
   let tasks = csState.rawTasks.filter(t => {
     const taskAssignee = t.assigneeId || t.assignedTo || t.assignedUserId || t.userId || '';
+    // If filtering by specific staff member, only show their tasks
     if (csState.selectedStaff !== 'all' && taskAssignee !== csState.selectedStaff) return false;
-    // Only filter by csIds if staff are actually configured
-    if (csIds.length && !csIds.includes(taskAssignee) && taskAssignee !== CS_MAHAD_ID) return false;
+    // Include unassigned tasks always — don't filter them out by csIds
+    // Only filter assigned tasks to csIds if staff configured AND task has an assignee
+    if (csIds.length && taskAssignee && !csIds.includes(taskAssignee) && taskAssignee !== CS_MAHAD_ID) return false;
     if (q && !t.title.toLowerCase().includes(q) &&
         !(t.contactName||'').toLowerCase().includes(q) &&
         !(t.businessName||'').toLowerCase().includes(q)) return false;
@@ -3820,7 +3829,8 @@ function csApplyFilter() {
     const isOverdue = !isDone && due && due < now;
     if (statusF === 'completed' && !isDone) return false;
     if (statusF === 'overdue' && !isOverdue) return false;
-    if (statusF === 'open' && (isDone || isOverdue)) return false;
+    // 'open' shows both open AND overdue (anything not completed)
+    if (statusF === 'open' && isDone) return false;
     return true;
   });
 
