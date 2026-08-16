@@ -3638,20 +3638,27 @@ function csLoadFromCache() {
 
   if (dbg) dbg.innerHTML = `tbState: loaded=${tbState.loaded} | users=${tbState.users?.length||0} | tasks=${tbState.tasks?.length||0} | [CS] tasks=${csTaskCount}`;
 
-  if (!tbState.loaded || !tbState.users || !tbState.users.length) {
-    const promptEl = document.getElementById('cs-not-loaded');
-    if (promptEl) {
-      if (dbg) dbg.innerHTML += ' → showing not-loaded prompt';
-      csShowNotLoaded();
-    } else {
-      // HTML doesn't have the prompt div — auto-load instead
-      if (dbg) dbg.innerHTML += ' → auto-starting load (no prompt div found)';
-      if (!csState.loading) csLoad(true);
-    }
+  if (!tbState.loaded || !tbState.tasks || !tbState.tasks.length) {
+    // Data not ready yet — trigger a load
+    if (dbg) dbg.innerHTML += ' → auto-loading data';
+    if (!csState.loading) csLoad(true);
     return;
   }
-  // Build from tbState (instant, already in memory)
-  // tbState.users and tbState.tasks are flat arrays (from server { tasks, users } response)
+
+  // Tasks loaded but users=0 — use fallback staff or retry users only
+  if (!tbState.users || !tbState.users.length) {
+    if (dbg) dbg.innerHTML += ' → tasks loaded but users=0, using fallback staff';
+    csState.allStaff = ATS_STAFF_FALLBACK.map(s => ({
+      id: s.id, name: s.name,
+      tasks: (tbState.tasks || []).filter(t => {
+        const aid = t.assigneeId || t.assignedTo || t.assignedUserId || t.userId || '';
+        return aid === s.id;
+      }),
+    }));
+    // Still try to fetch users in background
+    tbLoad(false).catch(() => {});
+  } else {
+  // Build from tbState.users (existing code)
   csState.allStaff = tbState.users.map(u => ({
     id: u.id, name: u.name,
     tasks: (tbState.tasks || []).filter(t => {
@@ -3666,6 +3673,7 @@ function csLoadFromCache() {
       if (!knownIds.has(s.id)) csState.allStaff.push({ id: s.id, name: s.name, tasks: [] });
     });
   }
+  } // end else (users > 0)
   csState.rawTasks = [];
   csState.allStaff.forEach(s => {
     (s.tasks || []).forEach(t => {
