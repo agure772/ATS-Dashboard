@@ -2986,7 +2986,49 @@ function tbShowItemDetail(data) {
           style="display:block;text-align:center;background:var(--primary);color:#0a1a0f;border-radius:10px;
                  padding:11px;font-size:13px;font-weight:700;text-decoration:none">
           <i class="ti ti-external-link"></i> Open Contact in GHL
-        </a>` : ''}
+        </a>
+        ${data.type === 'opp' && /ifta/i.test(data.title||'') ? (() => {
+          const qKey  = iftaDetectQuarter(data.title);
+          const qInfo = qKey ? IFTA_QUARTERS[qKey] : null;
+          const year  = iftaDetectYear(data.title);
+          const qLabel = qInfo ? `${qInfo.label} ${year}` : year + ' IFTA';
+          return `
+          <div style="margin-top:8px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:10px;padding:12px">
+            <div style="font-size:10px;font-weight:700;color:#60a5fa;letter-spacing:.08em;margin-bottom:8px">
+              📊 IFTA TRACKING — ${qLabel}
+            </div>
+            ${qInfo ? `
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
+              <div style="background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.1);border-radius:7px;padding:7px;text-align:center">
+                <div style="font-size:9px;color:#64748b;margin-bottom:2px">PERIOD</div>
+                <div style="font-size:11px;font-weight:700;color:#e2e8f0">${qInfo.months}</div>
+              </div>
+              <div style="background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.1);border-radius:7px;padding:7px;text-align:center">
+                <div style="font-size:9px;color:#64748b;margin-bottom:2px">DUE DATE</div>
+                <div style="font-size:11px;font-weight:700;color:#f59e0b">${qInfo.due}</div>
+              </div>
+              <div style="background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.1);border-radius:7px;padding:7px;text-align:center">
+                <div style="font-size:9px;color:#64748b;margin-bottom:2px">STAGE</div>
+                <div style="font-size:11px;font-weight:700;color:#60a5fa">${data.sub2||'Open'}</div>
+              </div>
+            </div>` : ''}
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+              <div style="background:rgba(0,0,0,.2);border:1px dashed rgba(96,165,250,.2);border-radius:7px;padding:8px;text-align:center">
+                <div style="font-size:9px;color:#64748b;margin-bottom:4px">📄 MILEAGE REPORT</div>
+                <div style="font-size:10px;color:#475569">Awaiting upload</div>
+              </div>
+              <div style="background:rgba(0,0,0,.2);border:1px dashed rgba(96,165,250,.2);border-radius:7px;padding:8px;text-align:center">
+                <div style="font-size:9px;color:#64748b;margin-bottom:4px">⛽ FUEL REPORT</div>
+                <div style="font-size:10px;color:#475569">Awaiting upload</div>
+              </div>
+            </div>
+            <button onclick="generateUploadLink('${data.contactId}','${data.id||''}','${data.dotNumber||''}','${(data.companyName||data.contactName||'').replace(/'/g,"\\'")}','${qLabel}')"
+              style="width:100%;background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3);
+                     border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
+              🔗 Generate Customer Upload Link
+            </button>
+          </div>`;
+        })() : ''}` : ''}
     </div>`;
   document.body.appendChild(modal);
 
@@ -5553,8 +5595,84 @@ async function vmSaveVehicle(recordId, contactId) {
 
 
 
-// ═════════════════════════════════════════════════════════════════════════════
-// DRIVER MANAGER (CS Board tool — mirrors Vehicle Manager)
+// ── IFTA Quarter tracking fields ──────────────────────────────────────────────
+const IFTA_QUARTERS = {
+  q1: { label: 'Q1', months: 'Jan – Mar', due: 'Apr 30', color: '#60a5fa' },
+  q2: { label: 'Q2', months: 'Apr – Jun', due: 'Jul 31', color: '#34d399' },
+  q3: { label: 'Q3', months: 'Jul – Sep', due: 'Oct 31', color: '#f59e0b' },
+  q4: { label: 'Q4', months: 'Oct – Dec', due: 'Jan 31', color: '#f97316' },
+};
+
+function iftaDetectQuarter(title) {
+  const t = (title || '').toLowerCase();
+  if (t.includes('q1')) return 'q1';
+  if (t.includes('q2')) return 'q2';
+  if (t.includes('q3')) return 'q3';
+  if (t.includes('q4')) return 'q4';
+  return null;
+}
+
+function iftaDetectYear(title) {
+  const m = (title || '').match(/20(\d\d)/);
+  return m ? '20' + m[1] : new Date().getFullYear().toString();
+}
+async function generateUploadLink(contactId, oppId, dotNumber, companyName, quarter) {
+  try {
+    const res = await fetch('/api/generate-upload-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contactId, oppId, dot_number: dotNumber, company_name: companyName, quarter }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    // Show copy modal
+    const existing = document.getElementById('upload-link-modal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'upload-link-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    modal.onclick = e => { if(e.target===modal) modal.remove(); };
+    modal.innerHTML = `
+      <div style="background:#111a11;border:1px solid #1e2e1e;border-radius:16px;padding:24px;width:480px;max-width:95vw">
+        <div style="font-size:15px;font-weight:800;color:#00c46a;margin-bottom:8px">📤 IFTA Upload Link Generated</div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:16px">
+          Share this link with <strong style="color:#e2e8f0">${companyName || 'the customer'}</strong> to collect their ${quarter || 'IFTA'} mileage & fuel reports.
+          Link expires in <strong style="color:#f59e0b">7 days</strong>.
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <input id="upload-link-input" value="${data.url}" readonly
+            style="flex:1;background:#0a0f0a;border:1px solid #1e2e1e;color:#94a3b8;border-radius:8px;padding:9px 12px;font-size:12px;font-family:monospace">
+          <button onclick="
+            navigator.clipboard.writeText('${data.url}');
+            this.textContent='✓ Copied!';
+            this.style.background='rgba(0,196,106,.2)';
+            setTimeout(()=>{this.textContent='📋 Copy';this.style.background='rgba(0,196,106,.12)'},2000)"
+            style="background:rgba(0,196,106,.12);color:#00c46a;border:1px solid rgba(0,196,106,.3);border-radius:8px;padding:9px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+            📋 Copy
+          </button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+          <a href="sms:?body=Hi! Please use this secure link to upload your ${quarter||'IFTA'} mileage and fuel reports: ${data.url}"
+            style="background:rgba(96,165,250,.1);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none">
+            💬 Send via SMS
+          </a>
+          <a href="mailto:?subject=${encodeURIComponent((quarter||'IFTA')+' Filing - Document Upload')}&body=${encodeURIComponent('Hi,\n\nPlease use the secure link below to upload your '+( quarter||'IFTA')+' mileage and fuel reports:\n\n'+data.url+'\n\nThis link expires in 7 days.\n\nThank you,\nAdmin Truck Solutions')}"
+            style="background:rgba(167,139,250,.1);color:#a78bfa;border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none">
+            📧 Send via Email
+          </a>
+        </div>
+        <button onclick="document.getElementById('upload-link-modal').remove()"
+          style="width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#64748b;border-radius:8px;padding:9px;font-size:12px;cursor:pointer">
+          Close
+        </button>
+      </div>`;
+    document.body.appendChild(modal);
+    toast('✓ Upload link generated');
+  } catch(e) {
+    toast('Error generating link: ' + e.message);
+  }
+}
 // ═════════════════════════════════════════════════════════════════════════════
 
 let dmSelectedContact = null;
