@@ -3,1236 +3,398 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ATS — Admin Truck Solutions | Compliance Portal</title>
-<meta name="description" content="Admin Truck Solutions internal compliance portal — manage FMCSA, IRP, IFTA, UCR, and permit filings for carrier clients.">
-<meta name="robots" content="noindex, nofollow">
-<meta property="og:title" content="ATS Compliance Portal">
-<meta property="og:description" content="Internal compliance dashboard for Admin Truck Solutions.">
-<meta property="og:type" content="website">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="css/dashboard.css">
+<title>ATS — File Upload</title>
 <style>
-  /* Accessibility: skip navigation link */
-  .skip-link {
-    position: absolute;
-    top: -48px;
-    left: 0;
-    background: #000;
-    color: #fff;
-    padding: 10px 16px;
-    z-index: 99999;
-    font-size: 14px;
-    font-weight: 700;
-    border-radius: 0 0 8px 0;
-    text-decoration: none;
-    transition: top .15s;
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0f0a;
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
   }
-  .skip-link:focus { top: 0; }
-  /* Screen-reader only utility */
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0,0,0,0);
+  .logo-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+    padding: 14px 24px;
+    background: rgba(0,196,106,.08);
+    border: 1px solid rgba(0,196,106,.2);
+    border-radius: 14px;
+    width: 100%;
+    max-width: 560px;
+  }
+  .logo-icon {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg,#00c46a,#00a855);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; flex-shrink: 0;
+  }
+  .logo-text { line-height: 1.3; }
+  .logo-text strong { font-size: 15px; color: #00c46a; }
+  .logo-text span { font-size: 12px; color: #94a3b8; display: block; }
+
+  .card {
+    background: #111a11;
+    border: 1px solid #1e2e1e;
+    border-radius: 16px;
+    padding: 28px 24px;
+    width: 100%;
+    max-width: 560px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #f1f5f9;
+    margin-bottom: 4px;
+  }
+  .card-sub {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 24px;
+  }
+  .contact-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(0,196,106,.06);
+    border: 1px solid rgba(0,196,106,.15);
+    border-radius: 10px;
+    margin-bottom: 24px;
+  }
+  .contact-badge .dot {
+    font-size: 11px; font-weight: 700;
+    background: rgba(0,196,106,.15);
+    color: #00c46a;
+    border-radius: 6px;
+    padding: 3px 8px;
     white-space: nowrap;
-    border: 0;
+  }
+  .contact-badge .name {
+    font-size: 13px; font-weight: 700; color: #e2e8f0;
+  }
+
+  .upload-section { margin-bottom: 24px; }
+  .upload-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #cbd5e1;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .upload-label .badge {
+    font-size: 10px;
+    background: rgba(249,115,22,.15);
+    color: #f97316;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-weight: 800;
+  }
+  .drop-zone {
+    border: 2px dashed #2d3d2d;
+    border-radius: 12px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    background: rgba(255,255,255,.02);
+    position: relative;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: #00c46a;
+    background: rgba(0,196,106,.04);
+  }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0;
+    opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .drop-icon { font-size: 32px; margin-bottom: 10px; }
+  .drop-text { font-size: 13px; color: #64748b; }
+  .drop-text strong { color: #00c46a; }
+  .drop-formats { font-size: 11px; color: #475569; margin-top: 4px; }
+
+  .file-preview {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(0,196,106,.06);
+    border: 1px solid rgba(0,196,106,.2);
+    border-radius: 8px;
+    margin-top: 8px;
+  }
+  .file-preview.show { display: flex; }
+  .file-preview .fname {
+    flex: 1; font-size: 12px; color: #94a3b8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .file-preview .fsize { font-size: 11px; color: #475569; flex-shrink: 0; }
+  .file-preview .fremove {
+    background: none; border: none; color: #64748b;
+    cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px;
+  }
+  .file-preview .fremove:hover { color: #ef4444; }
+
+  .submit-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #00c46a, #00a855);
+    color: #0a1a0f;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: opacity .2s;
+    margin-top: 8px;
+  }
+  .submit-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .submit-btn:not(:disabled):hover { opacity: .9; }
+
+  .status-msg {
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 12px;
+    display: none;
+  }
+  .status-msg.success {
+    background: rgba(0,196,106,.1);
+    border: 1px solid rgba(0,196,106,.3);
+    color: #00c46a;
+    display: block;
+  }
+  .status-msg.error {
+    background: rgba(239,68,68,.1);
+    border: 1px solid rgba(239,68,68,.3);
+    color: #ef4444;
+    display: block;
+  }
+  .status-msg.loading {
+    background: rgba(148,163,184,.06);
+    border: 1px solid rgba(148,163,184,.15);
+    color: #94a3b8;
+    display: block;
+  }
+
+  .success-screen {
+    display: none;
+    text-align: center;
+    padding: 40px 24px;
+  }
+  .success-screen.show { display: block; }
+  .success-icon { font-size: 56px; margin-bottom: 16px; }
+  .success-screen h2 { font-size: 22px; font-weight: 800; color: #00c46a; margin-bottom: 8px; }
+  .success-screen p { font-size: 14px; color: #64748b; line-height: 1.6; }
+
+  .footer {
+    font-size: 11px;
+    color: #334155;
+    text-align: center;
+    margin-top: 8px;
+    max-width: 560px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    body { background: #f8fafc; color: #1e293b; }
+    .card { background: #fff; border-color: #e2e8f0; }
+    .drop-zone { border-color: #cbd5e1; background: #f8fafc; }
+    .drop-zone:hover { border-color: #00c46a; background: #f0fdf4; }
+    .logo-bar { background: rgba(0,196,106,.06); }
   }
 </style>
 </head>
 <body>
 
-<!-- Skip to main content (accessibility) -->
-<a href="#main-content" class="skip-link">Skip to main content</a>
-
-<div class="shell">
-  <!-- ── Sidebar ─────────────────────────────────── -->
-  <aside class="sidebar">
-    <div class="logo">
-      <img src="ats-logo.jpg" alt="ATS" style="width:42px;height:42px;border-radius:10px;object-fit:cover;flex-shrink:0">
-      <div>
-        <div class="logo-text">Admin Truck Solutions</div>
-        <div class="logo-sub">Compliance Portal</div>
-      </div>
-    </div>
-    <nav role="navigation" aria-label="Primary navigation">
-      <div class="nav-section">
-        <div class="nav-label">Overview</div>
-        <button class="nav-item active" data-page="dashboard"><i class="ti ti-dashboard"></i>Dashboard</button>
-        <button class="nav-item" data-page="compliance"><i class="ti ti-table"></i>Compliance Grid<span class="nav-badge" id="nb-urgent">0</span></button>
-        <button class="nav-item" data-page="deadlines"><i class="ti ti-calendar-event"></i>Deadlines</button>
-      </div>
-      <div class="nav-section">
-        <div class="nav-label">Services</div>
-        <button class="nav-item" onclick="quickFilter('ifta')"><i class="ti ti-map-2"></i>IRP / IFTA</button>
-        <button class="nav-item" onclick="quickFilter('fmcsa')"><i class="ti ti-shield-check"></i>FMCSA</button>
-        <button class="nav-item" onclick="quickFilter('permits')"><i class="ti ti-license"></i>Permits</button>
-        <button class="nav-item" onclick="quickFilter('annual')"><i class="ti ti-refresh"></i>Annual Support</button>
-      </div>
-      <div class="nav-section">
-        <div class="nav-label">Tools</div>
-        <button class="nav-item" data-page="dot-lookup"><i class="ti ti-search"></i>DOT Lookup</button>
-        <button class="nav-item" data-page="tasks-board"><i class="ti ti-users-group"></i>Tasks Board</button>
-        <button class="nav-item" data-page="fmcsa-form"><i class="ti ti-shield-check"></i>FMCSA Support</button>
-        <button class="nav-item" data-page="skills-setup"><i class="ti ti-certificate"></i>Skills Setup</button>
-
-      </div>
-      <div class="nav-section">
-        <div class="nav-label">Quick Submit</div>
-        <a class="nav-item" href="https://api.leadconnectorhq.com/widget/form/9bANcS1TsxWsu6eJIYyj?notrack=true" target="_blank"><i class="ti ti-building-store"></i>New Business</a>
-        <a class="nav-item" href="https://api.leadconnectorhq.com/widget/form/Bh5Wp9dGkQmsxCArFEBA" target="_blank"><i class="ti ti-shield-check"></i>FMCSA Form</a>
-        <a class="nav-item" href="https://api.leadconnectorhq.com/widget/form/LnNnl1zgoLB69aRt3XRu?notrack=true" target="_blank"><i class="ti ti-map-pin"></i>IFTA Form</a>
-      </div>
-    </nav>
-    <div class="sidebar-footer">
-      <div id="ghl-status" class="ghl-badge disconnected">
-        <i class="ti ti-plug"></i><span>Checking GHL...</span>
-      </div>
-      <div class="profile-pill">
-        <div class="avatar">TC</div>
-        <div class="profile-info">
-          <div class="profile-name">ATS Admin</div>
-          <div class="profile-role">Compliance Specialist</div>
-        </div>
-      </div>
-    </div>
-  </aside>
-
-  <!-- ── Main ───────────────────────────────────── -->
-  <main class="main" id="main-content" role="main">
-    <div class="topbar">
-      <div>
-        <div class="topbar-title" id="page-title">Dashboard</div>
-        <div class="topbar-sub" id="page-sub">2026 Compliance Overview</div>
-      </div>
-      <div class="search-box">
-        <i class="ti ti-search"></i>
-        <input id="global-search" placeholder="Search clients..." aria-label="Search clients" oninput="handleSearch(this.value)">
-      </div>
-      <button class="topbar-btn btn-ghost" onclick="refreshData()" aria-label="Sync with GoHighLevel"><i class="ti ti-refresh"></i>Sync GHL</button>
-      <button class="topbar-btn btn-primary" onclick="openAddClient()" aria-label="Add new client"><i class="ti ti-plus"></i>Add Client</button>
-    </div>
-
-    <!-- ── Loading state ── -->
-    <div id="loading-screen" class="loading-screen">
-      <div class="spinner"></div>
-      <div class="loading-text" id="loading-text">Syncing with GoHighLevel...</div>
-      <button onclick="loadClients()" style="margin-top:16px;background:var(--primary);color:#030A06;border:none;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer">Click if stuck → Force Load</button>
-    </div>
-
-    <!-- ── Error banner ── -->
-    <div id="error-banner" class="error-banner" style="display:none">
-      <i class="ti ti-alert-circle"></i>
-      <span id="error-msg">Could not connect to GHL.</span>
-      <button onclick="document.getElementById('error-banner').style.display='none'"><i class="ti ti-x"></i></button>
-    </div>
-
-    <!-- ── Pages ── -->
-    <div id="page-content" class="page-content" style="display:none">
-
-      <!-- DASHBOARD PAGE -->
-      <div id="page-dashboard" class="page active">
-
-        <!-- ─── ATS Marquee Banner ─────────────────────────────────────── -->
-        <div style="overflow:hidden;background:linear-gradient(90deg,#0a1f0f,#0d2e14,#0a1f0f);border:1px solid rgba(0,196,106,.25);border-radius:10px;margin-bottom:18px;padding:0;position:relative;height:38px;display:flex;align-items:center">
-          <!-- shimmer edge left -->
-          <div style="position:absolute;left:0;top:0;bottom:0;width:60px;background:linear-gradient(90deg,#0a1f0f,transparent);z-index:2;pointer-events:none"></div>
-          <!-- shimmer edge right -->
-          <div style="position:absolute;right:0;top:0;bottom:0;width:60px;background:linear-gradient(270deg,#0a1f0f,transparent);z-index:2;pointer-events:none"></div>
-          <!-- scrolling track -->
-          <div id="ats-banner-track" style="display:flex;align-items:center;white-space:nowrap;will-change:transform">
-            <!-- content duplicated for seamless loop -->
-          </div>
-        </div>
-        <!-- ──────────────────────────────────────────────────────────────── -->
-
-        <div class="stats-grid">
-          <div class="stat-card s-blue">
-            <div class="stat-icon blue"><i class="ti ti-users"></i></div>
-            <div class="stat-val blue" id="stat-clients">—</div>
-            <div class="stat-label">Active Clients</div>
-            <div class="stat-sub">Synced from GHL</div>
-          </div>
-          <div class="stat-card s-green">
-            <div class="stat-icon green"><i class="ti ti-circle-check"></i></div>
-            <div class="stat-val green" id="stat-done">—</div>
-            <div class="stat-label">Completed Items</div>
-            <div class="stat-sub">Filed & confirmed</div>
-          </div>
-          <div class="stat-card s-yellow">
-            <div class="stat-icon yellow"><i class="ti ti-clock"></i></div>
-            <div class="stat-val yellow" id="stat-pending">—</div>
-            <div class="stat-label">Pending</div>
-            <div class="stat-sub">In progress</div>
-          </div>
-          <div class="stat-card s-red">
-            <div class="stat-icon red"><i class="ti ti-alert-triangle"></i></div>
-            <div class="stat-val red" id="stat-urgent">—</div>
-            <div class="stat-label">Urgent Items</div>
-            <div class="stat-sub">Action needed</div>
-          </div>
-        </div>
-
-        <div class="two-col">
-          <div class="section-card">
-            <div class="section-header">
-              <div class="section-title"><i class="ti ti-chart-donut"></i>Services distribution</div>
-            </div>
-            <div class="donut-wrap">
-              <canvas id="donut-canvas" role="img" aria-label="Distribution of completed compliance services"></canvas>
-              <div class="donut-center">
-                <div class="donut-total" id="donut-total">—</div>
-                <div class="donut-lbl">services</div>
-              </div>
-            </div>
-            <div id="donut-legend" class="donut-legend"></div>
-          </div>
-
-          <div class="section-card">
-            <div class="section-header">
-              <div class="section-title"><i class="ti ti-list-check"></i>Service count</div>
-            </div>
-            <div id="svc-bars"></div>
-          </div>
-        </div>
-
-        <div class="section-card">
-          <div class="section-header">
-            <div class="section-title"><i class="ti ti-activity"></i>Recent GHL activity</div>
-            <button class="section-btn" onclick="refreshData()"><i class="ti ti-refresh"></i>Refresh</button>
-          </div>
-          <div id="activity-feed" class="activity-list">
-            <div style="color:var(--text3);font-size:13px;padding:12px 0">Loading activity...</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- COMPLIANCE GRID PAGE -->
-      <div id="page-compliance" class="page" style="padding:24px;max-width:1200px;margin:0 auto">
-
-        <!-- ── Header ───────────────────────────────────────────────────────── -->
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
-          <div>
-            <div style="font-size:24px;font-weight:800;color:var(--text);letter-spacing:-.5px">
-              Compliance <span style="color:var(--primary)">overview</span>
-            </div>
-            <div id="comp-subtitle" style="font-size:13px;color:var(--text3);margin-top:3px">2026 Filing Season</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button onclick="exportCSV()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px"><i class="ti ti-download"></i> Export</button>
-            <button onclick="openAddClient()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px"><i class="ti ti-plus"></i> Add Client</button>
-          </div>
-        </div>
-
-        <!-- ── Stats bar ─────────────────────────────────────────────────────── -->
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
-          <div id="comp-stat-carriers" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
-            <div style="width:40px;height:40px;border-radius:12px;background:rgba(0,196,106,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-              <i class="ti ti-truck" style="color:var(--green);font-size:18px"></i>
-            </div>
-            <div><div id="stat-carriers-num" style="font-size:28px;font-weight:800;color:var(--text);line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">TRACKED CARRIERS</div></div>
-          </div>
-          <div id="comp-stat-urgent" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
-            <div style="width:40px;height:40px;border-radius:12px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-              <i class="ti ti-alert-triangle" style="color:#ef4444;font-size:18px"></i>
-            </div>
-            <div><div id="stat-urgent-num" style="font-size:28px;font-weight:800;color:#ef4444;line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">URGENT / DUE</div></div>
-          </div>
-          <div id="comp-stat-ontrack" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
-            <div style="width:40px;height:40px;border-radius:12px;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-              <i class="ti ti-shield-check" style="color:#3b82f6;font-size:18px"></i>
-            </div>
-            <div><div id="stat-ontrack-pct" style="font-size:28px;font-weight:800;color:#3b82f6;line-height:1">—</div><div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:600;letter-spacing:.08em">ON-TRACK</div></div>
-          </div>
-        </div>
-
-        <!-- ── Segment tabs ──────────────────────────────────────────────────── -->
-        <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-          <span style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-right:4px">SEGMENT</span>
-          <button onclick="setSegmentFilter(this,'all')" id="seg-btn-all"
-            style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">
-            Customers <span id="seg-count-all">—</span>
-          </button>
-          <button onclick="setSegmentFilter(this,'advance')" id="seg-btn-advance"
-            style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">
-            ATS Advance <span id="seg-count-advance">—</span>
-          </button>
-          <button onclick="setSegmentFilter(this,'recurring')" id="seg-btn-recurring"
-            style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">
-            ATS Recurring <span id="seg-count-recurring">—</span>
-          </button>
-        </div>
-
-        <!-- ── List toolbar ──────────────────────────────────────────────────── -->
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <div id="comp-count" style="font-size:12px;color:var(--text3);white-space:nowrap">— contacts</div>
-          <div style="position:relative;flex:1;min-width:200px">
-            <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px;pointer-events:none"></i>
-            <input id="comp-search" type="text" autocomplete="off" placeholder="Search name, DOT#..."
-              oninput="compSearch(this.value)"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 12px 7px 32px;font-size:12px;box-sizing:border-box">
-          </div>
-          <select id="tag-filter" onchange="setTagFilter(this.value)"
-            style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:12px;cursor:pointer;max-width:160px"></select>
-          <div style="display:flex;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px">
-            <button onclick="setFilter(this,'all')" id="comp-filt-all"
-              style="background:var(--primary);color:#0a1a0f;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">All</button>
-            <button onclick="setFilter(this,'urgent')" id="comp-filt-urgent"
-              style="background:transparent;color:var(--text3);border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer">Urgent</button>
-            <button onclick="setFilter(this,'done')" id="comp-filt-done"
-              style="background:transparent;color:var(--text3);border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer">On-track</button>
-          </div>
-          <!-- hidden group-chips kept for JS compatibility -->
-          <div id="group-chips" style="display:none">
-            <button class="chip active" onclick="setGroup(this,'all')">All columns</button>
-            <button class="chip" onclick="setGroup(this,'annual')">2026 Annual</button>
-            <button class="chip" onclick="setGroup(this,'ifta')">IFTA</button>
-            <button class="chip" onclick="setGroup(this,'onboard')">Onboarding</button>
-            <button class="chip" onclick="setGroup(this,'other')">Other</button>
-          </div>
-          <div id="filter-chips" style="display:none">
-            <button class="chip active" onclick="setFilter(this,'all')">All</button>
-          </div>
-        </div>
-
-        <!-- ── Client list ───────────────────────────────────────────────────── -->
-        <div id="compliance-list" style="display:flex;flex-direction:column;gap:6px"></div>
-
-        <!-- kept for CSV export compatibility -->
-        <table id="compliance-table" style="display:none"><thead><tr></tr></thead><tbody id="compliance-tbody"></tbody></table>
-
-        <div style="margin-top:12px">
-          <button onclick="openAddClient()" style="width:100%;background:var(--bg2);border:1px dashed var(--border);color:var(--text3);border-radius:10px;padding:12px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
-            <i class="ti ti-plus"></i> Add a client
-          </button>
-        </div>
-      </div>
-
-      <!-- DEADLINES PAGE -->
-      <div id="page-deadlines" class="page">
-        <div class="deadline-grid" id="deadline-cards"></div>
-      </div>
-
-
-    <!-- ── DOT Lookup Page ──────────────────────────────── -->
-    <div id="page-dot-lookup" class="page">
-      <div style="max-width:900px;margin:0 auto">
-
-        <!-- Search bar -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:20px">
-          <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px">
-            <i class="ti ti-search" style="color:var(--primary)"></i> FMCSA DOT Number Lookup
-          </div>
-          <div style="font-size:12px;color:var(--text3);margin-bottom:16px">
-            Search any DOT number to pull live carrier data from FMCSA — then push it directly to your GHL contact.
-          </div>
-          <div style="display:flex;gap:10px;align-items:center">
-            <input id="dot-search-input" type="text" placeholder="Enter DOT number (e.g. 3483950)"
-              style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:14px;font-family:inherit"
-              onkeydown="if(event.key==='Enter') dotLookup()">
-            <button onclick="dotLookup()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-              <i class="ti ti-search"></i> Search FMCSA
-            </button>
-          </div>
-          <div id="dot-search-status" style="font-size:11px;color:var(--text3);margin-top:8px"></div>
-        </div>
-
-        <!-- Result card -->
-        <div id="dot-result" style="display:none">
-          <!-- FMCSA info card -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px">
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:14px">Carrier Information</div>
-              <div id="dot-info-left"></div>
-            </div>
-            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px">
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:14px">Compliance Details</div>
-              <div id="dot-info-right"></div>
-            </div>
-          </div>
-
-          <!-- Match to GHL contact + push -->
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px">
-            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">
-              <i class="ti ti-upload" style="color:var(--primary)"></i> Push to GHL Contact
-            </div>
-            <!-- Optional person name fields -->
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-              <div>
-                <div style="font-size:10px;color:var(--text3);margin-bottom:3px">OPERATOR FIRST NAME <span style="opacity:.5">(optional)</span></div>
-                <input id="dot-push-first" type="text" placeholder="e.g. Ahmed" autocomplete="off"
-                  style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
-              </div>
-              <div>
-                <div style="font-size:10px;color:var(--text3);margin-bottom:3px">OPERATOR LAST NAME <span style="opacity:.5">(optional)</span></div>
-                <input id="dot-push-last" type="text" placeholder="e.g. Ibrahim" autocomplete="off"
-                  style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
-              </div>
-            </div>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-              <input id="dot-ghl-search" type="text" placeholder="Search client by name or DOT..."
-                oninput="dotSearchGHL(this.value)"
-                style="flex:1;min-width:200px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;font-family:inherit">
-              <button id="dot-push-btn" onclick="dotPushToGHL()" disabled
-                style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;opacity:.5">
-                <i class="ti ti-cloud-upload"></i> Update GHL Contact
-              </button>
-            </div>
-            <div id="dot-ghl-matches" style="margin-top:10px"></div>
-
-            <!-- Create new contact — always visible once DOT result is loaded -->
-            <div id="dot-create-section" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
-              <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">── OR CREATE AS NEW CONTACT ──</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-                <div>
-                  <div style="font-size:10px;color:var(--text3);margin-bottom:3px">OPERATOR FIRST NAME</div>
-                  <input id="dot-person-first" type="text" placeholder="e.g. Ahmed" autocomplete="off"
-                    style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
-                </div>
-                <div>
-                  <div style="font-size:10px;color:var(--text3);margin-bottom:3px">OPERATOR LAST NAME</div>
-                  <input id="dot-person-last" type="text" placeholder="e.g. Ibrahim" autocomplete="off"
-                    style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
-                </div>
-              </div>
-              <button onclick="dotCreateContact()" style="width:100%;background:rgba(0,196,106,.12);color:var(--primary);border:1px solid rgba(0,196,106,.4);border-radius:8px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
-                <i class="ti ti-user-plus"></i> Create New GHL Contact + Opportunities
-              </button>
-              <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Creates the contact + 7 compliance opportunities from FMCSA data</div>
-              <div id="dot-create-preview" style="font-size:12px;font-weight:700;color:var(--green);text-align:center;margin-top:4px"></div>
-            </div>
-
-            <div id="dot-push-status" style="font-size:12px;margin-top:8px"></div>
-          </div>
-        </div>
-
-        <!-- No key warning -->
-        <div id="dot-no-key" style="display:none;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:20px;text-align:center">
-          <i class="ti ti-key" style="font-size:24px;color:var(--yellow);display:block;margin-bottom:8px"></i>
-          <div style="font-size:14px;font-weight:700;color:var(--yellow);margin-bottom:6px">FMCSA API Key Required</div>
-          <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Get your free key at <a href="https://ai.fmcsa.dot.gov/" target="_blank" style="color:var(--primary)">ai.fmcsa.dot.gov</a> — it only takes 2 minutes.</div>
-          <div style="font-size:12px;color:var(--text3)">Once you have it, add this line to your <code style="background:var(--bg3);padding:2px 6px;border-radius:4px">.env</code> file:<br>
-          <code style="background:var(--bg3);padding:4px 10px;border-radius:4px;display:inline-block;margin-top:6px;color:var(--green)">FMCSA_WEB_KEY=your_key_here</code></div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- ── Tasks Board Page ─────────────────────────────────────────────── -->
-    <div id="page-tasks-board" class="page" style="padding:24px;max-width:1400px;margin:0 auto">
-
-            <!-- ── View Toggle hidden — CS Board is default ─────────────────── -->
-      <div style="display:none" id="tb-view-toggle-hidden">
-<div style="display:flex;gap:6px;margin-bottom:24px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:4px;width:fit-content">
-        <button id="tb-view-btn-operator" onclick="tbSwitchView('operator')"
-          style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .15s">
-          <i class="ti ti-users-group"></i> Operator Tasks
-        </button>
-        <button id="tb-view-btn-cs" onclick="tbSwitchView('cs')"
-          style="background:transparent;color:var(--text3);border:none;border-radius:9px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .15s">
-          <i class="ti ti-headset"></i> CS Board
-        </button>
-      </div>
-      </div>
-
-<!-- ══ OPERATOR VIEW ══════════════════════════════════════════════════ -->
-      <div id="tb-operator-view">
-
-        <!-- Supervisor dropdown -->
-        <div style="margin-bottom:24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">SELECT SUPERVISOR</div>
-          <div id="tb-supervisor-tabs" style="position:relative;min-width:220px"></div>
-          <div style="font-size:11px;color:var(--text3)" id="tb-sup-info"></div>
-        </div>
-
-        <!-- Stats bar -->
-        <div id="tb-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
-
-        <!-- Search + Add Task -->
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-          <div style="position:relative;flex:1;min-width:220px">
-            <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px"></i>
-            <input id="tb-search" type="text" placeholder="Search tasks & opportunities..." aria-label="Search tasks and opportunities"
-              autocomplete="off" oninput="tbApplyFilters()"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                     border-radius:8px;padding:8px 12px 8px 34px;font-size:13px;box-sizing:border-box">
-          </div>
-          <button onclick="tbOpenAddItem()" style="background:rgba(0,196,106,.15);color:var(--primary);
-            border:1px solid var(--primary);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;
-            cursor:pointer;display:flex;align-items:center;gap:6px">
-            <i class="ti ti-plus"></i> Add Task
-          </button>
-        </div>
-
-        <!-- Staff cards controls -->
-        <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em" id="tb-team-label">TEAM</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button id="tb-auto-assign-btn" onclick="tbAutoAssign()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid #7c3aed;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px"><i class="ti ti-wand"></i> Auto-Assign All</button>
-            <select id="tb-filter-type" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
-              <option value="all">All Items</option>
-              <option value="tasks">Tasks Only</option>
-              <option value="opps">Opportunities Only</option>
-            </select>
-            <select id="tb-filter-status" onchange="tbApplyFilters()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px">
-              <option value="all">All Statuses</option>
-              <option value="open">Open</option>
-              <option value="overdue">Overdue</option>
-              <option value="completed">Completed</option>
-            </select>
-            <button onclick="tbRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
-              <i class="ti ti-refresh"></i> Refresh
-            </button>
-
-            <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
-              <button id="tb-view-list-btn" onclick="tbSetView('list')"
-                style="background:var(--primary);color:#000;border:none;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px">
-                <i class="ti ti-layout-list"></i> List
-              </button>
-              <button id="tb-view-swim-btn" onclick="tbSetView('swimlane')"
-                style="background:var(--bg3);color:var(--text3);border:none;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;border-left:1px solid var(--border)">
-                <i class="ti ti-layout-columns"></i> Swimlane
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div id="tb-loading" style="display:none;text-align:center;padding:60px;color:var(--text3)">
-          <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
-          <div>Loading tasks from GHL...</div>
-          <div id="tb-loading-sub" style="font-size:12px;margin-top:6px;color:var(--text3)">This can take up to a minute on first load</div>
-        </div>
-        <div id="tb-staff-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px"></div>
-        <div id="tb-swimlane-grid" style="display:none;overflow-x:auto;padding-bottom:12px"></div>
-
-      </div><!-- /tb-operator-view -->
-
-      <!-- ══ CS BOARD VIEW ══════════════════════════════════════════════════ -->
-      <div id="tb-cs-view" style="display:none">
-
-        <!-- CS header -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:14px 18px;margin-bottom:20px">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px">
-            <div>
-              <div style="font-size:16px;font-weight:800;color:var(--text)">CS Task Board</div>
-              <div style="font-size:12px;color:var(--text3);margin-top:2px">Customer service · info gathering & GHL updates</div>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button onclick="csOpenAddTask()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-                <i class="ti ti-plus"></i> Add CS Task
-              </button>
-              <button onclick="csRefresh()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
-                <i class="ti ti-refresh"></i> Refresh
-              </button>
-              <button onclick="csOpenStaffModal()" style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-                <i class="ti ti-users-group"></i> CS Staff
-              </button>
-            </div>
-          </div>
-          <!-- Tool buttons row -->
-          <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)">
-            <button onclick="csTool('dot')" id="cs-tool-btn-dot"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
-              <i class="ti ti-search" style="color:var(--primary)"></i> DOT Lookup
-            </button>
-            <button onclick="csTool('vehicles')" id="cs-tool-btn-vehicles"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
-              <i class="ti ti-truck" style="color:#f59e0b"></i> Vehicle Manager
-            </button>
-            <button onclick="csTool('drivers')" id="cs-tool-btn-drivers"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
-              <i class="ti ti-id-badge" style="color:#60a5fa"></i> Driver Manager
-            </button>
-            <button onclick="csTool('opps')" id="cs-tool-btn-opps"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
-              <i class="ti ti-briefcase" style="color:#f97316"></i> Opp Manager
-            </button>
-            <button onclick="csTool('audit')" id="cs-tool-btn-audit"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s">
-              <i class="ti ti-zoom-scan" style="color:#a78bfa"></i> Contact Audit
-            </button>
-          </div>
-        </div>
-
-        <!-- CS Stats -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
-            <div style="width:34px;height:34px;border-radius:9px;background:rgba(99,102,241,.15);display:flex;align-items:center;justify-content:center"><i class="ti ti-list-check" style="color:#818cf8;font-size:16px"></i></div>
-            <div><div style="font-size:20px;font-weight:800;color:var(--text);line-height:1" id="cs-stat-total">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Total Tasks</div></div>
-          </div>
-          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
-            <div style="width:34px;height:34px;border-radius:9px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-alert-circle" style="color:#ef4444;font-size:16px"></i></div>
-            <div><div style="font-size:20px;font-weight:800;color:#ef4444;line-height:1" id="cs-stat-overdue">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Overdue</div></div>
-          </div>
-          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
-            <div style="width:34px;height:34px;border-radius:9px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-clock" style="color:#f59e0b;font-size:16px"></i></div>
-            <div><div style="font-size:20px;font-weight:800;color:#f59e0b;line-height:1" id="cs-stat-open">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Open</div></div>
-          </div>
-          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px">
-            <div style="width:34px;height:34px;border-radius:9px;background:rgba(0,196,106,.12);display:flex;align-items:center;justify-content:center"><i class="ti ti-circle-check" style="color:var(--green);font-size:16px"></i></div>
-            <div><div style="font-size:20px;font-weight:800;color:var(--green);line-height:1" id="cs-stat-done">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Completed</div></div>
-          </div>
-        </div>
-
-        <!-- No staff warning -->
-        <div id="cs-no-staff-warning" style="display:none;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
-          <i class="ti ti-alert-triangle" style="color:#f59e0b;font-size:16px;flex-shrink:0"></i>
-          <div style="flex:1;font-size:12px;color:var(--text2)">No CS staff configured. Tasks fall back to Mahad.</div>
-          <button onclick="csOpenStaffModal()" style="background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.35);border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Set Up →</button>
-        </div>
-
-        <!-- Filter + Search -->
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">FILTER BY STAFF</div>
-          <div id="cs-staff-tabs" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
-          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-            <div style="position:relative">
-              <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px"></i>
-              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..." aria-label="Search CS tasks"
-                oninput="csApplyFilter()"
-                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px 8px 32px;font-size:13px;width:200px">
-            </div>
-            <select id="cs-filter-status" onchange="csApplyFilter()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-size:12px">
-              <option value="all">All Statuses</option>
-              <option value="open">Open</option>
-              <option value="overdue">Overdue</option>
-              <option value="completed">Completed</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- CS Debug -->
-        <div id="cs-debug-info" style="font-size:10px;color:var(--text3);padding:2px 0;font-family:monospace;opacity:.5;margin-bottom:8px"></div>
-
-        <!-- CS Loading -->
-        <div id="cs-loading" style="display:none;text-align:center;padding:40px;color:var(--text3)">
-          <i class="ti ti-loader" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:10px"></i>
-          <div>Loading CS tasks from GHL...</div>
-          <div style="font-size:12px;margin-top:6px;opacity:.6">This may take 1–2 minutes on first load</div>
-        </div>
-
-        <!-- CS not loaded -->
-        <div id="cs-not-loaded" style="display:none;flex-direction:column;align-items:center;justify-content:center;
-             padding:40px 20px;text-align:center;background:var(--bg2);border:1px solid var(--border);border-radius:16px;margin-bottom:20px">
-          <i class="ti ti-clipboard-list" style="font-size:40px;color:var(--text3);opacity:.3;display:block;margin-bottom:14px"></i>
-          <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px">CS tasks not loaded yet</div>
-          <div style="font-size:12px;color:var(--text3);margin-bottom:18px;max-width:360px">CS tasks load automatically from the same data as Operator Tasks. Click below if needed.</div>
-          <button onclick="csLoad(true)" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px">
-            <i class="ti ti-download"></i> Load CS Tasks Now
-          </button>
-        </div>
-
-        <!-- CS Task list -->
-        <div id="cs-task-list"></div>
-
-        <!-- CS Tools section -->
-        <div style="margin-top:20px">
-          <!-- DOT Lookup Panel -->
-          <div id="cs-tool-panel-dot" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
-            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">DOT QUICK UPDATE</div>
-            <div style="display:flex;gap:8px">
-              <input id="cs-dot-input" type="text" placeholder="Enter DOT number..." onkeydown="if(event.key==='Enter')csDotLookup()"
-                style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px">
-              <button onclick="csDotLookup()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
-                <i class="ti ti-search"></i> Search
-              </button>
-            </div>
-            <div id="cs-dot-result" style="margin-top:12px"></div>
-          </div>
-
-          <!-- Vehicle Manager Panel -->
-          <div id="cs-tool-panel-vehicles" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
-            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">VEHICLE MANAGER</div>
-            <input id="vm-contact-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
-              oninput="vmSearchContact(this.value)"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
-            <div id="vm-contact-results"></div>
-            <div id="vm-selected-contact" style="display:none;padding:8px 12px;background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:8px;margin-bottom:10px;align-items:center;justify-content:space-between">
-              <span id="vm-selected-name" style="font-size:12px;font-weight:700;color:var(--green)"></span>
-              <button onclick="vmClearContact()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">×</button>
-            </div>
-            <div id="vm-vehicles-area"></div>
-          </div>
-
-          <!-- Driver Manager Panel -->
-          <div id="cs-tool-panel-drivers" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
-            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">DRIVER MANAGER</div>
-            <input id="dm-contact-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
-              oninput="dmSearchContact(this.value)"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
-            <div id="dm-contact-results"></div>
-            <div id="dm-selected-contact" style="display:none;padding:8px 12px;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:8px;margin-bottom:10px;align-items:center;justify-content:space-between">
-              <span id="dm-selected-name" style="font-size:12px;font-weight:700;color:#60a5fa"></span>
-              <button onclick="dmClearContact()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">×</button>
-            </div>
-            <div id="dm-drivers-area"></div>
-          </div>
-
-          <!-- Opp Manager Panel -->
-          <div id="cs-tool-panel-opps" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
-            <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:12px">OPP MANAGER — ADD & AUDIT 2026 OPPORTUNITIES</div>
-
-            <!-- Tabs -->
-            <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:14px">
-              <button id="om-tab-single" onclick="omSetTab('single')"
-                style="flex:1;padding:7px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:var(--primary);color:#000">
-                Single Contact
-              </button>
-              <button id="om-tab-bulk" onclick="omSetTab('bulk')"
-                style="flex:1;padding:7px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:var(--bg3);color:var(--text3);border-left:1px solid var(--border)">
-                Bulk Opps
-              </button>
-              <button id="om-tab-tasks" onclick="omSetTab('tasks')"
-                style="flex:1;padding:7px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:var(--bg3);color:var(--text3);border-left:1px solid var(--border)">
-                Bulk Tasks
-              </button>
-            </div>
-
-            <!-- Single contact tab -->
-            <div id="om-panel-single">
-              <input id="om-single-search" type="text" autocomplete="off" placeholder="Search contact by name or DOT..."
-                oninput="omSingleSearch(this.value)"
-                style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
-              <div id="om-single-results"></div>
-              <div id="om-single-selected" style="display:none"></div>
-              <div id="om-single-opps" style="margin-top:10px"></div>
-            </div>
-
-            <!-- Bulk tab -->
-            <div id="om-panel-bulk" style="display:none">
-              <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Select contacts and which opportunities to add to all of them at once.</div>
-              <input id="om-bulk-search" type="text" autocomplete="off" placeholder="Search and add contacts..."
-                oninput="omBulkSearch(this.value)"
-                style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
-              <div id="om-bulk-results"></div>
-              <div id="om-bulk-selected-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;min-height:10px"></div>
-              <div id="om-bulk-opp-selector" style="margin-top:4px"></div>
-              <button onclick="omRunBulk()"
-                style="display:none;width:100%;margin-top:12px;background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.4);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer"
-                id="om-bulk-run-btn">
-                <i class="ti ti-rocket"></i> Add Opportunities to All Selected Contacts
-              </button>
-              <div id="om-bulk-status" style="margin-top:10px;font-size:12px"></div>
-            </div>
-
-            <!-- Bulk tasks tab -->
-            <div id="om-panel-tasks" style="display:none">
-              <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Create the same task(s) for multiple contacts at once.</div>
-              <input id="om-task-search" type="text" autocomplete="off" placeholder="Search and add contacts..."
-                oninput="omTaskSearch(this.value)"
-                style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
-              <div id="om-task-results"></div>
-              <div id="om-task-selected-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:10px"></div>
-
-              <!-- Task definition -->
-              <div id="om-task-form" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;flex-direction:column;gap:10px">
-                <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em">TASK DETAILS</div>
-                <div>
-                  <div style="font-size:10px;color:var(--text3);margin-bottom:4px">TASK TITLE *</div>
-                  <select id="om-task-title-select" onchange="omTaskTitleChange(this.value)"
-                    style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:8px 10px;font-size:12px;box-sizing:border-box;margin-bottom:6px">
-                    <option value="">-- Select task title --</option>
-                  </select>
-                  <input id="om-task-title" type="text" placeholder="Custom title (if Other selected)"
-                    style="display:none;width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
-                </div>
-                <div>
-                  <div style="font-size:10px;color:var(--text3);margin-bottom:4px">BODY / NOTES</div>
-                  <textarea id="om-task-body" rows="2" placeholder="Optional details..."
-                    style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
-                </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                  <div>
-                    <div style="font-size:10px;color:var(--text3);margin-bottom:4px">DUE DATE</div>
-                    <input id="om-task-due" type="date"
-                      style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
-                  </div>
-                  <div>
-                    <div style="font-size:10px;color:var(--text3);margin-bottom:4px">ASSIGN TO</div>
-                    <select id="om-task-assignee"
-                      style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12px;box-sizing:border-box">
-                      <option value="">Unassigned</option>
-                    </select>
-                  </div>
-                </div>
-                <button onclick="omRunBulkTasks()"
-                  style="width:100%;background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.4);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">
-                  <i class="ti ti-send"></i> Create Task for All Selected Contacts
-                </button>
-              </div>
-              <div id="om-task-status" style="margin-top:10px;font-size:12px"></div>
-            </div>
-          </div>
-
-          <!-- Contact Audit Panel -->
-          <div id="cs-tool-panel-audit" style="display:none;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-              <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em">CONTACT AUDIT — Advanced &amp; Recurring only</div>
-              <button id="cs-audit-btn" onclick="csRunAudit()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:7px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px">
-                <i class="ti ti-zoom-scan"></i> Run Audit
-              </button>
-            </div>
-            <div id="cs-audit-results"></div>
-          </div>
-        </div>
-
-        <!-- CS Staff Settings panel (hidden) -->
-        <div id="cs-settings-panel" style="display:none;margin-top:16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px">
-          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">CS Staff (legacy panel)</div>
-          <div id="cs-staff-settings-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
-        </div>
-
-      </div><!-- /tb-cs-view -->
-
-    </div><!-- /page-tasks-board -->
-
-    <!-- ── FMCSA Support Form Page ──────────────────────────────────────── -->
-    <div id="page-fmcsa-form" class="page" style="padding:24px;max-width:800px;margin:0 auto">
-
-      <div style="margin-bottom:24px">
-        <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:4px">FMCSA Support Request</div>
-        <div style="font-size:13px;color:var(--text3)">Complete on the call — creates a task in GHL automatically</div>
-      </div>
-
-      <!-- Contact lookup -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">CLIENT LOOKUP</div>
-        <div style="display:flex;gap:10px">
-          <input id="ff-contact-search" type="text" placeholder="Search by name or DOT number..."
-            oninput="ffSearchContact(this.value)"
-            style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                   border-radius:10px;padding:10px 14px;font-size:14px">
-          <button onclick="ffSearchContact(document.getElementById('ff-contact-search').value)"
-            style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
-                   padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer">Search</button>
-        </div>
-        <div id="ff-contact-results" style="margin-top:10px"></div>
-        <div id="ff-selected-contact" style="display:none;margin-top:10px;padding:10px 14px;
-             background:rgba(0,196,106,.08);border:1px solid rgba(0,196,106,.3);border-radius:10px">
-          <div style="font-size:12px;color:var(--green);font-weight:700">✓ Selected Contact</div>
-          <div id="ff-selected-name" style="font-size:14px;font-weight:700;color:var(--text);margin-top:2px"></div>
-        </div>
-      </div>
-
-      <!-- Form fields -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:16px">CONTACT INFO</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div>
-            <label style="font-size:11px;color:var(--text3);font-weight:600">Email</label>
-            <input id="ff-email" type="email" placeholder="carrier@email.com"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                     border-radius:8px;padding:8px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
-          </div>
-          <div>
-            <label style="font-size:11px;color:var(--text3);font-weight:600">Phone</label>
-            <input id="ff-phone" type="tel" placeholder="(612) 555-0000"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                     border-radius:8px;padding:8px 12px;font-size:13px;margin-top:4px;box-sizing:border-box">
-          </div>
-        </div>
-      </div>
-
-      <!-- MCS-150 -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">MCS-150 UPDATE REQUEST</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="ff-mcs150-options">
-          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
-            <input type="checkbox" value="Mileage Year Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
-            <span style="font-size:13px;color:var(--text)">Mileage Year Update</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
-            <input type="checkbox" value="Address Change Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
-            <span style="font-size:13px;color:var(--text)">Address Change Update</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
-            <input type="checkbox" value="Unit/Driver Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
-            <span style="font-size:13px;color:var(--text)">Unit/Driver Update</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer">
-            <input type="checkbox" value="Email/Phone Update" class="ff-mcs150" style="accent-color:var(--primary);width:16px;height:16px">
-            <span style="font-size:13px;color:var(--text)">Email/Phone Update</span>
-          </label>
-        </div>
-      </div>
-
-      <!-- Clearinghouse -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">CLEARINGHOUSE</div>
-        <div style="display:flex;flex-direction:column;gap:10px">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-            <input type="checkbox" id="ff-ch-setup" style="accent-color:var(--primary);width:16px;height:16px">
-            <span style="font-size:13px;color:var(--text)">Clearinghouse Account Setup Request</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-            <input type="checkbox" id="ff-ch-new-driver" style="accent-color:var(--primary);width:16px;height:16px">
-            <span style="font-size:13px;color:var(--text)">New Driver Query Request</span>
-          </label>
-          <div id="ff-new-driver-info" style="display:none;margin-left:24px;margin-top:4px">
-            <input id="ff-new-driver-name" type="text" placeholder="New driver name / CDL info..."
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                     border-radius:8px;padding:8px 12px;font-size:13px;box-sizing:border-box">
-          </div>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-            <input type="checkbox" id="ff-ch-annual" style="accent-color:var(--primary);width:16px;height:16px">
-            <span style="font-size:13px;color:var(--text)">Annual Query Request</span>
-          </label>
-        </div>
-      </div>
-
-      <!-- Assign to staff -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:12px">ASSIGN TO STAFF</div>
-        <select id="ff-assignee"
-          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                 border-radius:10px;padding:10px 14px;font-size:14px">
-          <option value="">-- Select staff member --</option>
-        </select>
-      </div>
-
-      <!-- Notes -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;margin-bottom:8px">ADDITIONAL NOTES</div>
-        <textarea id="ff-notes" placeholder="Any additional details..."
-          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                 border-radius:10px;padding:10px 14px;font-size:13px;min-height:80px;resize:vertical;box-sizing:border-box"></textarea>
-      </div>
-
-      <!-- Submit -->
-      <button onclick="ffSubmit()"
-        style="width:100%;background:var(--primary);color:#0a1a0f;border:none;border-radius:12px;
-               padding:14px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:12px">
-        <i class="ti ti-send"></i> Submit & Create GHL Task
-      </button>
-      <div id="ff-status" style="text-align:center;font-size:13px"></div>
-
-    </div><!-- /page-fmcsa-form -->
-
-    <!-- ── Skills Setup Page ─────────────────────────────────────────────── -->
-    <div id="page-skills-setup" class="page" style="padding:24px;max-width:900px;margin:0 auto">
-      <div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-        <div>
-          <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:4px">Skills Setup</div>
-          <div style="font-size:13px;color:var(--text3)">Mark which ATS services each staff member is trained on. Used for smart auto-assignment and skill-mismatch warnings.</div>
-        </div>
-        <button onclick="skSave()" style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;
-          padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-          <i class="ti ti-device-floppy"></i> Save Skills
-        </button>
-      </div>
-      <div id="sk-status" style="margin-bottom:12px;font-size:13px;text-align:center"></div>
-      <div id="sk-grid" style="display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:16px;align-items:start">
-        <div style="color:var(--text3);padding:40px;text-align:center">Loading staff...</div>
-      </div>
-    </div><!-- /page-skills-setup -->
-
-    <!-- ── CS Task Board Page ────────────────────────────────────────────────── -->
-    <div id="page-cs-board" class="page" style="padding:0;background:var(--bg1)">
-
-      <!-- Top hero bar -->
-      <div style="padding:28px 32px 20px;border-bottom:1px solid var(--border);background:var(--bg2)">
-        <div style="max-width:1300px;margin:0 auto">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px">
-            <div>
-              <div style="font-size:22px;font-weight:800;color:var(--text);letter-spacing:-.3px">CS Task Board</div>
-              <div style="font-size:13px;color:var(--text3);margin-top:3px">Customer service · info gathering & GHL updates</div>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <button onclick="csOpenAddTask()"
-                style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;padding:9px 18px;
-                       font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px">
-                <i class="ti ti-plus"></i> Add CS Task
-              </button>
-              <button onclick="csRefresh()"
-                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:10px;
-                       padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
-                <i class="ti ti-refresh"></i> Refresh
-              </button>
-              <button onclick="csOpenStaffModal()"
-                style="background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.4);
-                       border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;
-                       display:flex;align-items:center;gap:6px">
-                <i class="ti ti-users-group"></i> CS Staff
-              </button>
-            </div>
-          </div>
-
-          <!-- No CS staff warning -->
-          <div id="cs-no-staff-warning" style="display:none;margin-top:16px;background:rgba(245,158,11,.08);
-               border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:12px 16px;
-               display:flex;align-items:center;gap:10px">
-            <i class="ti ti-alert-triangle" style="color:#f59e0b;font-size:18px;flex-shrink:0"></i>
-            <div style="flex:1;font-size:12px;color:var(--text2)">
-              No CS staff configured. Tasks fall back to Mahad until you designate your CS team.
-            </div>
-            <button onclick="csOpenStaffModal()"
-              style="background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.35);
-                     border-radius:7px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
-              Set Up →
-            </button>
-          </div>
-
-          <!-- Stats row -->
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px">
-            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px">
-              <div style="width:38px;height:38px;border-radius:10px;background:rgba(99,102,241,.15);display:flex;align-items:center;justify-content:center">
-                <i class="ti ti-list-check" style="color:#818cf8;font-size:18px"></i>
-              </div>
-              <div>
-                <div style="font-size:22px;font-weight:800;color:var(--text);line-height:1" id="cs-stat-total">—</div>
-                <div style="font-size:11px;color:var(--text3);margin-top:2px">Total Tasks</div>
-              </div>
-            </div>
-            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px">
-              <div style="width:38px;height:38px;border-radius:10px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center">
-                <i class="ti ti-alert-circle" style="color:#ef4444;font-size:18px"></i>
-              </div>
-              <div>
-                <div style="font-size:22px;font-weight:800;color:#ef4444;line-height:1" id="cs-stat-overdue">—</div>
-                <div style="font-size:11px;color:var(--text3);margin-top:2px">Overdue</div>
-              </div>
-            </div>
-            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px">
-              <div style="width:38px;height:38px;border-radius:10px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center">
-                <i class="ti ti-clock" style="color:#f59e0b;font-size:18px"></i>
-              </div>
-              <div>
-                <div style="font-size:22px;font-weight:800;color:#f59e0b;line-height:1" id="cs-stat-open">—</div>
-                <div style="font-size:11px;color:var(--text3);margin-top:2px">Open</div>
-              </div>
-            </div>
-            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px">
-              <div style="width:38px;height:38px;border-radius:10px;background:rgba(0,196,106,.12);display:flex;align-items:center;justify-content:center">
-                <i class="ti ti-circle-check" style="color:var(--green);font-size:18px"></i>
-              </div>
-              <div>
-                <div style="font-size:22px;font-weight:800;color:var(--green);line-height:1" id="cs-stat-done">—</div>
-                <div style="font-size:11px;color:var(--text3);margin-top:2px">Completed</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Body -->
-      <div style="max-width:1300px;margin:0 auto;padding:24px 32px">
-
-        <!-- Not loaded prompt -->
-        <div id="cs-not-loaded" style="display:none;flex-direction:column;align-items:center;justify-content:center;
-             padding:60px 20px;text-align:center;background:var(--bg2);border:1px solid var(--border);border-radius:16px;margin-bottom:20px">
-          <i class="ti ti-clipboard-list" style="font-size:48px;color:var(--text3);opacity:.4;display:block;margin-bottom:16px"></i>
-          <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">CS tasks not loaded yet</div>
-          <div style="font-size:13px;color:var(--text3);margin-bottom:20px;max-width:380px">
-            Visit <strong style="color:var(--text)">Tasks Board</strong> first to load all task data,
-            then come back here for instant CS task view. Or click below to load directly (takes 1–2 min).
-          </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
-            <button onclick="csLoad(true)"
-              style="background:var(--primary);color:#0a1a0f;border:none;border-radius:10px;padding:10px 22px;
-                     font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px">
-              <i class="ti ti-download"></i> Load CS Tasks Now
-            </button>
-            <button onclick="navigateTo('tasks-board');setTimeout(()=>navigateTo('cs-board'),200)"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:10px;
-                     padding:10px 18px;font-size:13px;cursor:pointer">
-              Go to Tasks Board first
-            </button>
-          </div>
-        </div>
-
-        <!-- Debug info (shows tbState status) -->
-        <div id="cs-debug-info" style="font-size:10px;color:var(--text3);padding:4px 0;font-family:monospace;opacity:.6"></div>
-
-        <!-- Filter row -->
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
-          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.1em;white-space:nowrap">FILTER BY STAFF</div>
-          <div id="cs-staff-tabs" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
-          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-            <div style="position:relative">
-              <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px"></i>
-              <input id="cs-search" type="text" autocomplete="off" placeholder="Search tasks..." aria-label="Search CS tasks"
-                oninput="csApplyFilter()"
-                style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;
-                       padding:8px 12px 8px 32px;font-size:13px;width:200px">
-            </div>
-            <select id="cs-filter-status" onchange="csApplyFilter()"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-size:12px">
-              <option value="all">All Statuses</option>
-              <option value="open">Open</option>
-              <option value="overdue">Overdue</option>
-              <option value="completed">Completed</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Loading -->
-        <div id="cs-loading" style="display:none;text-align:center;padding:60px;color:var(--text3)">
-          <i class="ti ti-loader" style="font-size:32px;animation:spin 1s linear infinite;display:block;margin-bottom:12px"></i>
-          <div style="font-size:14px;font-weight:600">Loading CS tasks from GHL...</div>
-          <div style="font-size:12px;margin-top:6px;opacity:.6">This may take 1–2 minutes on first load</div>
-        </div>
-
-        <!-- Task list -->
-        <div id="cs-task-list"></div>
-
-        <!-- Contact Audit -->
-        <div style="margin-top:32px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden">
-          <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-            <div>
-              <div style="font-size:14px;font-weight:800;color:var(--text)">
-                <i class="ti ti-zoom-scan" style="color:var(--primary);margin-right:6px"></i>Contact Audit
-              </div>
-              <div style="font-size:11px;color:var(--text3);margin-top:2px">Scan all GHL contacts for missing fields — instant, uses loaded data</div>
-            </div>
-            <button id="cs-audit-btn" onclick="csRunAudit()"
-              style="background:var(--primary);color:#0a1a0f;border:none;border-radius:9px;padding:8px 18px;
-                     font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-              <i class="ti ti-zoom-scan"></i> Run Audit
-            </button>
-          </div>
-          <div id="cs-audit-results" style="padding:16px 22px"></div>
-        </div>
-
-        <!-- CS Staff Settings (hidden panel) -->
-        <div id="cs-settings-panel" style="display:none;margin-top:20px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:20px">
-          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">CS Staff (legacy settings)</div>
-          <div id="cs-staff-settings-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px"></div>
-        </div>
-
-      </div>
-    </div><!-- /page-cs-board -->
-
-    </div><!-- /page-content -->
-  </main>
-</div>
-
-<!-- ── Add Client Modal ────────────────────────────────────────────────────── -->
-<div id="modal-overlay" class="modal-overlay" style="display:none" onclick="closeModal(event)">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-user-plus"></i>Add new client to GHL</div>
-      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
-    </div>
-    <form id="add-client-form" onsubmit="submitAddClient(event)">
-      <div class="form-group">
-        <label>Contact name <span class="req">*</span></label>
-        <input type="text" id="f-name" placeholder="e.g. Abdishakur Abdi" required>
-      </div>
-      <div class="form-group">
-        <label>Business name</label>
-        <input type="text" id="f-biz" placeholder="e.g. BARAF EXPRESS LLC">
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>MC Number</label>
-          <input type="text" id="f-mc" placeholder="MC-49281">
-        </div>
-        <div class="form-group">
-          <label>DOT Number</label>
-          <input type="text" id="f-dot" placeholder="3674974">
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Phone</label>
-          <input type="tel" id="f-phone" placeholder="+1 555 000 0000">
-        </div>
-        <div class="form-group">
-          <label>Email</label>
-          <input type="email" id="f-email" placeholder="dispatch@company.com">
-        </div>
-      </div>
-      <div class="form-actions">
-        <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
-        <button type="submit" class="btn-submit" id="submit-btn">
-          <i class="ti ti-brand-hipchat"></i>Create in GoHighLevel
-        </button>
-      </div>
-    </form>
+<div class="logo-bar">
+  <div class="logo-icon">🚛</div>
+  <div class="logo-text">
+    <strong>Admin Truck Solutions</strong>
+    <span>Compliance Portal — Secure File Upload</span>
   </div>
 </div>
 
-<!-- ── Status update modal (click a cell) ─────────────────────────────────── -->
-<div id="cell-modal-overlay" class="modal-overlay" style="display:none" onclick="closeCellModal(event)">
-  <div class="modal" style="max-width:340px">
-    <div class="modal-header">
-      <div class="modal-title" id="cell-modal-title">Update status</div>
-      <button class="modal-close" onclick="closeCellModal()"><i class="ti ti-x"></i></button>
-    </div>
-    <div id="cell-modal-body" style="padding:0 24px 24px;display:flex;flex-direction:column;gap:10px"></div>
+<div class="card" id="upload-card">
+  <div class="card-title">IFTA Filing Documents</div>
+  <div class="card-sub">Please upload your mileage and fuel reports for your quarterly IFTA filing.</div>
+
+  <div class="contact-badge" id="contact-badge" style="display:none">
+    <span class="dot" id="badge-dot">DOT# —</span>
+    <span class="name" id="badge-name">Loading...</span>
   </div>
-</div>
 
-<!-- ── Toast ── -->
-<div id="toast" class="toast"><i class="ti ti-circle-check"></i><span id="toast-msg"></span></div>
-
-
-<!-- ── Service Count Modal ─────────────────────────────────────────────────── -->
-<div id="svc-modal-overlay" class="modal-overlay" style="display:none" onclick="closeSvcModal(event)">
-  <div class="modal" style="max-width:480px;max-height:80vh;display:flex;flex-direction:column">
-    <div class="modal-header" style="flex-shrink:0">
-      <div>
-        <div class="modal-title" id="svc-modal-title"></div>
-        <div id="svc-modal-stats" style="display:flex;gap:14px;font-size:11px;margin-top:4px"></div>
-      </div>
-      <button class="modal-close" onclick="document.getElementById('svc-modal-overlay').style.display='none'"><i class="ti ti-x"></i></button>
+  <!-- Mileage Report -->
+  <div class="upload-section">
+    <div class="upload-label">
+      📊 Mileage Report
+      <span class="badge">Required</span>
     </div>
-    <div id="svc-modal-body" style="padding:0 20px 20px;overflow-y:auto;flex:1"></div>
+    <div class="drop-zone" id="zone-mileage" ondragover="onDrag(event,'mileage')" ondragleave="offDrag('mileage')" ondrop="onDrop(event,'mileage')">
+      <input type="file" id="file-mileage" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv" onchange="onFileSelect('mileage',this)">
+      <div class="drop-icon">📄</div>
+      <div class="drop-text"><strong>Click to browse</strong> or drag & drop</div>
+      <div class="drop-formats">PDF · JPG · PNG · Word · Excel · CSV</div>
+    </div>
+    <div class="file-preview" id="preview-mileage">
+      <span>✅</span>
+      <span class="fname" id="fname-mileage"></span>
+      <span class="fsize" id="fsize-mileage"></span>
+      <button class="fremove" onclick="removeFile('mileage')">×</button>
+    </div>
   </div>
+
+  <!-- Fuel Report -->
+  <div class="upload-section">
+    <div class="upload-label">
+      ⛽ Fuel Report
+      <span class="badge">Required</span>
+    </div>
+    <div class="drop-zone" id="zone-fuel" ondragover="onDrag(event,'fuel')" ondragleave="offDrag('fuel')" ondrop="onDrop(event,'fuel')">
+      <input type="file" id="file-fuel" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv" onchange="onFileSelect('fuel',this)">
+      <div class="drop-icon">⛽</div>
+      <div class="drop-text"><strong>Click to browse</strong> or drag & drop</div>
+      <div class="drop-formats">PDF · JPG · PNG · Word · Excel · CSV</div>
+    </div>
+    <div class="file-preview" id="preview-fuel">
+      <span>✅</span>
+      <span class="fname" id="fname-fuel"></span>
+      <span class="fsize" id="fsize-fuel"></span>
+      <button class="fremove" onclick="removeFile('fuel')">×</button>
+    </div>
+  </div>
+
+  <button class="submit-btn" id="submit-btn" onclick="submitFiles()" disabled>
+    ⬆ Submit Documents
+  </button>
+  <div class="status-msg" id="status-msg"></div>
 </div>
 
-<!-- ── Company Detail Panel ───────────────────────────────────────────────── -->
-<div id="company-panel-overlay">
-  <div id="company-panel"></div>
+<!-- Success screen -->
+<div class="card success-screen" id="success-screen">
+  <div class="success-icon">✅</div>
+  <h2>Documents Received!</h2>
+  <p>Your mileage and fuel reports have been securely uploaded to your file.<br><br>
+  Your ATS team will review them and process your IFTA filing shortly.<br><br>
+  <strong style="color:#00c46a">You may close this page.</strong></p>
 </div>
 
-<script src="js/api-client.js?v=2.7"></script>
-<script src="js/dashboard.js?v=2.7"></script>
-  <!-- ATS Banner Animation -->
-  <style>
-    @keyframes ats-scroll {
-      0%   { transform: translateX(0); }
-      100% { transform: translateX(-50%); }
+<div class="footer">
+  🔒 Files are encrypted in transit and stored securely in your compliance file.<br>
+  Admin Truck Solutions · Burnsville, MN · compliance@admintrucksolutions.com
+</div>
+
+<script>
+  const files = { mileage: null, fuel: null };
+  let token = '', contactInfo = {};
+
+  // Read token from URL
+  const params = new URLSearchParams(window.location.search);
+  token = params.get('t') || '';
+
+  if (token) {
+    fetch('/api/upload-token/' + token)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { showStatus('Invalid or expired link. Please contact your ATS team.', 'error'); return; }
+        contactInfo = d;
+        document.getElementById('badge-dot').textContent = 'DOT# ' + (d.dot_number || '—');
+        document.getElementById('badge-name').textContent = d.company_name || d.contact_name || 'Your Account';
+        document.getElementById('contact-badge').style.display = 'flex';
+        if (d.quarter) {
+          document.querySelector('.card-title').textContent = d.quarter + ' IFTA Filing Documents';
+        }
+      })
+      .catch(() => showStatus('Could not verify your link. Please try again.', 'error'));
+  } else {
+    showStatus('Invalid upload link. Please use the link sent to you by your ATS team.', 'error');
+  }
+
+  function onFileSelect(type, input) {
+    const file = input.files[0];
+    if (!file) return;
+    files[type] = file;
+    document.getElementById('fname-' + type).textContent = file.name;
+    document.getElementById('fsize-' + type).textContent = formatSize(file.size);
+    document.getElementById('preview-' + type).classList.add('show');
+    checkReady();
+  }
+
+  function onDrag(e, type) { e.preventDefault(); document.getElementById('zone-' + type).classList.add('dragover'); }
+  function offDrag(type) { document.getElementById('zone-' + type).classList.remove('dragover'); }
+  function onDrop(e, type) {
+    e.preventDefault();
+    offDrag(type);
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    files[type] = file;
+    document.getElementById('fname-' + type).textContent = file.name;
+    document.getElementById('fsize-' + type).textContent = formatSize(file.size);
+    document.getElementById('preview-' + type).classList.add('show');
+    checkReady();
+  }
+
+  function removeFile(type) {
+    files[type] = null;
+    document.getElementById('file-' + type).value = '';
+    document.getElementById('preview-' + type).classList.remove('show');
+    checkReady();
+  }
+
+  function checkReady() {
+    document.getElementById('submit-btn').disabled = !(files.mileage && files.fuel && token);
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1048576).toFixed(1) + ' MB';
+  }
+
+  async function submitFiles() {
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Uploading...';
+    showStatus('Uploading your files — please wait...', 'loading');
+
+    try {
+      const fd = new FormData();
+      fd.append('token', token);
+      fd.append('mileage', files.mileage, files.mileage.name);
+      fd.append('fuel', files.fuel, files.fuel.name);
+
+      const res = await fetch('/api/upload-ifta', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+      document.getElementById('upload-card').style.display = 'none';
+      document.getElementById('success-screen').classList.add('show');
+    } catch(e) {
+      showStatus('Upload failed: ' + e.message + '. Please try again or contact your ATS team.', 'error');
+      btn.disabled = false;
+      btn.textContent = '⬆ Submit Documents';
     }
-    #ats-banner-track { animation: ats-scroll 38s linear infinite; }
-    #ats-banner-track:hover { animation-play-state: paused; }
-    .ats-banner-sep {
-      display:inline-flex;align-items:center;margin:0 18px;
-      color:rgba(0,196,106,.4);font-size:14px;flex-shrink:0
-    }
-    .ats-banner-item {
-      display:inline-flex;align-items:center;gap:7px;flex-shrink:0;
-      font-size:12px;font-weight:700;letter-spacing:.02em
-    }
-    .ats-banner-item.gold  { color:#f59e0b }
-    .ats-banner-item.green { color:#00c46a }
-    .ats-banner-item.white { color:#e2e8f0 }
-    .ats-banner-item.blue  { color:#60a5fa }
-  </style>
-  <script>
-    (function initBanner() {
-      const items = [
-        { icon:'🏆', text:'Admin Truck Solutions — The Smarter Choice for Carrier Compliance', cls:'gold' },
-        { icon:'📞', text:'Unlike Motive, we actually pick up the phone.', cls:'green' },
-        { icon:'✅', text:'Compliance Done Right — Every Mile, Every Filing', cls:'white' },
-        { icon:'📋', text:'No hidden fees. No upsells. Just compliance that works.', cls:'green' },
-        { icon:'🚛', text:'Motive tracks your trucks. We protect your authority.', cls:'blue' },
-        { icon:'⚡', text:'Faster filings. Fewer rejections. Zero runaround.', cls:'gold' },
-        { icon:'💪', text:'Real humans. Real filings. Real results — not just dashboards.', cls:'white' },
-      ];
-      const sep = '<span class="ats-banner-sep">✦</span>';
-      const html = items.map(i =>
-        `<span class="ats-banner-item ${i.cls}">${i.icon} ${i.text}</span>${sep}`
-      ).join('');
-      // Double the content for seamless infinite scroll
-      const track = document.getElementById('ats-banner-track');
-      if (track) track.innerHTML = html + html;
-    })();
-  </script>
+  }
+
+  function showStatus(msg, type) {
+    const el = document.getElementById('status-msg');
+    el.textContent = msg;
+    el.className = 'status-msg ' + type;
+  }
+</script>
 </body>
 </html>
