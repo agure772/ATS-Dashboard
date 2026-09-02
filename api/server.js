@@ -103,6 +103,8 @@ const PIPELINE_MAP = {
   filing_ky_vehicle:    { name: '9. 2026 KY Annual Vehicle Update' },
   ifta_q1_2026:         { name: 'Q1 2026 IFTA Filing' },
   ifta_q2_2026:         { name: 'Q2 2026 IFTA Filing' },
+  ifta_q3_2026:         { name: 'Q3 2026 IFTA Filing' },
+  ifta_q4_2026:         { name: 'Q4 2026 IFTA Filing' },
   ifta_q4_2025:         { name: 'Q4 2025 IFTA Filing' },
   ifta_q3_2025:         { name: 'Q3 2025 IFTA Filing' },
   ifta_q2_2025:         { name: 'Q2 2025 IFTA Filing' },
@@ -1949,6 +1951,153 @@ app.get('/api/search-contacts', async (req, res) => {
   } catch(err) {
     res.status(500).json({ error: err.message, contacts: [] });
   }
+});
+
+// ── IFTA Quarter Status — returns Q1-Q4 filing status for a contact ───────────
+app.get('/api/ifta-status/:contactId', async (req, res) => {
+  const { contactId } = req.params;
+  const year = req.query.year || new Date().getFullYear();
+  try {
+    const data = await ghl('GET', `${V2}/contacts/${contactId}/opportunities`);
+    const opps = data?.opportunities || [];
+    const quarters = ['Q1','Q2','Q3','Q4'].map(q => {
+      const pipelineName = `${q} ${year} IFTA Filing`;
+      const opp = opps.find(o => {
+        const pName = pipelineIdToName?.[o.pipelineId] || '';
+        return pName.toLowerCase().includes(q.toLowerCase()) && pName.includes(String(year));
+      });
+      return {
+        quarter: q,
+        year,
+        pipelineName,
+        exists: !!opp,
+        status: opp?.status || null,
+        stageName: opp ? (stageIdToName?.[opp.pipelineStageId] || 'Open') : null,
+        oppId: opp?.id || null,
+        tags: opp?.tags || [],
+      };
+    });
+    res.json({ quarters, year });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── IFTA Upload System ────────────────────────────────────────────────────────
+const crypto = require('crypto');
+const uploadTokens = new Map(); // token -> { contactId, oppId, dot_number, company_name, quarter, created }
+
+// Generate an upload link for a contact/opportunity
+app.post('/api/generate-upload-link', async (req, res) => {
+  const { contactId, oppId, dot_number, company_name, quarter } = req.body;
+  if (!contactId) return res.status(400).json({ error: 'contactId required' });
+  const token = crypto.randomBytes(24).toString('hex');
+  uploadTokens.set(token, {
+    contactId, oppId, dot_number, company_name,
+    quarter: quarter || 'IFTA',
+    created: Date.now(),
+  });
+  const uploadUrl = `${req.protocol}://${req.get('host')}/upload?t=${token}`;
+  console.log(`Upload link generated for contact ${contactId}: ${token}`);
+  res.json({ token, url: uploadUrl });
+});
+
+// Verify token (called by the upload page on load)
+app.get('/api/upload-token/:token', (req, res) => {
+  const info = uploadTokens.get(req.params.token);
+  if (!info) return res.status(404).json({ error: 'Invalid or expired token' });
+  // Tokens expire after 7 days
+  if (Date.now() - info.created > 7 * 24 * 60 * 60 * 1000) {
+    uploadTokens.delete(req.params.token);
+    return res.status(410).json({ error: 'This link has expired. Please request a new one.' });
+  }
+  res.json({ contact_name: info.company_name, dot_number: info.dot_number, quarter: info.quarter });
+});
+
+// Handle file upload — receives mileage + fuel files, uploads to GHL
+app.post('/api/upload-ifta', async (req, res) => {
+  // Parse multipart form data manually using raw body
+  const busboy = require('busboy');
+  const bb = busboy({ headers: req.headers, limits: { fileSize: 25 * 1024 * 1024 } }); // 25MB limit
+  const fields = {};
+  const uploadedFiles = {};
+
+  bb.on('field', (name, val) => { fields[name] = val; });
+  bb.on('file', (name, stream, info) => {
+    const chunks = [];
+    stream.on('data', d => chunks.push(d));
+    stream.on('end', () => {
+      uploadedFiles[name] = { buffer: Buffer.concat(chunks), filename: info.filename, mimeType: info.mimeType };
+    });
+  });
+  bb.on('finish', async () => {
+    const token = fields.token;
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+    const info = uploadTokens.get(token);
+    if (!info) return res.status(404).json({ error: 'Invalid token' });
+
+    const results = { mileage: null, fuel: null };
+    const errors = [];
+
+    // Upload each file to GHL as a note attachment, then update opp custom fields
+    for (const [type, fileData] of Object.entries(uploadedFiles)) {
+      if (!fileData?.buffer?.length) continue;
+      try {
+        // Step 1: Upload file to GHL files endpoint
+        const formData = new FormData();
+        const blob = new Blob([fileData.buffer], { type: fileData.mimeType || 'application/octet-stream' });
+        formData.append('file', blob, fileData.filename);
+        formData.append('locationId', LOC_ID);
+
+        const uploadRes = await fetch(`${V2}/medias/upload`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.GHL_API_KEY}` },
+          body: formData,
+        });
+        const uploadData = await uploadRes.json();
+        const fileUrl = uploadData?.url || uploadData?.fileUrl || uploadData?.mediaUrl || null;
+        console.log(`File upload (${type}):`, JSON.stringify(uploadData).slice(0,200));
+
+        if (fileUrl) {
+          results[type] = fileUrl;
+          // Step 2: Add note to contact with file link
+          const noteText = `📎 ${type === 'mileage' ? 'Mileage' : 'Fuel'} Report uploaded by customer (${info.quarter}): ${fileUrl}`;
+          await ghl('POST', `${V2}/contacts/${info.contactId}/notes`, { body: noteText });
+
+          // Step 3: Update opp custom field if oppId provided
+          if (info.oppId) {
+            const fieldId = type === 'mileage'
+              ? '4a8oST56fVNDICUImVKo'  // Mileage Report custom field
+              : 'YOUR_FUEL_FIELD_ID';     // Fuel Report custom field — update with actual ID
+            if (fieldId !== 'YOUR_FUEL_FIELD_ID') {
+              await ghl('PUT', `${V2}/opportunities/${info.oppId}`, {
+                customFields: [{ id: fieldId, field_value: fileUrl }],
+              });
+            }
+          }
+        } else {
+          errors.push(`Could not get URL for ${type} file`);
+        }
+      } catch(e) {
+        console.error(`Upload error (${type}):`, e.message);
+        errors.push(`${type}: ${e.message}`);
+      }
+    }
+
+    if (errors.length && !results.mileage && !results.fuel) {
+      return res.status(500).json({ error: errors.join('; ') });
+    }
+
+    console.log(`✓ IFTA upload complete for ${info.contactId}: mileage=${!!results.mileage} fuel=${!!results.fuel}`);
+    res.json({ success: true, results });
+  });
+
+  req.pipe(bb);
+});
+
+// Serve the upload page
+app.get('/upload', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/upload.html'));
 });
 
 app.get('*', (req,res) => res.sendFile(path.join(__dirname,'../public/index.html')));
