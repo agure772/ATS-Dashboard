@@ -1702,8 +1702,17 @@ app.get('/api/contacts/:contactId/missing-opps', async (req, res) => {
   const { contactId } = req.params;
   const year = parseInt(req.query.year) || new Date().getFullYear();
   try {
-    const data     = await ghl('GET', `${V2}/contacts/${contactId}/opportunities`);
-    const existing = (data?.opportunities || []).map(o => o.pipelineId);
+    // Ensure pipeline cache is populated
+    if (Object.keys(pipelineCache).length === 0) await loadPipelines();
+
+    let existing = [];
+    try {
+      const data = await ghl('GET', `${V2}/contacts/${contactId}/opportunities`);
+      existing = (data?.opportunities || []).map(o => o.pipelineId);
+    } catch(e) {
+      console.log('Could not fetch contact opps:', e.message);
+      // Continue with empty existing list — will show all as missing
+    }
 
     // Build year-specific service list using the same name patterns as the frontend
     const yearServices = [
