@@ -6298,13 +6298,19 @@ function omRenderSingleYearPicker() {
 async function omSingleLoadYear(year) {
   omSelectedYear = year;
   const oppsEl = document.getElementById('om-single-opps');
+  if (!omSingleContact?.id) return;
   oppsEl.innerHTML = `<div style="color:var(--text3);font-size:12px;padding:10px 0">Checking ${year} opportunities...</div>`;
   try {
+    // Ensure pipelines are loaded first
+    await omLoadPipelines();
     const res  = await fetch(`/api/contacts/${omSingleContact.id}/missing-opps?year=${year}`);
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
     const data = await res.json();
+    if (!data || (!data.missing && !data.present)) throw new Error('Invalid response from server');
     omRenderSingleOpps(data, omSingleContact.id, omSingleContact.name, year);
   } catch(e) {
-    oppsEl.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+    oppsEl.innerHTML = `<div style="color:var(--red);font-size:12px;padding:10px">Error: ${e.message}</div>
+      <button onclick="omSingleLoadYear(${year})" style="margin-top:8px;background:rgba(249,115,22,.1);color:#f97316;border:1px solid rgba(249,115,22,.3);border-radius:7px;padding:6px 14px;font-size:12px;cursor:pointer">↺ Retry</button>`;
   }
 }
 
@@ -6317,8 +6323,13 @@ function omSingleClear() {
 
 function omRenderSingleOpps(data, contactId, contactName, year) {
   const el = document.getElementById('om-single-opps');
+  if (!el) return;
+  if (!data || !Array.isArray(data.missing) || !Array.isArray(data.present)) {
+    el.innerHTML = `<div style="color:var(--red);font-size:12px;padding:10px">Could not load opportunity data. <button onclick="omSingleLoadYear(${year})" style="color:#f97316;background:none;border:none;cursor:pointer;text-decoration:underline">Retry</button></div>`;
+    return;
+  }
   const { missing, present } = data;
-  const missable = missing.filter(s => s.pipelineId); // only ones that exist in GHL
+  const missable = missing.filter(s => s.pipelineId);
 
   const missingHtml = missing.length ? `
     <div style="margin-bottom:12px">
