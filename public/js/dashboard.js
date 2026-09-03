@@ -4694,8 +4694,12 @@ function csTool(name) {
       : name === 'audit' ? 'rgba(124,58,237,.4)' : 'rgba(0,196,106,.4)';
   }
   csActiveTool = name;
-  // Show cached audit results if available (no auto-run — user clicks Run Audit)
   if (name === 'audit') csShowCachedAudit();
+  // Pre-load clients when opp/vehicle/driver manager opens
+  if (['opps','vehicles','drivers'].includes(name) && !state.clients?.length) {
+    omFilterClients(''); // triggers background fetch
+  }
+  if (name === 'opps') omLoadPipelines();
 }
 
 // ── Selection helpers ─────────────────────────────────────────────────────────
@@ -6239,24 +6243,46 @@ function omSetTab(tab) {
     btn.style.borderBottom = active ? '2px solid #f97316' : 'none';
   });
   if (tab === 'tasks')  omPopulateAssignees();
-  if (tab === 'bulk' || tab === 'single') omLoadPipelines().then(() => {
-    if (tab === 'bulk') omRenderBulkOppSelector();
-  });
+  if (tab === 'bulk' || tab === 'single' || tab === 'opps') {
+    // Pre-load clients immediately when opp manager opens
+    if (!state.clients?.length) omFilterClients('');
+    omLoadPipelines().then(() => {
+      if (tab === 'bulk') omRenderBulkOppSelector();
+    });
+  }
 }
 
 // ── SINGLE CONTACT ────────────────────────────────────────────────────────────
 function omSingleSearch(q) {
   const res = document.getElementById('om-single-results');
   if (!res) return;
+  if (!q || q.length < 1) { res.innerHTML = ''; res.style.cssText = ''; return; }
+
+  // If clients not loaded, show loading and retry after fetch
+  if (!state.clients || !state.clients.length) {
+    res.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;padding:10px 12px';
+    res.innerHTML = '<div style="font-size:12px;color:var(--text3)">⏳ Loading contacts... please wait a moment then type again.</div>';
+    omFilterClients(q); // triggers background fetch
+    // Auto-retry after 2.5s
+    setTimeout(() => {
+      if (state.clients?.length) omSingleSearch(document.getElementById('om-single-search')?.value || q);
+    }, 2500);
+    return;
+  }
+
   const matches = omFilterClients(q).slice(0,8);
-  if (!q || !matches.length) { res.innerHTML = ''; return; }
-  res.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;margin-bottom:8px';
+  if (!matches.length) {
+    res.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;padding:10px 12px';
+    res.innerHTML = '<div style="font-size:12px;color:var(--text3)">No contacts found for "' + q + '"</div>';
+    return;
+  }
+  res.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;margin-bottom:8px';
   res.innerHTML = matches.map(c => `
     <div onclick="omSingleSelect('${c.id}','${c.name.replace(/'/g,"\\'")}','${c.dot_number||''}')"
-      style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text);display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.04)"
+      style="padding:9px 12px;cursor:pointer;font-size:12px;color:var(--text);display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,.04)"
       onmouseover="this.style.background='rgba(249,115,22,.08)'" onmouseout="this.style.background=''">
-      <span>${c.name}</span>
-      ${c.dot_number ? `<span style="color:var(--text3);font-size:11px">DOT# ${c.dot_number}</span>` : ''}
+      <span style="font-weight:600">${c.name}</span>
+      ${c.dot_number ? `<span style="color:var(--text3);font-size:11px;flex-shrink:0;margin-left:8px">DOT# ${c.dot_number}</span>` : ''}
     </div>`).join('');
 }
 
